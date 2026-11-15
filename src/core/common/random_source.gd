@@ -26,3 +26,7 @@ func pick_index(size: int) -> int:
 
 func state_token() -> int:
 	return _rng.state
+
+
+func restore_state_token(token: int) -> void:
+	_rng.state = token

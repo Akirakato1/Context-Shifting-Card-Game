@@ -30,7 +30,7 @@ static func evaluate(
 			or definition.priority > best.priority
 			or (
 				definition.priority == best.priority
-				and String(definition.id) < String(best.id)
+				and str(definition.id) < str(best.id)
 			)
 		):
 			best = definition

@@ -105,3 +105,90 @@ func held_count() -> int:
 		if card.zone == AbilityState.Zone.HAND:
 			count += 1
 	return count
+
+
+func card_by_id(copy_id: StringName) -> AbilityState:
+	return _all_cards.get(copy_id)
+
+
+func to_dict() -> Dictionary:
+	var copy_ids: Array = _all_cards.keys()
+	copy_ids.sort()
+	var cards: Array = []
+	for copy_id in copy_ids:
+		var card: AbilityState = _all_cards[copy_id]
+		cards.append(_serialize_card(card))
+	var active: Array = []
+	for field in _active_fields:
+		active.append({
+			"copy_id": str(field.ability.copy_id),
+			"source_player_id": str(field.source_player_id),
+			"remaining_rounds": field.remaining_rounds,
+		})
+	return {
+		"starting_hand_size": starting_hand_size,
+		"start_draw_count": start_draw_count,
+		"end_hand_limit": end_hand_limit,
+		"cards": cards,
+		"draw_order": _copy_ids(_draw_cards),
+		"used_order": _copy_ids(_used_cards),
+		"active_fields": active,
+	}
+
+
+func load_dict(data: Dictionary) -> void:
+	starting_hand_size = data.starting_hand_size
+	start_draw_count = data.start_draw_count
+	end_hand_limit = data.end_hand_limit
+	_draw_cards.clear()
+	_used_cards.clear()
+	_active_fields.clear()
+	_all_cards.clear()
+	for card_data: Dictionary in data.cards:
+		var definition_data: Dictionary = card_data.definition
+		var definition := AbilityDefinition.new(
+			StringName(definition_data.id),
+			definition_data.timing,
+			definition_data.tags.map(func(tag: String) -> StringName: return StringName(tag)),
+			StringName(definition_data.effect_id),
+			definition_data.field_duration,
+			StringName(definition_data.conflict_group)
+		)
+		var card := AbilityState.new(StringName(card_data.copy_id), definition)
+		card.move_to(card_data.zone, StringName(card_data.owner_id))
+		_all_cards[card.copy_id] = card
+	for copy_id: String in data.draw_order:
+		_draw_cards.append(_all_cards[StringName(copy_id)])
+	for copy_id: String in data.used_order:
+		_used_cards.append(_all_cards[StringName(copy_id)])
+	for field_data: Dictionary in data.active_fields:
+		var card: AbilityState = _all_cards[StringName(field_data.copy_id)]
+		var field := FieldState.new(card, StringName(field_data.source_player_id))
+		field.remaining_rounds = field_data.remaining_rounds
+		_active_fields.append(field)
+
+
+func _serialize_card(card: AbilityState) -> Dictionary:
+	var serialized_tags: Array = []
+	for tag in card.definition.tags:
+		serialized_tags.append(str(tag))
+	return {
+		"copy_id": str(card.copy_id),
+		"zone": card.zone,
+		"owner_id": str(card.owner_id),
+		"definition": {
+			"id": str(card.definition.id),
+			"timing": card.definition.timing,
+			"tags": serialized_tags,
+			"effect_id": str(card.definition.effect_id),
+			"field_duration": card.definition.field_duration,
+			"conflict_group": str(card.definition.conflict_group),
+		},
+	}
+
+
+func _copy_ids(cards: Array) -> Array:
+	var result: Array = []
+	for card: AbilityState in cards:
+		result.append(str(card.copy_id))
+	return result

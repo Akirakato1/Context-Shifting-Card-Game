@@ -71,7 +71,7 @@ static func _candidate_precedes(
 	var tie_comparison := _compare_tie_break(tie_break, best_tie_break)
 	if tie_comparison != 0:
 		return tie_comparison > 0
-	return String(definition.id) < String(best_definition.id)
+	return str(definition.id) < str(best_definition.id)
 
 
 static func _compare_tie_break(left: PackedInt32Array, right: PackedInt32Array) -> int:
@@ -162,7 +162,7 @@ static func _face_precedes(
 	if left.suit != right.suit:
 		return left.suit > right.suit
 	if left.card_id != right.card_id:
-		return String(left.card_id) < String(right.card_id)
+		return str(left.card_id) < str(right.card_id)
 	return left.half_index < right.half_index
 
 

@@ -50,3 +50,11 @@ func draw_count() -> int:
 
 func used_count() -> int:
 	return _used_cards.size()
+
+
+func snapshot_draw_cards() -> Array[HalfCardState]:
+	return _draw_cards.duplicate()
+
+
+func snapshot_used_cards() -> Array[HalfCardState]:
+	return _used_cards.duplicate()
