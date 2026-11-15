@@ -480,6 +480,7 @@ func _begin_end(now_msec: int) -> Array[DomainEvent]:
 		player.submitted_cards.clear()
 		player.submitted_faces.clear()
 		player.submitted_card_views.clear()
+		player.submission_revealed = false
 		player.score_modifiers.clear()
 		player.pending_manipulation.clear()
 		player.staged_submission.clear()
@@ -782,6 +783,7 @@ func _forfeit_player(player_id: StringName) -> Array[DomainEvent]:
 	player.submitted_cards.clear()
 	player.submitted_faces.clear()
 	player.submitted_card_views.clear()
+	player.submission_revealed = false
 	player.disconnect_deadline_msec = -1
 	player.reconnect_token = ""
 	state.remove_active_player(player_id)
@@ -856,8 +858,10 @@ func _submit_hand_play(command: GameCommand, now_msec: int) -> CommandResult:
 		CommandKinds.LOCK_HAND:
 			if not state.players[command.player_id].pending_manipulation.is_empty():
 				return CommandResult.new(false, &"manipulation_incomplete")
+			var lock_error := _lock_player_hand(command.player_id, false)
+			if not lock_error.is_empty():
+				return CommandResult.new(false, lock_error)
 			_ensure_phase_clock(now_msec)
-			_lock_player_hand(command.player_id)
 			var lock_events: Array[DomainEvent] = []
 			if _all_hands_locked():
 				lock_events = _resolve_hand_play(now_msec)
@@ -891,8 +895,10 @@ func _commit_manipulation(command: GameCommand, now_msec: int) -> CommandResult:
 		return CommandResult.new(false, &"ability_not_in_hand")
 	if not _manipulation_choice_allowed(ability.definition, command.payload):
 		return CommandResult.new(false, &"manipulation_choice_not_allowed")
-	_ensure_phase_clock(now_msec)
 	var half = card.first if command.payload.half_index == 0 else card.second
+	if half.is_joker():
+		return CommandResult.new(false, &"joker_manipulation_not_allowed")
+	_ensure_phase_clock(now_msec)
 	half.apply_overrides(command.payload.context, command.payload.rank, command.payload.suit)
 	_remove_held_ability(command.player_id, ability)
 	state.ability_deck.discard(ability)
@@ -939,6 +945,9 @@ func _stage_hand(command: GameCommand, now_msec: int) -> CommandResult:
 				"context": choice.context,
 				"suit": choice.suit,
 			})
+		canonical_choices.sort_custom(func(left: Dictionary, right: Dictionary):
+			return left.half_index < right.half_index
+		)
 		player.staged_submission.append({
 			"card_id": StringName(selection.card_id), "half_index": selection.half_index,
 			"joker_choices": canonical_choices,
@@ -947,7 +956,10 @@ func _stage_hand(command: GameCommand, now_msec: int) -> CommandResult:
 	return CommandResult.new(true)
 
 
-func _lock_player_hand(player_id: StringName) -> void:
+func _lock_player_hand(
+	player_id: StringName,
+	default_invalid_to_pass: bool
+) -> StringName:
 	var player = state.players[player_id]
 	var selections: Array = player.staged_submission if player.has_staged_submission else []
 	var evaluation := SubmissionEvaluator.evaluate(
@@ -959,6 +971,8 @@ func _lock_player_hand(player_id: StringName) -> void:
 		player.score_modifiers
 	)
 	if not evaluation.is_valid:
+		if not default_invalid_to_pass:
+			return evaluation.error_code
 		player.staged_submission.clear()
 		player.has_staged_submission = true
 		evaluation = SubmissionEvaluator.evaluate(
@@ -977,6 +991,7 @@ func _lock_player_hand(player_id: StringName) -> void:
 	player.provisional_score = evaluation.score_breakdown
 	player.hand_locked = true
 	player.ready = true
+	return &""
 
 
 func _finish_hand_play(now_msec: int) -> Array[DomainEvent]:
@@ -986,7 +1001,7 @@ func _finish_hand_play(now_msec: int) -> Array[DomainEvent]:
 			continue
 		player.pending_manipulation.clear()
 		if not player.hand_locked:
-			_lock_player_hand(player_id)
+			_lock_player_hand(player_id, true)
 	return _resolve_hand_play(now_msec)
 
 
@@ -996,6 +1011,7 @@ func _resolve_hand_play(now_msec: int) -> Array[DomainEvent]:
 		var player = state.players[player_id]
 		if not player.active or player.pending:
 			continue
+		player.submission_revealed = true
 		var manipulation_ids: Array = []
 		for ability_id in player.completed_manipulation_ids:
 			manipulation_ids.append(str(ability_id))

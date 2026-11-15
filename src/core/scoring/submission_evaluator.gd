@@ -66,8 +66,10 @@ static func evaluate(
 			return _invalid(choices_result["error_code"])
 		var choices_by_half: Dictionary = choices_result["choices_by_half"]
 		var selected_half: HalfCardState = card.half_at(half_index)
-		if not selected_half.is_joker() and selected_half.effective_context() != active_context:
+		if card.eligible_half_indexes(active_context).is_empty():
 			return _invalid(&"card_not_eligible")
+		if not selected_half.is_joker() and selected_half.effective_context() != active_context:
+			return _invalid(&"selected_half_not_active")
 
 		var resolved_halves: Array[Dictionary] = []
 		for resolved_half_index in range(2):

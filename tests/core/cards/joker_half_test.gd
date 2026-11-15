@@ -3,6 +3,8 @@ extends "res://tests/test_case.gd"
 const GameTypes = preload("res://src/core/common/game_types.gd")
 const HalfCardState = preload("res://src/core/cards/half_card_state.gd")
 const FullCardState = preload("res://src/core/cards/full_card_state.gd")
+const ContextPile = preload("res://src/core/cards/context_pile.gd")
+const RandomSource = preload("res://src/core/common/random_source.gd")
 const AbilityDefinition = preload("res://src/core/abilities/ability_definition.gd")
 const MatchConfig = preload("res://src/core/match/match_config.gd")
 const MatchState = preload("res://src/core/match/match_state.gd")
@@ -46,6 +48,27 @@ func test_match_builds_ninety_one_halves_with_one_joker_per_pile() -> void:
 	var restored := MatchState.from_dict(state.to_dict())
 	_assert_complete_joker_distribution(restored)
 	assert_eq(restored.to_dict(), state.to_dict())
+
+
+func test_joker_recycles_only_through_its_origin_pile() -> void:
+	var joker := HalfCardState.new(
+		&"joker-a", GameTypes.Context.A, 0, HalfCardState.NO_SUIT,
+		GameTypes.HalfKind.JOKER
+	)
+	var normal := HalfCardState.new(
+		&"normal-a", GameTypes.Context.A, 7, GameTypes.Suit.TWO
+	)
+	var pile := ContextPile.new(GameTypes.Context.A, [normal, joker])
+	var rng := RandomSource.new(991)
+	var exhausted := pile.draw(2, rng)
+	assert_true(exhausted.has(joker))
+	assert_eq(pile.draw_count(), 0)
+
+	pile.discard(joker)
+	var recycled := pile.draw(1, rng)
+	assert_eq(recycled, [joker])
+	assert_eq(recycled[0].base_context, GameTypes.Context.A)
+	assert_true(recycled[0].is_joker())
 
 
 func _assert_complete_joker_distribution(state: MatchState) -> void:

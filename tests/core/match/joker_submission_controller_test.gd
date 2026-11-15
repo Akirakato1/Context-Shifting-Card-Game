@@ -185,6 +185,92 @@ func test_round_cleanup_clears_resolved_views() -> void:
 	assert_true(state.players[&"one"].submitted_card_views.is_empty())
 
 
+func test_joker_manipulation_rejects_without_mutating_pending_action_or_clock() -> void:
+	var state := _hand_play_state(77)
+	var joker := _joker_card(&"fixture-joker", state.active_context)
+	state.players[&"one"].hand[0] = joker
+	state.players[&"one"].ability_hand[0].definition = AbilityDefinition.new(
+		&"reshape", AbilityDefinition.Timing.HAND_MANIPULATION, [], &"manipulate_half",
+		0, &"", {}, {
+			"contexts": [GameTypes.Context.A, GameTypes.Context.B, GameTypes.Context.C],
+			"ranks": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+			"suits": [GameTypes.Suit.ONE, GameTypes.Suit.TWO, GameTypes.Suit.THREE],
+		}
+	)
+	var ability = state.players[&"one"].ability_hand[0]
+	var controller := MatchController.new(state)
+	assert_true(controller.submit(GameCommand.new(
+		&"begin", &"one", CommandKinds.STAGE_MANIPULATION, {"copy_id": ability.copy_id}
+	), 10).accepted)
+	var before := state.to_dict()
+
+	var rejected := controller.submit(GameCommand.new(
+		&"commit-joker", &"one", CommandKinds.COMMIT_MANIPULATION, {
+			"card_id": joker.card_id,
+			"half_index": 0,
+			"context": GameTypes.Context.A,
+			"rank": 10,
+			"suit": GameTypes.Suit.ONE,
+		}
+	), 11)
+
+	assert_false(rejected.accepted)
+	assert_eq(rejected.error_code, &"joker_manipulation_not_allowed")
+	assert_eq(state.to_dict(), before)
+	assert_true(state.players[&"one"].ability_hand.has(ability))
+	assert_false(state.players[&"one"].pending_manipulation.is_empty())
+
+
+func test_explicit_lock_preserves_invalid_draft_but_timeout_defaults_it_to_pass() -> void:
+	var state := _hand_play_state(78)
+	var ordinary := _normal_card(&"ordinary", state.active_context)
+	ordinary.second.apply_overrides(
+		state.active_context, ordinary.second.effective_rank(), ordinary.second.effective_suit()
+	)
+	state.players[&"one"].hand[0] = ordinary
+	var controller := MatchController.new(state)
+	assert_true(controller.submit(_stage(
+		&"stage", &"one", [{"card_id": ordinary.card_id, "half_index": 0}]
+	), 1).accepted)
+	var staged_before: Array = state.players[&"one"].staged_submission.duplicate(true)
+	ordinary.first.apply_overrides(
+		GameTypes.Context.B, ordinary.first.effective_rank(), ordinary.first.effective_suit()
+	)
+
+	var rejected := controller.submit(_lock(&"explicit-lock", &"one"), 2)
+	assert_false(rejected.accepted)
+	assert_eq(rejected.error_code, &"selected_half_not_active")
+	assert_false(state.players[&"one"].hand_locked)
+	assert_eq(state.players[&"one"].staged_submission, staged_before)
+
+	controller.tick(5002)
+	assert_eq(state.phase, GameTypes.Phase.MAIN_2)
+	assert_true(state.players[&"one"].staged_submission.is_empty())
+	assert_true(state.players[&"one"].submitted_cards.is_empty())
+
+
+func test_double_joker_choices_are_stored_in_half_index_order() -> void:
+	var state := _hand_play_state(79)
+	var card := FullCardState.new(
+		&"double-joker",
+		_joker_half(&"joker-a", GameTypes.Context.A),
+		_joker_half(&"joker-b", GameTypes.Context.B),
+	)
+	state.players[&"one"].hand[0] = card
+	var controller := MatchController.new(state)
+	var reversed_choices := [
+		{"half_index": 1, "context": GameTypes.Context.C, "suit": GameTypes.Suit.THREE},
+		{"half_index": 0, "context": GameTypes.Context.A, "suit": GameTypes.Suit.ONE},
+	]
+	assert_true(controller.submit(_stage(
+		&"stage", &"one", [_selection(card.card_id, 1, reversed_choices)]
+	), 1).accepted)
+
+	var stored: Array = state.players[&"one"].staged_submission[0].joker_choices
+	assert_eq(stored[0].half_index, 0)
+	assert_eq(stored[1].half_index, 1)
+
+
 func _hand_play_state(seed_value: int) -> MatchState:
 	var abilities: Array[AbilityDefinition] = []
 	for index in range(12):

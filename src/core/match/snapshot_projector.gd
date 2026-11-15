@@ -24,7 +24,11 @@ static func for_recipient(
 			"ability_count": player.ability_hand.size(), "match_score": player.match_score,
 			"round_wins": player.round_wins, "ready": player.ready,
 		}
-		if player.locked_normal != null and player.locked_context != null:
+		if (
+			player.submission_revealed
+			and player.locked_normal != null
+			and player.locked_context != null
+		):
 			projected_player["revealed_submission"] = _revealed_submission(player)
 		players.append(projected_player)
 	var active_fields: Array = []

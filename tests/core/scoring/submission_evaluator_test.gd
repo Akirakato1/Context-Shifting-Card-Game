@@ -161,14 +161,19 @@ func test_submission_validation_rejects_invalid_cards_and_selected_halves() -> v
 		&"absent", GameTypes.Context.A, 4, GameTypes.Suit.ONE,
 		GameTypes.Context.C, 5, GameTypes.Suit.THREE
 	)
-	var hand: Array[FullCardState] = [eligible]
+	var ineligible := _normal_card(
+		&"ineligible", GameTypes.Context.B, 6, GameTypes.Suit.ONE,
+		GameTypes.Context.C, 7, GameTypes.Suit.THREE
+	)
+	var hand: Array[FullCardState] = [eligible, ineligible]
 	var cases := [
 		{"expected": &"invalid_half_index", "selections": [_selection(eligible.card_id, 2, [])]},
 		{"expected": &"duplicate_submitted_card", "selections": [
 			_selection(eligible.card_id, 0, []), _selection(eligible.card_id, 0, []),
 		]},
 		{"expected": &"card_not_in_hand", "selections": [_selection(absent.card_id, 0, [])]},
-		{"expected": &"card_not_eligible", "selections": [_selection(eligible.card_id, 1, [])]},
+		{"expected": &"card_not_eligible", "selections": [_selection(ineligible.card_id, 0, [])]},
+		{"expected": &"selected_half_not_active", "selections": [_selection(eligible.card_id, 1, [])]},
 	]
 
 	for case in cases:

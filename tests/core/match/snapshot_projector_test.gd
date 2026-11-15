@@ -109,6 +109,14 @@ func test_joker_draft_is_owner_only_and_resolved_view_is_public() -> void:
 		&"pass-two", &"two", CommandKinds.STAGE_HAND, {"cards": []}
 	), 1)
 	controller.submit(GameCommand.new(&"lock-one", &"one", CommandKinds.LOCK_HAND), 2)
+	var between_locks := SnapshotProjector.for_recipient(
+		state, &"watcher", GameTypes.RecipientRole.SPECTATOR
+	)
+	assert_false(
+		_player_view(between_locks.players, &"one").has("revealed_submission"),
+		"a locked hand must remain private until every hand resolves"
+	)
+	assert_false(JSON.stringify(between_locks).contains(str(joker.card_id)))
 	controller.submit(GameCommand.new(&"lock-two", &"two", CommandKinds.LOCK_HAND), 2)
 	var revealed_views: Array = []
 	for entry in [

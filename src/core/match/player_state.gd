@@ -25,6 +25,7 @@ var hand_locked := false
 var submitted_cards: Array[FullCardState] = []
 var submitted_faces: Array[ScoringTypes.SelectedCardFace] = []
 var submitted_card_views: Array[Dictionary] = []
+var submission_revealed := false
 var locked_normal: Variant = null
 var locked_context: Variant = null
 var provisional_score: Variant = null

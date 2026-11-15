@@ -277,10 +277,12 @@ func test_joker_draft_and_resolved_views_survive_canonical_round_trip() -> void:
 	var legacy_snapshot: Dictionary = resolved_snapshot.duplicate(true)
 	for player_data: Dictionary in legacy_snapshot.players:
 		player_data.erase("submitted_card_views")
+		player_data.erase("submission_revealed")
 		for selection: Dictionary in player_data.get("staged_submission", []):
 			selection.erase("joker_choices")
 	var restored_legacy := MatchState.from_dict(legacy_snapshot)
 	assert_true(restored_legacy.players[&"one"].submitted_card_views.is_empty())
+	assert_false(restored_legacy.players[&"one"].submission_revealed)
 	assert_eq(
 		restored_legacy.players[&"one"].staged_submission[0].get("joker_choices", []), []
 	)

@@ -179,6 +179,7 @@ func to_dict() -> Dictionary:
 			"submitted_card_ids": player.submitted_cards.map(func(card: FullCardState): return str(card.card_id)),
 			"submitted_faces": submitted_faces,
 			"submitted_card_views": player.submitted_card_views.duplicate(true),
+			"submission_revealed": player.submission_revealed,
 			"locked_normal": _serialize_normal_result(player.locked_normal),
 			"locked_context": _serialize_context_result(player.locked_context),
 			"provisional_score": _serialize_score_breakdown(player.provisional_score),
@@ -285,6 +286,7 @@ static func from_dict(data: Dictionary) -> MatchState:
 		player.submitted_card_views.assign(
 			player_data.get("submitted_card_views", []).duplicate(true)
 		)
+		player.submission_revealed = player_data.get("submission_revealed", false)
 		player.locked_normal = state._deserialize_normal_result(player_data.get("locked_normal"))
 		player.locked_context = state._deserialize_context_result(player_data.get("locked_context"))
 		player.provisional_score = state._deserialize_score_breakdown(player_data.get("provisional_score"))
