@@ -5,6 +5,8 @@ const GameTypes = preload("res://src/core/common/game_types.gd")
 const CardFactory = preload("res://src/core/cards/card_factory.gd")
 const FullCardState = preload("res://src/core/cards/full_card_state.gd")
 const AbilityState = preload("res://src/core/abilities/ability_state.gd")
+const AbilityDefinition = preload("res://src/core/abilities/ability_definition.gd")
+const EffectRegistry = preload("res://src/core/abilities/effect_registry.gd")
 const EventKinds = preload("res://src/core/events/event_kinds.gd")
 const DomainEvent = preload("res://src/core/events/domain_event.gd")
 const CommandKinds = preload("res://src/core/commands/command_kinds.gd")
@@ -15,10 +17,12 @@ const MatchState = preload("res://src/core/match/match_state.gd")
 var state: MatchState
 var _accepted_command_ids: Dictionary = {}
 var _start_requests: Dictionary = {}
+var _effect_registry: EffectRegistry
 
 
-func _init(match_state: MatchState) -> void:
+func _init(match_state: MatchState, effects: EffectRegistry = null) -> void:
 	state = match_state
+	_effect_registry = effects if effects != null else EffectRegistry.new()
 	for player_id in state.players:
 		_accepted_command_ids[player_id] = {}
 	if state.phase == GameTypes.Phase.START:
@@ -35,6 +39,8 @@ func submit(command: GameCommand, now_msec: int) -> CommandResult:
 	var result: CommandResult
 	if state.phase == GameTypes.Phase.START:
 		result = _submit_start(command, now_msec)
+	elif state.phase == GameTypes.Phase.MAIN_1:
+		result = _submit_main_one(command, now_msec)
 	else:
 		result = CommandResult.new(false, &"command_not_allowed_in_phase")
 	if result.accepted:
@@ -49,6 +55,15 @@ func tick(now_msec: int) -> Array[DomainEvent]:
 		_ensure_phase_clock(now_msec)
 		if now_msec >= state.phase_deadline_msec:
 			return _finish_start(now_msec)
+	elif state.phase == GameTypes.Phase.MAIN_1:
+		_ensure_phase_clock(now_msec)
+		if now_msec >= state.phase_deadline_msec:
+			return _finish_main_one(now_msec)
+		if (
+			_all_active_ready()
+			and (state.reaction_deadline_msec < 0 or now_msec >= state.reaction_deadline_msec)
+		):
+			return _finish_main_one(now_msec)
 	return []
 
 
@@ -103,13 +118,17 @@ func _prepare_start_phase() -> void:
 	state.start_prepared_round = state.round_number
 	state.phase_started_msec = -1
 	state.phase_deadline_msec = -1
+	state.reaction_deadline_msec = -1
 
 
 func _ensure_phase_clock(now_msec: int) -> void:
 	if state.phase_started_msec >= 0:
 		return
 	state.phase_started_msec = now_msec
-	state.phase_deadline_msec = now_msec + state.config.phase_timers[state.phase]
+	if state.phase == GameTypes.Phase.MAIN_1 or state.phase == GameTypes.Phase.MAIN_2:
+		state.phase_deadline_msec = now_msec + state.config.public_hard_limit_msec
+	else:
+		state.phase_deadline_msec = now_msec + state.config.phase_timers[state.phase]
 
 
 func _finish_start(now_msec: int) -> Array[DomainEvent]:
@@ -170,12 +189,115 @@ func _finish_start(now_msec: int) -> Array[DomainEvent]:
 		state.players[player_id].ready = false
 	state.phase = GameTypes.Phase.MAIN_1
 	state.phase_started_msec = now_msec
-	state.phase_deadline_msec = now_msec + state.config.phase_timers[GameTypes.Phase.MAIN_1]
+	state.phase_deadline_msec = now_msec + state.config.public_hard_limit_msec
+	state.reaction_deadline_msec = -1
 	events.append(DomainEvent.new(
 		EventKinds.PHASE_CHANGED, {"phase": GameTypes.Phase.MAIN_1}, &"public"
 	))
 	_start_requests.clear()
 	return events
+
+
+func _submit_main_one(command: GameCommand, now_msec: int) -> CommandResult:
+	match command.kind:
+		CommandKinds.SET_READY:
+			if not command.payload.has("ready") or not command.payload.ready is bool:
+				return CommandResult.new(false, &"malformed_command")
+			_ensure_phase_clock(now_msec)
+			if now_msec > state.phase_deadline_msec:
+				return CommandResult.new(false, &"phase_deadline_passed")
+			state.players[command.player_id].ready = command.payload.ready
+			var ready_events: Array[DomainEvent] = []
+			if (
+				_all_active_ready()
+				and (state.reaction_deadline_msec < 0 or now_msec >= state.reaction_deadline_msec)
+			):
+				ready_events = _finish_main_one(now_msec)
+			return CommandResult.new(true, &"", ready_events)
+		CommandKinds.PLAY_PUBLIC_ABILITY:
+			return _play_public_ability(command, now_msec)
+	return CommandResult.new(false, &"command_not_allowed_in_phase")
+
+
+func _play_public_ability(command: GameCommand, now_msec: int) -> CommandResult:
+	if not command.payload.has("copy_id"):
+		return CommandResult.new(false, &"malformed_command")
+	var copy_id := StringName(command.payload.copy_id)
+	var ability := _held_ability(command.player_id, copy_id)
+	if ability == null:
+		return CommandResult.new(false, &"ability_not_in_hand")
+	if not ability.definition.allows_phase(state.phase):
+		return CommandResult.new(false, &"ability_timing_not_allowed")
+	if ability.definition.timing == AbilityDefinition.Timing.HAND_MANIPULATION:
+		return CommandResult.new(false, &"ability_timing_not_allowed")
+	var target_player_id := StringName(command.payload.get("target_player_id", &""))
+	var effect_payload: Dictionary = command.payload.get("effect", {})
+	var effect_context := {
+		"state": state, "source_player_id": command.player_id,
+		"target_player_id": target_player_id, "ability": ability,
+		"effect": effect_payload,
+	}
+	var effect_error := _effect_registry.validate(ability.definition.effect_id, effect_context)
+	if not effect_error.is_empty():
+		return CommandResult.new(false, effect_error)
+	_ensure_phase_clock(now_msec)
+	if now_msec > state.phase_deadline_msec:
+		return CommandResult.new(false, &"phase_deadline_passed")
+
+	var events: Array[DomainEvent] = [DomainEvent.new(
+		EventKinds.PUBLIC_ABILITY_PLAYED,
+		{"ability_id": str(ability.definition.id), "source_player_id": str(command.player_id),
+		"target_player_id": str(target_player_id)}, &"public"
+	)]
+	_remove_held_ability(command.player_id, ability)
+	if ability.definition.timing == AbilityDefinition.Timing.FIELD:
+		var field_result := state.ability_deck.play_field(ability, command.player_id)
+		events.append(DomainEvent.new(
+			EventKinds.FIELD_PLAYED,
+			{"ability_id": str(ability.definition.id), "source_player_id": str(command.player_id)},
+			&"public"
+		))
+		if field_result.replaced != null:
+			events.append(DomainEvent.new(
+				EventKinds.FIELD_REPLACED,
+				{"old_ability_id": str(field_result.replaced.ability.definition.id),
+				"new_ability_id": str(ability.definition.id)}, &"public"
+			))
+	else:
+		state.ability_deck.discard(ability)
+	events.append_array(_effect_registry.apply(ability.definition.effect_id, effect_context))
+	for player_id in state.seat_order:
+		if state.players[player_id].active:
+			state.players[player_id].ready = false
+	state.reaction_deadline_msec = min(
+		now_msec + state.config.reaction_window_msec, state.phase_deadline_msec
+	)
+	if now_msec >= state.phase_deadline_msec:
+		events.append_array(_finish_main_one(now_msec))
+	return CommandResult.new(true, &"", events)
+
+
+func _finish_main_one(now_msec: int) -> Array[DomainEvent]:
+	for player_id in state.seat_order:
+		state.players[player_id].ready = false
+	state.phase = GameTypes.Phase.HAND_PLAY
+	state.phase_started_msec = now_msec
+	state.phase_deadline_msec = now_msec + state.config.phase_timers[GameTypes.Phase.HAND_PLAY]
+	state.reaction_deadline_msec = -1
+	return [DomainEvent.new(
+		EventKinds.PHASE_CHANGED, {"phase": GameTypes.Phase.HAND_PLAY}, &"public"
+	)]
+
+
+func _held_ability(player_id: StringName, copy_id: StringName) -> AbilityState:
+	for ability in state.players[player_id].ability_hand:
+		if ability.copy_id == copy_id:
+			return ability
+	return null
+
+
+func _remove_held_ability(player_id: StringName, ability: AbilityState) -> void:
+	state.players[player_id].ability_hand.erase(ability)
 
 
 func _validate_partial_request(request: Dictionary, needed_halves: int) -> StringName:

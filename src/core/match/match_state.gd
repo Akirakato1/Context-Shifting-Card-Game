@@ -11,6 +11,8 @@ const AbilityState = preload("res://src/core/abilities/ability_state.gd")
 const AbilityDeckState = preload("res://src/core/abilities/ability_deck_state.gd")
 const MatchConfig = preload("res://src/core/match/match_config.gd")
 const PlayerState = preload("res://src/core/match/player_state.gd")
+const Rational = preload("res://src/core/common/rational.gd")
+const ScoringTypes = preload("res://src/core/scoring/scoring_types.gd")
 
 var config: MatchConfig
 var seed: int
@@ -29,6 +31,7 @@ var start_ability_drawn_round := 0
 var start_prepared_round := 0
 var phase_started_msec := -1
 var phase_deadline_msec := -1
+var reaction_deadline_msec := -1
 
 
 static func create(match_config: MatchConfig, match_seed: int) -> MatchState:
@@ -132,12 +135,19 @@ func to_dict() -> Dictionary:
 		for card in player.hand: serialized_hand.append(_serialize_full_card(card))
 		var ability_ids: Array = []
 		for ability in player.ability_hand: ability_ids.append(str(ability.copy_id))
+		var modifiers: Array = []
+		for modifier in player.score_modifiers:
+			modifiers.append({
+				"operation": str(modifier.operation), "numerator": modifier.value.numerator,
+				"denominator": modifier.value.denominator, "source_id": str(modifier.source_id),
+			})
 		serialized_players.append({
 			"player_id": str(player.player_id), "seat_index": player.seat_index,
 			"spectator": player.spectator, "active": player.active, "pending": player.pending,
 			"connected": player.connected, "ready": player.ready, "hand": serialized_hand,
 			"ability_hand": ability_ids, "match_score": player.match_score,
 			"round_wins": player.round_wins, "replenishment_needed": player.replenishment_needed,
+			"score_modifiers": modifiers,
 		})
 	var serialized_piles := {}
 	for context in piles:
@@ -157,6 +167,7 @@ func to_dict() -> Dictionary:
 		"start_ability_drawn_round": start_ability_drawn_round,
 		"start_prepared_round": start_prepared_round,
 		"phase_started_msec": phase_started_msec, "phase_deadline_msec": phase_deadline_msec,
+		"reaction_deadline_msec": reaction_deadline_msec,
 	}
 
 
@@ -191,6 +202,12 @@ static func from_dict(data: Dictionary) -> MatchState:
 		player.match_score = player_data.match_score
 		player.round_wins = player_data.round_wins
 		player.replenishment_needed = player_data.replenishment_needed
+		for modifier_data: Dictionary in player_data.get("score_modifiers", []):
+			player.score_modifiers.append(ScoringTypes.ScoreModifier.new(
+				StringName(modifier_data.operation),
+				Rational.new(modifier_data.numerator, modifier_data.denominator),
+				StringName(modifier_data.source_id)
+			))
 		state.players[player.player_id] = player
 	state.round_number = data.round_number
 	state.active_context = data.active_context
@@ -202,6 +219,7 @@ static func from_dict(data: Dictionary) -> MatchState:
 	state.start_prepared_round = data.get("start_prepared_round", 0)
 	state.phase_started_msec = data.get("phase_started_msec", -1)
 	state.phase_deadline_msec = data.get("phase_deadline_msec", -1)
+	state.reaction_deadline_msec = data.get("reaction_deadline_msec", -1)
 	return state
 
 
