@@ -32,6 +32,7 @@ var start_prepared_round := 0
 var phase_started_msec := -1
 var phase_deadline_msec := -1
 var reaction_deadline_msec := -1
+var last_round_winner_id: StringName = &""
 
 
 static func create(match_config: MatchConfig, match_seed: int) -> MatchState:
@@ -157,6 +158,8 @@ func to_dict() -> Dictionary:
 			"hand_locked": player.hand_locked,
 			"submitted_card_ids": player.submitted_cards.map(func(card: FullCardState): return str(card.card_id)),
 			"completed_manipulation_ids": completed_manipulations,
+			"finalized_score": player.finalized_score,
+			"end_discard_complete": player.end_discard_complete,
 		})
 	var serialized_piles := {}
 	for context in piles:
@@ -177,6 +180,7 @@ func to_dict() -> Dictionary:
 		"start_prepared_round": start_prepared_round,
 		"phase_started_msec": phase_started_msec, "phase_deadline_msec": phase_deadline_msec,
 		"reaction_deadline_msec": reaction_deadline_msec,
+		"last_round_winner_id": str(last_round_winner_id),
 	}
 
 
@@ -228,6 +232,8 @@ static func from_dict(data: Dictionary) -> MatchState:
 					break
 		for ability_id: String in player_data.get("completed_manipulation_ids", []):
 			player.completed_manipulation_ids.append(StringName(ability_id))
+		player.finalized_score = player_data.get("finalized_score", 0)
+		player.end_discard_complete = player_data.get("end_discard_complete", false)
 		state.players[player.player_id] = player
 	state.round_number = data.round_number
 	state.active_context = data.active_context
@@ -240,6 +246,7 @@ static func from_dict(data: Dictionary) -> MatchState:
 	state.phase_started_msec = data.get("phase_started_msec", -1)
 	state.phase_deadline_msec = data.get("phase_deadline_msec", -1)
 	state.reaction_deadline_msec = data.get("reaction_deadline_msec", -1)
+	state.last_round_winner_id = StringName(data.get("last_round_winner_id", ""))
 	return state
 
 

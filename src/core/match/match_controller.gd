@@ -24,6 +24,9 @@ var state: MatchState
 var _accepted_command_ids: Dictionary = {}
 var _start_requests: Dictionary = {}
 var _effect_registry: EffectRegistry
+var _end_transaction_active := false
+var _queued_disconnects: Array[StringName] = []
+var end_transaction_probe: Callable
 
 
 func _init(match_state: MatchState, effects: EffectRegistry = null) -> void:
@@ -49,6 +52,10 @@ func submit(command: GameCommand, now_msec: int) -> CommandResult:
 		result = _submit_main_one(command, now_msec)
 	elif state.phase == GameTypes.Phase.HAND_PLAY:
 		result = _submit_hand_play(command, now_msec)
+	elif state.phase == GameTypes.Phase.MAIN_2:
+		result = _submit_main_two(command, now_msec)
+	elif state.phase == GameTypes.Phase.END:
+		result = _submit_end(command, now_msec)
 	else:
 		result = CommandResult.new(false, &"command_not_allowed_in_phase")
 	if result.accepted:
@@ -57,7 +64,7 @@ func submit(command: GameCommand, now_msec: int) -> CommandResult:
 
 
 func tick(now_msec: int) -> Array[DomainEvent]:
-	if state.match_complete:
+	if state.match_complete and state.phase != GameTypes.Phase.END:
 		return []
 	if state.phase == GameTypes.Phase.START:
 		_ensure_phase_clock(now_msec)
@@ -76,6 +83,19 @@ func tick(now_msec: int) -> Array[DomainEvent]:
 		_ensure_phase_clock(now_msec)
 		if now_msec >= state.phase_deadline_msec:
 			return _finish_hand_play(now_msec)
+	elif state.phase == GameTypes.Phase.MAIN_2:
+		_ensure_phase_clock(now_msec)
+		if now_msec >= state.phase_deadline_msec:
+			return _finish_main_two(now_msec)
+		if (
+			_all_active_ready()
+			and (state.reaction_deadline_msec < 0 or now_msec >= state.reaction_deadline_msec)
+		):
+			return _finish_main_two(now_msec)
+	elif state.phase == GameTypes.Phase.END:
+		_ensure_phase_clock(now_msec)
+		if now_msec >= state.phase_deadline_msec:
+			return _finish_end_discards(now_msec)
 	return []
 
 
@@ -231,6 +251,27 @@ func _submit_main_one(command: GameCommand, now_msec: int) -> CommandResult:
 	return CommandResult.new(false, &"command_not_allowed_in_phase")
 
 
+func _submit_main_two(command: GameCommand, now_msec: int) -> CommandResult:
+	match command.kind:
+		CommandKinds.SET_READY:
+			if not command.payload.has("ready") or not command.payload.ready is bool:
+				return CommandResult.new(false, &"malformed_command")
+			_ensure_phase_clock(now_msec)
+			if now_msec > state.phase_deadline_msec:
+				return CommandResult.new(false, &"phase_deadline_passed")
+			state.players[command.player_id].ready = command.payload.ready
+			var ready_events: Array[DomainEvent] = []
+			if (
+				_all_active_ready()
+				and (state.reaction_deadline_msec < 0 or now_msec >= state.reaction_deadline_msec)
+			):
+				ready_events = _finish_main_two(now_msec)
+			return CommandResult.new(true, &"", ready_events)
+		CommandKinds.PLAY_PUBLIC_ABILITY:
+			return _play_public_ability(command, now_msec)
+	return CommandResult.new(false, &"command_not_allowed_in_phase")
+
+
 func _play_public_ability(command: GameCommand, now_msec: int) -> CommandResult:
 	if not command.payload.has("copy_id"):
 		return CommandResult.new(false, &"malformed_command")
@@ -278,6 +319,13 @@ func _play_public_ability(command: GameCommand, now_msec: int) -> CommandResult:
 	else:
 		state.ability_deck.discard(ability)
 	events.append_array(_effect_registry.apply(ability.definition.effect_id, effect_context))
+	if state.phase == GameTypes.Phase.MAIN_2 and not target_player_id.is_empty():
+		var target = state.players.get(target_player_id)
+		if target != null and target.locked_normal != null and target.locked_context != null:
+			target.provisional_score = ScoreCalculator.calculate(
+				target.submitted_faces, target.locked_normal, target.locked_context,
+				target.score_modifiers
+			)
 	for player_id in state.seat_order:
 		if state.players[player_id].active:
 			state.players[player_id].ready = false
@@ -285,7 +333,10 @@ func _play_public_ability(command: GameCommand, now_msec: int) -> CommandResult:
 		now_msec + state.config.reaction_window_msec, state.phase_deadline_msec
 	)
 	if now_msec >= state.phase_deadline_msec:
-		events.append_array(_finish_main_one(now_msec))
+		if state.phase == GameTypes.Phase.MAIN_1:
+			events.append_array(_finish_main_one(now_msec))
+		else:
+			events.append_array(_finish_main_two(now_msec))
 	return CommandResult.new(true, &"", events)
 
 
@@ -299,6 +350,197 @@ func _finish_main_one(now_msec: int) -> Array[DomainEvent]:
 	return [DomainEvent.new(
 		EventKinds.PHASE_CHANGED, {"phase": GameTypes.Phase.HAND_PLAY}, &"public"
 	)]
+
+
+func _finish_main_two(now_msec: int) -> Array[DomainEvent]:
+	for player_id in state.seat_order:
+		state.players[player_id].ready = false
+	return _begin_end(now_msec)
+
+
+func _begin_end(now_msec: int) -> Array[DomainEvent]:
+	_end_transaction_active = true
+	var events: Array[DomainEvent] = []
+	var final_scores := {}
+	for player_id in state.seat_order:
+		var player = state.players[player_id]
+		if not player.active or player.pending:
+			continue
+		player.provisional_score = ScoreCalculator.calculate(
+			player.submitted_faces, player.locked_normal, player.locked_context,
+			player.score_modifiers
+		)
+		player.finalized_score = player.provisional_score.final_score
+		final_scores[player_id] = player.finalized_score
+	state.last_round_winner_id = state.resolve_round(final_scores)
+	events.append(DomainEvent.new(EventKinds.ROUND_FINALIZED, {
+		"scores": _string_key_scores(final_scores),
+		"winner_id": str(state.last_round_winner_id),
+	}, &"public"))
+	if end_transaction_probe.is_valid():
+		end_transaction_probe.call()
+		end_transaction_probe = Callable()
+
+	for player_id in state.seat_order:
+		var player = state.players[player_id]
+		for card in player.submitted_cards.duplicate():
+			player.hand.erase(card)
+			card.leave_hand()
+			state.piles[card.first.base_context].discard(card.first)
+			state.piles[card.second.base_context].discard(card.second)
+		player.submitted_cards.clear()
+		player.submitted_faces.clear()
+		player.score_modifiers.clear()
+		player.pending_manipulation.clear()
+		player.staged_submission.clear()
+		player.has_staged_submission = false
+		player.hand_locked = false
+		player.completed_manipulation_ids.clear()
+		player.ready = false
+		player.end_discard_complete = player.ability_hand.size() <= state.ability_deck.end_hand_limit
+
+	var expired_fields = state.ability_deck.tick_fields_end()
+	for field in expired_fields:
+		events.append(DomainEvent.new(
+			EventKinds.FIELD_EXPIRED, {"ability_id": str(field.ability.definition.id)}, &"public"
+		))
+	_end_transaction_active = false
+	for disconnected_id in _queued_disconnects:
+		if state.players.has(disconnected_id):
+			state.players[disconnected_id].connected = false
+	_queued_disconnects.clear()
+
+	if _all_end_discards_complete():
+		events.append_array(_complete_end(now_msec))
+	else:
+		state.phase = GameTypes.Phase.END
+		state.phase_started_msec = now_msec
+		state.phase_deadline_msec = now_msec + state.config.phase_timers[GameTypes.Phase.END]
+		state.reaction_deadline_msec = -1
+	return events
+
+
+func _submit_end(command: GameCommand, now_msec: int) -> CommandResult:
+	if command.kind != CommandKinds.CHOOSE_ABILITY_DISCARDS:
+		return CommandResult.new(false, &"command_not_allowed_in_phase")
+	if not command.payload.has("copy_ids") or not command.payload.copy_ids is Array:
+		return CommandResult.new(false, &"malformed_command")
+	var player = state.players[command.player_id]
+	var excess: int = max(player.ability_hand.size() - state.ability_deck.end_hand_limit, 0)
+	if command.payload.copy_ids.size() != excess:
+		return CommandResult.new(false, &"incorrect_discard_count")
+	var cards: Array[AbilityState] = []
+	var seen := {}
+	for raw_id in command.payload.copy_ids:
+		var copy_id := StringName(raw_id)
+		if seen.has(copy_id):
+			return CommandResult.new(false, &"duplicate_ability_discard")
+		seen[copy_id] = true
+		var ability := _held_ability(command.player_id, copy_id)
+		if ability == null:
+			return CommandResult.new(false, &"ability_not_in_hand")
+		cards.append(ability)
+	_ensure_phase_clock(now_msec)
+	var events := _discard_abilities(command.player_id, cards)
+	player.end_discard_complete = true
+	if _all_end_discards_complete():
+		events.append_array(_complete_end(now_msec))
+	return CommandResult.new(true, &"", events)
+
+
+func _finish_end_discards(now_msec: int) -> Array[DomainEvent]:
+	var events: Array[DomainEvent] = []
+	for player_id in state.seat_order:
+		var player = state.players[player_id]
+		if not player.active or player.end_discard_complete:
+			continue
+		var excess: int = max(player.ability_hand.size() - state.ability_deck.end_hand_limit, 0)
+		var shuffled: Array = state.rng.shuffle(player.ability_hand)
+		var cards: Array[AbilityState] = []
+		for index in range(excess):
+			cards.append(shuffled[index])
+		events.append_array(_discard_abilities(player_id, cards))
+		player.end_discard_complete = true
+	events.append_array(_complete_end(now_msec))
+	return events
+
+
+func _discard_abilities(player_id: StringName, cards: Array[AbilityState]) -> Array[DomainEvent]:
+	var ability_ids: Array = []
+	for ability in cards:
+		state.players[player_id].ability_hand.erase(ability)
+		state.ability_deck.discard(ability)
+		ability_ids.append(str(ability.definition.id))
+	var public_payload := {"player_id": str(player_id), "count": cards.size()}
+	var events: Array[DomainEvent] = []
+	if state.config.information_visibility == GameTypes.InformationVisibility.PUBLIC:
+		public_payload["ability_ids"] = ability_ids
+		events.append(DomainEvent.new(EventKinds.ABILITIES_DISCARDED, public_payload, &"public"))
+	else:
+		events.append(DomainEvent.new(EventKinds.ABILITIES_DISCARDED, public_payload, &"public"))
+		events.append(DomainEvent.new(EventKinds.ABILITIES_DISCARDED, {
+			"player_id": str(player_id), "ability_ids": ability_ids,
+		}, &"player", player_id))
+	return events
+
+
+func _complete_end(now_msec: int) -> Array[DomainEvent]:
+	if state.match_complete:
+		state.phase = GameTypes.Phase.COMPLETE
+		state.config.match_started = false
+		return [DomainEvent.new(EventKinds.MATCH_ENDED, {
+			"winner_id": str(state.winner_id),
+		}, &"public")]
+	state.round_number += 1
+	state.phase = GameTypes.Phase.START
+	state.start_prepared_round = 0
+	state.start_ability_drawn_round = 0
+	state.phase_started_msec = -1
+	state.phase_deadline_msec = -1
+	state.reaction_deadline_msec = -1
+	_prepare_start_phase()
+	return [DomainEvent.new(
+		EventKinds.PHASE_CHANGED,
+		{"phase": GameTypes.Phase.START, "round_number": state.round_number}, &"public"
+	)]
+
+
+func notify_player_disconnected(player_id: StringName) -> void:
+	if not state.players.has(player_id):
+		return
+	if _end_transaction_active:
+		if player_id not in _queued_disconnects:
+			_queued_disconnects.append(player_id)
+	else:
+		state.players[player_id].connected = false
+
+
+func reset_for_rematch(new_seed: int) -> void:
+	assert(state.match_complete, "only a completed match can reset for rematch")
+	state.config.match_started = false
+	var fresh := MatchState.create(state.config, new_seed)
+	fresh.config.match_started = false
+	fresh.phase = GameTypes.Phase.SETUP
+	state = fresh
+	_accepted_command_ids.clear()
+	_start_requests.clear()
+	for player_id in state.players:
+		_accepted_command_ids[player_id] = {}
+
+
+func _all_end_discards_complete() -> bool:
+	for player_id in state.seat_order:
+		var player = state.players[player_id]
+		if player.active and not player.pending and not player.end_discard_complete:
+			return false
+	return true
+
+
+func _string_key_scores(scores: Dictionary) -> Dictionary:
+	var result := {}
+	for player_id in scores:
+		result[str(player_id)] = scores[player_id]
+	return result
 
 
 func _submit_hand_play(command: GameCommand, now_msec: int) -> CommandResult:
