@@ -1,12 +1,15 @@
 extends SceneTree
 
 const TEST_SUFFIX := "_test.gd"
+const WEBRTC_EXTENSION := "res://addons/webrtc_native/webrtc_native.gdextension"
 
 var _failed_tests := 0
 var _passed_tests := 0
 
 
 func _initialize() -> void:
+	if FileAccess.file_exists(WEBRTC_EXTENSION):
+		GDExtensionManager.load_extension(WEBRTC_EXTENSION)
 	call_deferred("_run")
 
 

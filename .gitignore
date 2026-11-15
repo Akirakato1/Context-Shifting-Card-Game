@@ -1,1 +1,3 @@
 service/signaling/node_modules/
+/.godot/
+/godot-extension-webrtc_native.zip
