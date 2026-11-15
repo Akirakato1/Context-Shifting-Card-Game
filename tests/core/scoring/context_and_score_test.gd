@@ -74,6 +74,30 @@ func test_context_evaluator_returns_neutral_fallback_when_no_threshold_matches()
 	assert_true(result.multiplier.equals(Rational.new(1, 1)))
 
 
+func test_context_evaluator_accepts_resolved_contexts_without_card_mutation() -> void:
+	var definitions: Array[ContextHandDefinition] = [
+		ContextHandDefinition.new(
+			&"abc_1", 10,
+			{GameTypes.Context.A: 1, GameTypes.Context.B: 1, GameTypes.Context.C: 1},
+			Rational.new(2, 1)
+		),
+	]
+	var result := ContextHandEvaluator.evaluate_contexts(
+		PackedInt32Array([
+			GameTypes.Context.A,
+			GameTypes.Context.B,
+			GameTypes.Context.C,
+			GameTypes.Context.C,
+		]),
+		definitions
+	)
+
+	assert_eq(result.category_id, &"abc_1")
+	assert_eq(result.counts[GameTypes.Context.A], 1)
+	assert_eq(result.counts[GameTypes.Context.B], 1)
+	assert_eq(result.counts[GameTypes.Context.C], 2)
+
+
 func test_score_uses_all_faces_ordered_modifiers_and_one_final_ceiling() -> void:
 	var faces: Array[ScoringTypes.SelectedCardFace] = [
 		ScoringTypes.SelectedCardFace.new(&"three", 0, 3, GameTypes.Suit.ONE),

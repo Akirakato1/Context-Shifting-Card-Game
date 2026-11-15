@@ -2,6 +2,7 @@ class_name ScoringTypes
 extends RefCounted
 
 const Rational = preload("res://src/core/common/rational.gd")
+const FullCardState = preload("res://src/core/cards/full_card_state.gd")
 
 
 class SelectedCardFace extends RefCounted:
@@ -101,3 +102,33 @@ class ScoreBreakdown extends RefCounted:
 		unclamped_raw_score = unclamped
 		raw_score = clamped
 		final_score = final_value
+
+
+class SubmissionResult extends RefCounted:
+	var is_valid: bool
+	var error_code: StringName
+	var submitted_cards: Array[FullCardState]
+	var selected_faces: Array[SelectedCardFace]
+	var resolved_cards: Array[Dictionary]
+	var normal_result: NormalHandResult
+	var context_result: ContextHandResult
+	var score_breakdown: ScoreBreakdown
+
+	func _init(
+		valid: bool,
+		error: StringName,
+		cards: Array[FullCardState],
+		faces: Array[SelectedCardFace],
+		resolved: Array[Dictionary],
+		normal: NormalHandResult,
+		context: ContextHandResult,
+		breakdown: ScoreBreakdown
+	) -> void:
+		is_valid = valid
+		error_code = error
+		submitted_cards = cards.duplicate()
+		selected_faces = faces.duplicate()
+		resolved_cards = resolved.duplicate(true)
+		normal_result = normal
+		context_result = context
+		score_breakdown = breakdown

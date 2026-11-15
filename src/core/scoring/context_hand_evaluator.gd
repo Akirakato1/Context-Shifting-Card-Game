@@ -12,14 +12,25 @@ static func evaluate(
 	cards: Array[FullCardState],
 	definitions: Array[ContextHandDefinition]
 ) -> ScoringTypes.ContextHandResult:
+	var contexts := PackedInt32Array()
+	for card in cards:
+		contexts.append(card.first.effective_context())
+		contexts.append(card.second.effective_context())
+	return evaluate_contexts(contexts, definitions)
+
+
+static func evaluate_contexts(
+	contexts: PackedInt32Array,
+	definitions: Array[ContextHandDefinition]
+) -> ScoringTypes.ContextHandResult:
 	var counts := {
 		GameTypes.Context.A: 0,
 		GameTypes.Context.B: 0,
 		GameTypes.Context.C: 0,
 	}
-	for card in cards:
-		counts[card.first.effective_context()] += 1
-		counts[card.second.effective_context()] += 1
+	for context in contexts:
+		assert(counts.has(context), "unknown resolved context")
+		counts[context] += 1
 
 	var best: ContextHandDefinition = null
 	for definition in definitions:
