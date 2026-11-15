@@ -109,6 +109,12 @@ func set_victory_mode(value: int) -> StringName:
 	return &""
 
 
+func set_information_visibility(value: int) -> StringName:
+	if match_started: return &"config_locked"
+	_information_visibility = value
+	return &""
+
+
 func set_phase_timer(phase: int, value: int) -> StringName:
 	if match_started: return &"config_locked"
 	_phase_timers[phase] = value

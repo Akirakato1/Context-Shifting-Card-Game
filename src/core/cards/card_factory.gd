@@ -91,7 +91,11 @@ static func complete_request(
 			if not partial.has(context) and completed[context] < CONTEXT_DRAW_CAP:
 				candidates.append(context)
 		if candidates.is_empty():
-			return _request_error(&"insufficient_unselected_capacity")
+			for context in range(GameTypes.Context.A, GameTypes.Context.C + 1):
+				if completed[context] < CONTEXT_DRAW_CAP:
+					candidates.append(context)
+		if candidates.is_empty():
+			return _request_error(&"request_exceeds_total_cap")
 		var selected := candidates[rng.pick_index(candidates.size())]
 		completed[selected] += 1
 		total += 1

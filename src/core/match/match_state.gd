@@ -26,6 +26,9 @@ var phase := GameTypes.Phase.START
 var winner_id: StringName = &""
 var match_complete := false
 var start_ability_drawn_round := 0
+var start_prepared_round := 0
+var phase_started_msec := -1
+var phase_deadline_msec := -1
 
 
 static func create(match_config: MatchConfig, match_seed: int) -> MatchState:
@@ -152,6 +155,8 @@ func to_dict() -> Dictionary:
 		"active_context": active_context, "context_direction": context_direction, "phase": phase,
 		"winner_id": str(winner_id), "match_complete": match_complete,
 		"start_ability_drawn_round": start_ability_drawn_round,
+		"start_prepared_round": start_prepared_round,
+		"phase_started_msec": phase_started_msec, "phase_deadline_msec": phase_deadline_msec,
 	}
 
 
@@ -194,6 +199,9 @@ static func from_dict(data: Dictionary) -> MatchState:
 	state.winner_id = StringName(data.winner_id)
 	state.match_complete = data.match_complete
 	state.start_ability_drawn_round = data.start_ability_drawn_round
+	state.start_prepared_round = data.get("start_prepared_round", 0)
+	state.phase_started_msec = data.get("phase_started_msec", -1)
+	state.phase_deadline_msec = data.get("phase_deadline_msec", -1)
 	return state
 
 
