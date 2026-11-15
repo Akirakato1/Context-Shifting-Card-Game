@@ -178,6 +178,7 @@ func to_dict() -> Dictionary:
 			"hand_locked": player.hand_locked,
 			"submitted_card_ids": player.submitted_cards.map(func(card: FullCardState): return str(card.card_id)),
 			"submitted_faces": submitted_faces,
+			"submitted_card_views": player.submitted_card_views.duplicate(true),
 			"locked_normal": _serialize_normal_result(player.locked_normal),
 			"locked_context": _serialize_context_result(player.locked_context),
 			"provisional_score": _serialize_score_breakdown(player.provisional_score),
@@ -267,7 +268,11 @@ static func from_dict(data: Dictionary) -> MatchState:
 				StringName(modifier_data.source_id)
 			))
 		player.pending_manipulation = player_data.get("pending_manipulation", {}).duplicate(true)
-		player.staged_submission.assign(player_data.get("staged_submission", []))
+		for raw_selection: Dictionary in player_data.get("staged_submission", []):
+			var selection: Dictionary = raw_selection.duplicate(true)
+			if not selection.has("joker_choices"):
+				selection["joker_choices"] = []
+			player.staged_submission.append(selection)
 		player.has_staged_submission = player_data.get("has_staged_submission", false)
 		player.hand_locked = player_data.get("hand_locked", false)
 		for submitted_id: String in player_data.get("submitted_card_ids", []):
@@ -277,6 +282,9 @@ static func from_dict(data: Dictionary) -> MatchState:
 					break
 		for face_data: Dictionary in player_data.get("submitted_faces", []):
 			player.submitted_faces.append(state._deserialize_face(face_data))
+		player.submitted_card_views.assign(
+			player_data.get("submitted_card_views", []).duplicate(true)
+		)
 		player.locked_normal = state._deserialize_normal_result(player_data.get("locked_normal"))
 		player.locked_context = state._deserialize_context_result(player_data.get("locked_context"))
 		player.provisional_score = state._deserialize_score_breakdown(player_data.get("provisional_score"))

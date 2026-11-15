@@ -1,6 +1,8 @@
 extends "res://tests/test_case.gd"
 
 const GameTypes = preload("res://src/core/common/game_types.gd")
+const HalfCardState = preload("res://src/core/cards/half_card_state.gd")
+const FullCardState = preload("res://src/core/cards/full_card_state.gd")
 const AbilityDefinition = preload("res://src/core/abilities/ability_definition.gd")
 const MatchConfig = preload("res://src/core/match/match_config.gd")
 const MatchState = preload("res://src/core/match/match_state.gd")
@@ -89,6 +91,47 @@ func test_mid_phase_spectator_gets_public_snapshot_and_never_private_or_ready() 
 		DomainEvent.new(&"private_update", {"secret": true}, &"player", &"one"),
 	])
 	assert_eq(_event_kinds(fixture.transport, "peer-watch"), ["public_update"])
+
+
+func test_owner_resync_keeps_joker_choices_private() -> void:
+	var fixture := _session([&"one", &"two"], [&"watcher"])
+	fixture.host.register_peer("peer-one", &"one", GameTypes.RecipientRole.ACTIVE_PLAYER)
+	fixture.host.register_peer("peer-two", &"two", GameTypes.RecipientRole.ACTIVE_PLAYER)
+	fixture.host.register_peer("peer-watch", &"watcher", GameTypes.RecipientRole.SPECTATOR)
+	var joker := FullCardState.new(
+		&"resync-joker-card",
+		HalfCardState.new(
+			&"resync-joker-half", GameTypes.Context.B, 0, HalfCardState.NO_SUIT,
+			GameTypes.HalfKind.JOKER
+		),
+		HalfCardState.new(
+			&"resync-normal-half", GameTypes.Context.A, 5, GameTypes.Suit.ONE
+		),
+	)
+	fixture.state.players[&"one"].hand[0] = joker
+	fixture.state.players[&"one"].staged_submission.assign([{
+		"card_id": joker.card_id,
+		"half_index": 0,
+		"joker_choices": [{
+			"half_index": 0,
+			"context": GameTypes.Context.C,
+			"suit": GameTypes.Suit.THREE,
+		}],
+	}])
+	fixture.state.players[&"one"].has_staged_submission = true
+
+	for peer_id in ["peer-one", "peer-two", "peer-watch"]:
+		fixture.host.send_snapshot(peer_id)
+	var owner: Dictionary = _last_kind(fixture.transport, "peer-one", "snapshot").payload.state
+	var opponent: Dictionary = _last_kind(fixture.transport, "peer-two", "snapshot").payload.state
+	var spectator: Dictionary = _last_kind(fixture.transport, "peer-watch", "snapshot").payload.state
+	assert_eq(
+		owner.private_staging.staged_submission[0].joker_choices[0].context,
+		GameTypes.Context.C
+	)
+	assert_false(JSON.stringify(opponent.private_staging).contains(str(joker.card_id)))
+	assert_false(spectator.has("private_staging"))
+	assert_false(JSON.stringify(spectator).contains(str(joker.card_id)))
 
 
 func _session(active_ids: Array, spectator_ids: Array) -> Dictionary:

@@ -1,6 +1,8 @@
 extends "res://tests/test_case.gd"
 
 const GameTypes = preload("res://src/core/common/game_types.gd")
+const HalfCardState = preload("res://src/core/cards/half_card_state.gd")
+const FullCardState = preload("res://src/core/cards/full_card_state.gd")
 const AbilityDefinition = preload("res://src/core/abilities/ability_definition.gd")
 const CommandKinds = preload("res://src/core/commands/command_kinds.gd")
 const GameCommand = preload("res://src/core/commands/game_command.gd")
@@ -214,6 +216,74 @@ func test_phase_state_round_trip_and_public_projection_preserve_resync_informati
 	assert_eq(public_one.revealed_submission.cards.size(), 1)
 	assert_true(public_one.revealed_submission.has("normal_category"))
 	assert_true(public_one.revealed_submission.has("provisional_score"))
+
+
+func test_joker_draft_and_resolved_views_survive_canonical_round_trip() -> void:
+	var state := _hand_play_state(112)
+	var joker := FullCardState.new(
+		&"roundtrip-joker",
+		HalfCardState.new(
+			&"roundtrip-joker-half", GameTypes.Context.B, 0, HalfCardState.NO_SUIT,
+			GameTypes.HalfKind.JOKER
+		),
+		HalfCardState.new(
+			&"roundtrip-normal-half", state.active_context, 6, GameTypes.Suit.ONE
+		),
+	)
+	state.players[&"one"].hand[0] = joker
+	var controller := MatchController.new(state)
+	var staged := GameCommand.new(
+		&"stage-joker", &"one", CommandKinds.STAGE_HAND, {"cards": [{
+			"card_id": joker.card_id,
+			"half_index": 0,
+			"joker_choices": [{
+				"half_index": 0,
+				"context": GameTypes.Context.C,
+				"suit": GameTypes.Suit.THREE,
+			}],
+		}]}
+	)
+	assert_true(controller.submit(staged, 1).accepted)
+	assert_true(controller.submit(GameCommand.new(
+		&"pass-two", &"two", CommandKinds.STAGE_HAND, {"cards": []}
+	), 1).accepted)
+
+	var draft_snapshot := state.to_dict()
+	var restored_draft := MatchState.from_dict(draft_snapshot)
+	assert_eq(restored_draft.to_dict(), draft_snapshot)
+	assert_eq(
+		restored_draft.players[&"one"].staged_submission[0]["joker_choices"][0]["context"],
+		GameTypes.Context.C
+	)
+
+	controller.submit(_lock(&"lock-original-one", &"one"), 2)
+	controller.submit(_lock(&"lock-original-two", &"two"), 2)
+	var restored_controller := MatchController.new(restored_draft)
+	restored_controller.submit(_lock(&"lock-restored-one", &"one"), 2)
+	restored_controller.submit(_lock(&"lock-restored-two", &"two"), 2)
+	assert_eq(
+		restored_draft.players[&"one"].submitted_card_views,
+		state.players[&"one"].submitted_card_views
+	)
+
+	var resolved_snapshot := state.to_dict()
+	var restored_resolved := MatchState.from_dict(resolved_snapshot)
+	assert_eq(restored_resolved.to_dict(), resolved_snapshot)
+	assert_eq(
+		restored_resolved.players[&"one"].submitted_card_views,
+		state.players[&"one"].submitted_card_views
+	)
+
+	var legacy_snapshot: Dictionary = resolved_snapshot.duplicate(true)
+	for player_data: Dictionary in legacy_snapshot.players:
+		player_data.erase("submitted_card_views")
+		for selection: Dictionary in player_data.get("staged_submission", []):
+			selection.erase("joker_choices")
+	var restored_legacy := MatchState.from_dict(legacy_snapshot)
+	assert_true(restored_legacy.players[&"one"].submitted_card_views.is_empty())
+	assert_eq(
+		restored_legacy.players[&"one"].staged_submission[0].get("joker_choices", []), []
+	)
 
 
 func test_controller_replay_and_partial_start_requests_survive_state_round_trip() -> void:

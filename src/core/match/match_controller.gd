@@ -1105,7 +1105,7 @@ func _private_card_payload(cards: Array[FullCardState]) -> Array:
 func _private_half(half: HalfCardState) -> Dictionary:
 	return {
 		"copy_id": str(half.copy_id), "base_context": half.base_context,
-		"base_rank": half.base_rank, "base_suit": half.base_suit,
+		"base_rank": half.base_rank, "base_suit": half.base_suit, "kind": half.kind,
 		"effective_context": half.effective_context(), "rank": half.effective_rank(),
 		"suit": half.effective_suit(),
 	}

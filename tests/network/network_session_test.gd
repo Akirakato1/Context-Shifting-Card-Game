@@ -1,7 +1,13 @@
 extends "res://tests/test_case.gd"
 
 const GameTypes = preload("res://src/core/common/game_types.gd")
+const Rational = preload("res://src/core/common/rational.gd")
+const HalfCardState = preload("res://src/core/cards/half_card_state.gd")
+const FullCardState = preload("res://src/core/cards/full_card_state.gd")
 const AbilityDefinition = preload("res://src/core/abilities/ability_definition.gd")
+const NormalHandDefinition = preload("res://src/core/scoring/normal_hand_definition.gd")
+const CommandKinds = preload("res://src/core/commands/command_kinds.gd")
+const GameCommand = preload("res://src/core/commands/game_command.gd")
 const MatchConfig = preload("res://src/core/match/match_config.gd")
 const MatchState = preload("res://src/core/match/match_state.gd")
 const MatchController = preload("res://src/core/match/match_controller.gd")
@@ -152,6 +158,59 @@ func test_outbound_payload_and_queue_limits_disconnect_slow_peer() -> void:
 	})
 
 
+func test_resolved_joker_reveal_is_sanitized_for_every_network_role() -> void:
+	var state := MatchState.create(_config(), 121)
+	state.phase = GameTypes.Phase.HAND_PLAY
+	state.phase_started_msec = -1
+	state.phase_deadline_msec = -1
+	var joker := FullCardState.new(
+		&"network-joker-card",
+		HalfCardState.new(
+			&"network-joker-half", GameTypes.Context.B, 0, HalfCardState.NO_SUIT,
+			GameTypes.HalfKind.JOKER
+		),
+		HalfCardState.new(
+			&"network-normal-half", state.active_context, 5, GameTypes.Suit.ONE
+		),
+	)
+	state.players[&"one"].hand[0] = joker
+	var controller := MatchController.new(state)
+	var transport := FakePeerTransport.new()
+	var host = _host(controller, transport)
+	host.register_peer("peer-one", &"one", GameTypes.RecipientRole.ACTIVE_PLAYER)
+	host.register_peer("peer-two", &"two", GameTypes.RecipientRole.ACTIVE_PLAYER)
+	host.register_peer("peer-watch", &"watcher", GameTypes.RecipientRole.SPECTATOR)
+	controller.submit(GameCommand.new(
+		&"stage-one", &"one", CommandKinds.STAGE_HAND, {"cards": [{
+			"card_id": joker.card_id,
+			"half_index": 0,
+			"joker_choices": [{
+				"half_index": 0,
+				"context": GameTypes.Context.C,
+				"suit": GameTypes.Suit.THREE,
+			}],
+		}]}
+	), 1)
+	controller.submit(GameCommand.new(
+		&"pass-two", &"two", CommandKinds.STAGE_HAND, {"cards": []}
+	), 1)
+	controller.submit(GameCommand.new(&"lock-one", &"one", CommandKinds.LOCK_HAND), 2)
+	var resolved := controller.submit(GameCommand.new(
+		&"lock-two", &"two", CommandKinds.LOCK_HAND
+	), 2)
+	host.publish_events(resolved.events)
+
+	for peer_id in ["peer-one", "peer-two", "peer-watch"]:
+		var reveal := _network_event(transport, peer_id, "hand_revealed", "one")
+		assert_eq(reveal.payload.cards[0].halves[0].context, GameTypes.Context.C)
+		assert_eq(reveal.payload.cards[0].halves[0].rank, 0)
+		assert_eq(reveal.payload.cards[0].halves[0].suit, GameTypes.Suit.THREE)
+		var encoded := JSON.stringify(reveal.payload.cards)
+		assert_false(encoded.contains("copy_id"))
+		assert_false(encoded.contains("base_context"))
+		assert_false(encoded.contains("joker_choices"))
+
+
 func _host(controller, transport: FakePeerTransport):
 	return HostNetworkSession.new(
 		controller, transport, "match-1", &"host", Callable(self, "_now")
@@ -174,7 +233,10 @@ func _config() -> MatchConfig:
 		))
 	return MatchConfig.new(
 		[&"one", &"two"], [&"watcher"], GameTypes.VictoryMode.SCORE_RACE, 10,
-		GameTypes.InformationVisibility.PUBLIC, timers, 1000, 5000, 30000, abilities
+		GameTypes.InformationVisibility.PUBLIC, timers, 1000, 5000, 30000, abilities,
+		[NormalHandDefinition.new(
+			&"high_card", 1, 1, &"high_card", Rational.new(1, 1)
+		)], []
 	)
 
 
@@ -218,6 +280,21 @@ func _decoded_for(transport: FakePeerTransport, peer_id: String) -> Array:
 func _event_kinds(transport: FakePeerTransport, peer_id: String) -> Array:
 	var messages := _decoded_for(transport, peer_id)
 	return messages[0]["payload"]["events"].map(func(event): return event["kind"])
+
+
+func _network_event(
+	transport: FakePeerTransport,
+	peer_id: String,
+	kind: String,
+	player_id: String
+) -> Dictionary:
+	for message: Dictionary in _decoded_for(transport, peer_id):
+		if message.kind != "event_batch":
+			continue
+		for event: Dictionary in message.payload.events:
+			if event.kind == kind and event.payload.get("player_id") == player_id:
+				return event
+	return {}
 
 
 func _now() -> int:
