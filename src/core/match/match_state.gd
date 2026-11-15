@@ -33,6 +33,9 @@ var phase_started_msec := -1
 var phase_deadline_msec := -1
 var reaction_deadline_msec := -1
 var last_round_winner_id: StringName = &""
+var host_player_id: StringName = &""
+var frozen := false
+var freeze_started_msec := -1
 
 
 static func create(match_config: MatchConfig, match_seed: int) -> MatchState:
@@ -51,6 +54,7 @@ static func create(match_config: MatchConfig, match_seed: int) -> MatchState:
 	ability_cards.assign(state.rng.shuffle(ability_cards))
 	state.ability_deck = AbilityDeckState.new(ability_cards)
 	state.seat_order = match_config.active_player_ids
+	state.host_player_id = state.seat_order[0]
 	for index in range(state.seat_order.size()):
 		var player_id := state.seat_order[index]
 		var player := PlayerState.new(player_id, index)
@@ -160,6 +164,9 @@ func to_dict() -> Dictionary:
 			"completed_manipulation_ids": completed_manipulations,
 			"finalized_score": player.finalized_score,
 			"end_discard_complete": player.end_discard_complete,
+			"activation_round": player.activation_round,
+			"disconnect_deadline_msec": player.disconnect_deadline_msec,
+			"reconnect_token": player.reconnect_token,
 		})
 	var serialized_piles := {}
 	for context in piles:
@@ -181,6 +188,8 @@ func to_dict() -> Dictionary:
 		"phase_started_msec": phase_started_msec, "phase_deadline_msec": phase_deadline_msec,
 		"reaction_deadline_msec": reaction_deadline_msec,
 		"last_round_winner_id": str(last_round_winner_id),
+		"host_player_id": str(host_player_id), "frozen": frozen,
+		"freeze_started_msec": freeze_started_msec,
 	}
 
 
@@ -234,6 +243,9 @@ static func from_dict(data: Dictionary) -> MatchState:
 			player.completed_manipulation_ids.append(StringName(ability_id))
 		player.finalized_score = player_data.get("finalized_score", 0)
 		player.end_discard_complete = player_data.get("end_discard_complete", false)
+		player.activation_round = player_data.get("activation_round", 0)
+		player.disconnect_deadline_msec = player_data.get("disconnect_deadline_msec", -1)
+		player.reconnect_token = player_data.get("reconnect_token", "")
 		state.players[player.player_id] = player
 	state.round_number = data.round_number
 	state.active_context = data.active_context
@@ -247,6 +259,9 @@ static func from_dict(data: Dictionary) -> MatchState:
 	state.phase_deadline_msec = data.get("phase_deadline_msec", -1)
 	state.reaction_deadline_msec = data.get("reaction_deadline_msec", -1)
 	state.last_round_winner_id = StringName(data.get("last_round_winner_id", ""))
+	state.host_player_id = StringName(data.get("host_player_id", ""))
+	state.frozen = data.get("frozen", false)
+	state.freeze_started_msec = data.get("freeze_started_msec", -1)
 	return state
 
 

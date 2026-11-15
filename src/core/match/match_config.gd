@@ -110,6 +110,20 @@ func lock_for_match() -> void:
 	match_started = true
 
 
+func register_active_participant(player_id: StringName) -> void:
+	if player_id not in _active_player_ids:
+		_active_player_ids.append(player_id)
+
+
+func unregister_active_participant(player_id: StringName) -> void:
+	_active_player_ids.erase(player_id)
+
+
+func register_spectator(player_id: StringName) -> void:
+	if player_id not in _spectator_ids:
+		_spectator_ids.append(player_id)
+
+
 func set_victory_target(value: int) -> StringName:
 	if match_started: return &"config_locked"
 	_victory_target = value

@@ -30,6 +30,9 @@ var provisional_score: Variant = null
 var completed_manipulation_ids: Array[StringName] = []
 var finalized_score := 0
 var end_discard_complete := false
+var activation_round := 0
+var disconnect_deadline_msec := -1
+var reconnect_token := ""
 
 
 func _init(id: StringName, seat: int, is_spectator: bool = false) -> void:

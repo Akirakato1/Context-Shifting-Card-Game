@@ -13,6 +13,7 @@ const CommandKinds = preload("res://src/core/commands/command_kinds.gd")
 const GameCommand = preload("res://src/core/commands/game_command.gd")
 const CommandResult = preload("res://src/core/commands/command_result.gd")
 const MatchState = preload("res://src/core/match/match_state.gd")
+const PlayerState = preload("res://src/core/match/player_state.gd")
 const HalfCardState = preload("res://src/core/cards/half_card_state.gd")
 const Rational = preload("res://src/core/common/rational.gd")
 const ScoringTypes = preload("res://src/core/scoring/scoring_types.gd")
@@ -39,6 +40,16 @@ func _init(match_state: MatchState, effects: EffectRegistry = null) -> void:
 
 
 func submit(command: GameCommand, now_msec: int) -> CommandResult:
+	if command != null and command.kind == CommandKinds.JOIN_ACTIVE:
+		return _join_active(command)
+	if command != null and command.kind == CommandKinds.JOIN_SPECTATOR:
+		return _join_spectator(command)
+	if command != null and command.kind == CommandKinds.RECONNECT:
+		return _reconnect(command, now_msec)
+	if command != null and command.kind == CommandKinds.FORFEIT:
+		return _forfeit_command(command, now_msec)
+	if state.frozen:
+		return CommandResult.new(false, &"match_frozen")
 	var common_error := _validate_common(command)
 	if not common_error.is_empty():
 		return CommandResult.new(false, common_error)
@@ -64,6 +75,8 @@ func submit(command: GameCommand, now_msec: int) -> CommandResult:
 
 
 func tick(now_msec: int) -> Array[DomainEvent]:
+	if state.frozen:
+		return _tick_disconnects(now_msec)
 	if state.match_complete and state.phase != GameTypes.Phase.END:
 		return []
 	if state.phase == GameTypes.Phase.START:
@@ -142,6 +155,17 @@ func _prepare_start_phase() -> void:
 		state.active_context = posmod(
 			state.active_context + state.context_direction, 3
 		)
+	for player_id in state.seat_order:
+		var pending_player = state.players[player_id]
+		if pending_player.pending and pending_player.activation_round <= state.round_number:
+			pending_player.pending = false
+			pending_player.active = true
+			pending_player.match_score = 0
+			pending_player.round_wins = 0
+			pending_player.hand = CardFactory.build_opening_hand(state.piles, state.rng)
+			pending_player.ability_hand = state.ability_deck.draw(
+				player_id, state.ability_deck.starting_hand_size, state.rng
+			)
 	for player_id in state.seat_order:
 		var player = state.players[player_id]
 		if player.active and not player.pending:
@@ -505,14 +529,30 @@ func _complete_end(now_msec: int) -> Array[DomainEvent]:
 	)]
 
 
-func notify_player_disconnected(player_id: StringName) -> void:
+func notify_player_disconnected(player_id: StringName, now_msec: int = 0) -> void:
 	if not state.players.has(player_id):
 		return
 	if _end_transaction_active:
 		if player_id not in _queued_disconnects:
 			_queued_disconnects.append(player_id)
-	else:
+		return
+	if player_id == state.host_player_id:
 		state.players[player_id].connected = false
+		state.match_complete = true
+		state.winner_id = &""
+		state.phase = GameTypes.Phase.COMPLETE
+		state.config.match_started = false
+		return
+	var player = state.players[player_id]
+	if not player.active or not player.connected:
+		return
+	player.connected = false
+	player.ready = false
+	player.disconnect_deadline_msec = now_msec + state.config.reconnect_grace_msec
+	player.reconnect_token = "reconnect:%s:%s" % [str(player_id), str(state.seed)]
+	if not state.frozen:
+		state.frozen = true
+		state.freeze_started_msec = now_msec
 
 
 func reset_for_rematch(new_seed: int) -> void:
@@ -541,6 +581,140 @@ func _string_key_scores(scores: Dictionary) -> Dictionary:
 	for player_id in scores:
 		result[str(player_id)] = scores[player_id]
 	return result
+
+
+func _join_active(command: GameCommand) -> CommandResult:
+	if command.command_id.is_empty() or command.player_id.is_empty():
+		return CommandResult.new(false, &"malformed_command")
+	if state.players.has(command.player_id):
+		return CommandResult.new(false, &"participant_id_in_use")
+	if state.seat_order.size() >= 4:
+		return CommandResult.new(false, &"active_seats_full")
+	var seat_index := _first_open_seat()
+	var player = PlayerState.new(command.player_id, seat_index)
+	player.pending = true
+	player.active = true
+	player.activation_round = state.round_number + 1
+	state.players[command.player_id] = player
+	state.seat_order.append(command.player_id)
+	state.config.register_active_participant(command.player_id)
+	_accepted_command_ids[command.player_id] = {command.command_id: true}
+	return CommandResult.new(true)
+
+
+func _join_spectator(command: GameCommand) -> CommandResult:
+	if command.command_id.is_empty() or command.player_id.is_empty():
+		return CommandResult.new(false, &"malformed_command")
+	if state.players.has(command.player_id):
+		return CommandResult.new(false, &"participant_id_in_use")
+	var spectator_count := 0
+	for player in state.players.values():
+		if player.spectator:
+			spectator_count += 1
+	if spectator_count >= 4:
+		return CommandResult.new(false, &"spectator_slots_full")
+	state.players[command.player_id] = PlayerState.new(command.player_id, -1, true)
+	state.config.register_spectator(command.player_id)
+	_accepted_command_ids[command.player_id] = {command.command_id: true}
+	return CommandResult.new(true)
+
+
+func _reconnect(command: GameCommand, now_msec: int) -> CommandResult:
+	if not state.players.has(command.player_id):
+		return CommandResult.new(false, &"unknown_player")
+	var player = state.players[command.player_id]
+	if player.connected or player.disconnect_deadline_msec < 0:
+		return CommandResult.new(false, &"player_not_disconnected")
+	if now_msec > player.disconnect_deadline_msec:
+		return CommandResult.new(false, &"reconnect_grace_expired")
+	if not command.payload.has("token") or command.payload.token != player.reconnect_token:
+		return CommandResult.new(false, &"invalid_reconnect_token")
+	player.connected = true
+	player.disconnect_deadline_msec = -1
+	player.reconnect_token = ""
+	_resume_if_resolved(now_msec)
+	return CommandResult.new(true, &"", [DomainEvent.new(
+		&"player_reconnected", {"player_id": str(command.player_id)}, &"public"
+	)])
+
+
+func _forfeit_command(command: GameCommand, now_msec: int) -> CommandResult:
+	if not state.players.has(command.player_id):
+		return CommandResult.new(false, &"unknown_player")
+	var events := _forfeit_player(command.player_id)
+	_resume_if_resolved(now_msec)
+	return CommandResult.new(true, &"", events)
+
+
+func _tick_disconnects(now_msec: int) -> Array[DomainEvent]:
+	var events: Array[DomainEvent] = []
+	var expired: Array[StringName] = []
+	for player_id in state.seat_order:
+		var player = state.players[player_id]
+		if (
+			player.active and not player.connected and player.disconnect_deadline_msec >= 0
+			and now_msec >= player.disconnect_deadline_msec
+		):
+			expired.append(player_id)
+	for player_id in expired:
+		events.append_array(_forfeit_player(player_id))
+	_resume_if_resolved(now_msec)
+	return events
+
+
+func _forfeit_player(player_id: StringName) -> Array[DomainEvent]:
+	var player = state.players[player_id]
+	for card in player.hand.duplicate():
+		card.leave_hand()
+		state.piles[card.first.base_context].discard(card.first)
+		state.piles[card.second.base_context].discard(card.second)
+	player.hand.clear()
+	for ability in player.ability_hand.duplicate():
+		player.ability_hand.erase(ability)
+		state.ability_deck.discard(ability)
+	player.pending_manipulation.clear()
+	player.staged_submission.clear()
+	player.submitted_cards.clear()
+	player.submitted_faces.clear()
+	player.disconnect_deadline_msec = -1
+	player.reconnect_token = ""
+	state.remove_active_player(player_id)
+	state.seat_order.erase(player_id)
+	state.config.unregister_active_participant(player_id)
+	if state.match_complete:
+		state.config.match_started = false
+	return [DomainEvent.new(
+		&"player_forfeited", {"player_id": str(player_id)}, &"public"
+	)]
+
+
+func _resume_if_resolved(now_msec: int) -> void:
+	for player_id in state.seat_order:
+		var player = state.players[player_id]
+		if player.active and not player.connected and player.disconnect_deadline_msec >= 0:
+			return
+	if not state.frozen:
+		return
+	var paused_duration: int = max(now_msec - state.freeze_started_msec, 0)
+	if state.phase_started_msec >= 0:
+		state.phase_started_msec += paused_duration
+	if state.phase_deadline_msec >= 0:
+		state.phase_deadline_msec += paused_duration
+	if state.reaction_deadline_msec >= 0:
+		state.reaction_deadline_msec += paused_duration
+	state.frozen = false
+	state.freeze_started_msec = -1
+
+
+func _first_open_seat() -> int:
+	var occupied := {}
+	for player in state.players.values():
+		if not player.spectator and (player.active or player.pending):
+			occupied[player.seat_index] = true
+	for seat in range(4):
+		if not occupied.has(seat):
+			return seat
+	return -1
 
 
 func _submit_hand_play(command: GameCommand, now_msec: int) -> CommandResult:
