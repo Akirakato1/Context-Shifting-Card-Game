@@ -71,16 +71,9 @@ static func for_recipient(
 
 
 static func _revealed_submission(player) -> Dictionary:
-	var cards: Array = []
-	for index in range(player.submitted_faces.size()):
-		var face = player.submitted_faces[index]
-		var card = player.submitted_cards[index]
-		cards.append({
-			"card_id": str(face.card_id), "selected_half_index": face.half_index,
-			"halves": [_public_half(card.first), _public_half(card.second)],
-		})
 	var result := {
-		"cards": cards, "normal_category": str(player.locked_normal.category_id),
+		"cards": player.submitted_card_views.duplicate(true),
+		"normal_category": str(player.locked_normal.category_id),
 		"context_category": str(player.locked_context.category_id),
 		"finalized_score": player.finalized_score,
 	}
@@ -88,14 +81,6 @@ static func _revealed_submission(player) -> Dictionary:
 		result["base_value"] = player.provisional_score.base_value
 		result["provisional_score"] = player.provisional_score.final_score
 	return result
-
-
-static func _public_half(half) -> Dictionary:
-	return {
-		"context": half.effective_context(), "rank": half.effective_rank(),
-		"suit": half.effective_suit(),
-	}
-
 
 static func _private_hand(hand: Array) -> Array:
 	var result: Array = []

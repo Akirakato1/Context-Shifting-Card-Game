@@ -101,7 +101,7 @@ static func evaluate(
 		))
 		submitted_cards.append(card)
 		resolved_cards.append({
-			"card_id": card.card_id,
+			"card_id": str(card.card_id),
 			"selected_half_index": half_index,
 			"halves": resolved_halves,
 		})

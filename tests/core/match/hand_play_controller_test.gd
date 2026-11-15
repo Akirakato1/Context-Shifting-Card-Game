@@ -106,7 +106,19 @@ func test_zero_to_six_cards_are_legal_when_every_card_is_eligible() -> void:
 	assert_true(controller.submit(_stage(&"pass", &"two", []), 1).accepted)
 	var all_cards: Array = []
 	for card in state.players[&"one"].hand:
-		all_cards.append({"card_id": card.card_id, "half_index": selected_indexes[card.card_id]})
+		var joker_choices: Array = []
+		for half_index in range(2):
+			if card.half_at(half_index).is_joker():
+				joker_choices.append({
+					"half_index": half_index,
+					"context": GameTypes.Context.A,
+					"suit": GameTypes.Suit.ONE,
+				})
+		all_cards.append({
+			"card_id": card.card_id,
+			"half_index": selected_indexes[card.card_id],
+			"joker_choices": joker_choices,
+		})
 	assert_eq(all_cards.size(), 6)
 	assert_true(controller.submit(_stage(&"six", &"one", all_cards), 2).accepted)
 	all_cards.append(all_cards[0])

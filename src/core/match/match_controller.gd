@@ -16,10 +16,8 @@ const MatchState = preload("res://src/core/match/match_state.gd")
 const PlayerState = preload("res://src/core/match/player_state.gd")
 const HalfCardState = preload("res://src/core/cards/half_card_state.gd")
 const Rational = preload("res://src/core/common/rational.gd")
-const ScoringTypes = preload("res://src/core/scoring/scoring_types.gd")
-const NormalHandEvaluator = preload("res://src/core/scoring/normal_hand_evaluator.gd")
-const ContextHandEvaluator = preload("res://src/core/scoring/context_hand_evaluator.gd")
 const ScoreCalculator = preload("res://src/core/scoring/score_calculator.gd")
+const SubmissionEvaluator = preload("res://src/core/scoring/submission_evaluator.gd")
 
 var state: MatchState
 var _accepted_command_ids: Dictionary = {}
@@ -481,6 +479,7 @@ func _begin_end(now_msec: int) -> Array[DomainEvent]:
 			state.piles[card.second.base_context].discard(card.second)
 		player.submitted_cards.clear()
 		player.submitted_faces.clear()
+		player.submitted_card_views.clear()
 		player.score_modifiers.clear()
 		player.pending_manipulation.clear()
 		player.staged_submission.clear()
@@ -782,6 +781,7 @@ func _forfeit_player(player_id: StringName) -> Array[DomainEvent]:
 	player.staged_submission.clear()
 	player.submitted_cards.clear()
 	player.submitted_faces.clear()
+	player.submitted_card_views.clear()
 	player.disconnect_deadline_msec = -1
 	player.reconnect_token = ""
 	state.remove_active_player(player_id)
@@ -905,9 +905,7 @@ func _stage_hand(command: GameCommand, now_msec: int) -> CommandResult:
 	if not command.payload.has("cards") or not command.payload.cards is Array:
 		return CommandResult.new(false, &"malformed_command")
 	var selections: Array = command.payload.cards
-	if selections.size() > 6:
-		return CommandResult.new(false, &"submission_size_out_of_range")
-	var seen := {}
+	var candidate: Array = []
 	for raw_selection in selections:
 		if (
 			not raw_selection is Dictionary or not raw_selection.has("card_id")
@@ -916,26 +914,34 @@ func _stage_hand(command: GameCommand, now_msec: int) -> CommandResult:
 			return CommandResult.new(false, &"malformed_command")
 		if not raw_selection.has("half_index"):
 			return CommandResult.new(false, &"half_choice_required")
-		if not raw_selection.half_index is int or raw_selection.half_index < 0 or raw_selection.half_index > 1:
-			return CommandResult.new(false, &"invalid_half_index")
-		var card_id := StringName(raw_selection.card_id)
-		if seen.has(card_id):
-			return CommandResult.new(false, &"duplicate_submitted_card")
-		seen[card_id] = true
-		var card := _hand_card(command.player_id, card_id)
-		if card == null:
-			return CommandResult.new(false, &"card_not_in_hand")
-		if card.eligible_half_indexes(state.active_context).is_empty():
-			return CommandResult.new(false, &"card_not_eligible")
-		var half = card.first if raw_selection.half_index == 0 else card.second
-		if half.effective_context() != state.active_context:
-			return CommandResult.new(false, &"selected_half_not_active")
-	_ensure_phase_clock(now_msec)
+		var normalized: Dictionary = raw_selection.duplicate(true)
+		if not normalized.has("joker_choices"):
+			normalized["joker_choices"] = []
+		candidate.append(normalized)
 	var player = state.players[command.player_id]
+	var evaluation := SubmissionEvaluator.evaluate(
+		player.hand,
+		candidate,
+		state.active_context,
+		state.config.normal_definitions,
+		state.config.context_definitions,
+		player.score_modifiers
+	)
+	if not evaluation.is_valid:
+		return CommandResult.new(false, evaluation.error_code)
+	_ensure_phase_clock(now_msec)
 	player.staged_submission.clear()
-	for selection: Dictionary in selections:
+	for selection: Dictionary in candidate:
+		var canonical_choices: Array = []
+		for choice: Dictionary in selection.joker_choices:
+			canonical_choices.append({
+				"half_index": choice.half_index,
+				"context": choice.context,
+				"suit": choice.suit,
+			})
 		player.staged_submission.append({
 			"card_id": StringName(selection.card_id), "half_index": selection.half_index,
+			"joker_choices": canonical_choices,
 		})
 	player.has_staged_submission = true
 	return CommandResult.new(true)
@@ -943,16 +949,32 @@ func _stage_hand(command: GameCommand, now_msec: int) -> CommandResult:
 
 func _lock_player_hand(player_id: StringName) -> void:
 	var player = state.players[player_id]
-	player.submitted_cards.clear()
-	player.submitted_faces.clear()
-	if player.has_staged_submission:
-		for selection in player.staged_submission:
-			var card: FullCardState = _hand_card(player_id, selection.card_id)
-			player.submitted_cards.append(card)
-			var half = card.first if selection.half_index == 0 else card.second
-			player.submitted_faces.append(ScoringTypes.SelectedCardFace.new(
-				card.card_id, selection.half_index, half.effective_rank(), half.effective_suit()
-			))
+	var selections: Array = player.staged_submission if player.has_staged_submission else []
+	var evaluation := SubmissionEvaluator.evaluate(
+		player.hand,
+		selections,
+		state.active_context,
+		state.config.normal_definitions,
+		state.config.context_definitions,
+		player.score_modifiers
+	)
+	if not evaluation.is_valid:
+		player.staged_submission.clear()
+		player.has_staged_submission = true
+		evaluation = SubmissionEvaluator.evaluate(
+			player.hand,
+			[],
+			state.active_context,
+			state.config.normal_definitions,
+			state.config.context_definitions,
+			player.score_modifiers
+		)
+	player.submitted_cards.assign(evaluation.submitted_cards)
+	player.submitted_faces.assign(evaluation.selected_faces)
+	player.submitted_card_views.assign(evaluation.resolved_cards)
+	player.locked_normal = evaluation.normal_result
+	player.locked_context = evaluation.context_result
+	player.provisional_score = evaluation.score_breakdown
 	player.hand_locked = true
 	player.ready = true
 
@@ -974,29 +996,11 @@ func _resolve_hand_play(now_msec: int) -> Array[DomainEvent]:
 		var player = state.players[player_id]
 		if not player.active or player.pending:
 			continue
-		player.locked_normal = NormalHandEvaluator.evaluate(
-			player.submitted_faces, state.config.normal_definitions
-		)
-		player.locked_context = ContextHandEvaluator.evaluate(
-			player.submitted_cards, state.config.context_definitions
-		)
-		player.provisional_score = ScoreCalculator.calculate(
-			player.submitted_faces, player.locked_normal, player.locked_context,
-			player.score_modifiers
-		)
 		var manipulation_ids: Array = []
 		for ability_id in player.completed_manipulation_ids:
 			manipulation_ids.append(str(ability_id))
-		var revealed_cards: Array = []
-		for index in range(player.submitted_faces.size()):
-			var face = player.submitted_faces[index]
-			var card: FullCardState = player.submitted_cards[index]
-			revealed_cards.append({
-				"card_id": str(face.card_id), "selected_half_index": face.half_index,
-				"halves": [_public_effective_half(card.first), _public_effective_half(card.second)],
-			})
 		events.append(DomainEvent.new(EventKinds.HAND_REVEALED, {
-			"player_id": str(player_id), "cards": revealed_cards,
+			"player_id": str(player_id), "cards": player.submitted_card_views.duplicate(true),
 			"normal_category": str(player.locked_normal.category_id),
 			"context_category": str(player.locked_context.category_id),
 			"base_value": player.provisional_score.base_value,
@@ -1106,9 +1110,3 @@ func _private_half(half: HalfCardState) -> Dictionary:
 		"suit": half.effective_suit(),
 	}
 
-
-func _public_effective_half(half: HalfCardState) -> Dictionary:
-	return {
-		"context": half.effective_context(), "rank": half.effective_rank(),
-		"suit": half.effective_suit(),
-	}
