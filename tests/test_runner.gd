@@ -29,7 +29,7 @@ func _run() -> void:
 		return
 
 	for test_path in test_paths:
-		_run_test_script(test_path)
+		await _run_test_script(test_path)
 
 	print("RESULT: %d passed, %d failed" % [_passed_tests, _failed_tests])
 	quit(0 if _failed_tests == 0 else 1)
@@ -68,7 +68,7 @@ func _run_test_script(test_path: String) -> void:
 	for method_info in methods:
 		var method_name := String(method_info["name"])
 		if method_name.begins_with("test_"):
-			_run_test_method(test_path, suite, method_name)
+			await _run_test_method(test_path, suite, method_name)
 
 
 func _run_test_method(test_path: String, suite: RefCounted, method_name: String) -> void:
@@ -77,7 +77,7 @@ func _run_test_method(test_path: String, suite: RefCounted, method_name: String)
 	if suite.has_method("before_each"):
 		suite.call("before_each")
 
-	suite.call(method_name)
+	await suite.call(method_name)
 
 	if suite.has_method("after_each"):
 		suite.call("after_each")

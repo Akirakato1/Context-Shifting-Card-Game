@@ -34,8 +34,11 @@ if ($TestPaths.Count -gt 0) {
     $godotArguments += $TestPaths
 }
 
+$savedErrorPreference = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
 $output = & $godotBin @godotArguments 2>&1
 $godotExitCode = $LASTEXITCODE
+$ErrorActionPreference = $savedErrorPreference
 $renderedOutput = $output -join [Environment]::NewLine
 Write-Output $renderedOutput
 
