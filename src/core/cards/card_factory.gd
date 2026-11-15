@@ -10,7 +10,11 @@ const FullCardState = preload("res://src/core/cards/full_card_state.gd")
 const CONTEXT_DRAW_CAP := 5
 
 
-static func build_opening_hand(piles: Dictionary, rng: RandomSource) -> Array[FullCardState]:
+static func build_opening_hand(
+	piles: Dictionary,
+	rng: RandomSource,
+	card_id_provider: Callable = Callable()
+) -> Array[FullCardState]:
 	if not _has_all_piles(piles):
 		return []
 	var by_context := {}
@@ -23,9 +27,9 @@ static func build_opening_hand(piles: Dictionary, rng: RandomSource) -> Array[Fu
 
 	var cards: Array[FullCardState] = []
 	for index in range(2):
-		cards.append(_pair(by_context[GameTypes.Context.A][index], by_context[GameTypes.Context.B][index]))
-		cards.append(_pair(by_context[GameTypes.Context.A][index + 2], by_context[GameTypes.Context.C][index]))
-		cards.append(_pair(by_context[GameTypes.Context.B][index + 2], by_context[GameTypes.Context.C][index + 2]))
+		cards.append(_pair(by_context[GameTypes.Context.A][index], by_context[GameTypes.Context.B][index], _card_id(card_id_provider, cards.size())))
+		cards.append(_pair(by_context[GameTypes.Context.A][index + 2], by_context[GameTypes.Context.C][index], _card_id(card_id_provider, cards.size())))
+		cards.append(_pair(by_context[GameTypes.Context.B][index + 2], by_context[GameTypes.Context.C][index + 2], _card_id(card_id_provider, cards.size())))
 	var shuffled_cards: Array[FullCardState] = []
 	shuffled_cards.assign(rng.shuffle(cards))
 	return shuffled_cards
@@ -34,7 +38,8 @@ static func build_opening_hand(piles: Dictionary, rng: RandomSource) -> Array[Fu
 static func draw_replenishment(
 	piles: Dictionary,
 	request: Dictionary,
-	rng: RandomSource
+	rng: RandomSource,
+	card_id_provider: Callable = Callable()
 ) -> Array[FullCardState]:
 	if not _has_all_piles(piles) or not _validate_request_values(request).is_empty():
 		return []
@@ -55,7 +60,10 @@ static func draw_replenishment(
 	shuffled_halves.assign(rng.shuffle(halves))
 	var cards: Array[FullCardState] = []
 	for index in range(0, shuffled_halves.size(), 2):
-		cards.append(_pair(shuffled_halves[index], shuffled_halves[index + 1]))
+		cards.append(_pair(
+			shuffled_halves[index], shuffled_halves[index + 1],
+			_card_id(card_id_provider, cards.size())
+		))
 	return cards
 
 
@@ -103,9 +111,20 @@ static func complete_request(
 	return {"ok": true, "error": &"", "request": completed}
 
 
-static func _pair(first: HalfCardState, second: HalfCardState) -> FullCardState:
-	var card_id := StringName("full:%s+%s" % [first.copy_id, second.copy_id])
+static func _pair(
+	first: HalfCardState,
+	second: HalfCardState,
+	card_id: StringName
+) -> FullCardState:
 	return FullCardState.new(card_id, first, second)
+
+
+static func _card_id(provider: Callable, local_index: int) -> StringName:
+	if provider.is_valid():
+		var provided: Variant = provider.call()
+		assert(provided is StringName or provided is String)
+		return StringName(provided)
+	return StringName("card-%03d" % local_index)
 
 
 static func _has_all_piles(piles: Dictionary) -> bool:

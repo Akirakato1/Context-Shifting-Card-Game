@@ -92,6 +92,16 @@ func validate() -> StringName:
 		return &"invalid_victory_mode"
 	if _information_visibility < GameTypes.InformationVisibility.PUBLIC or _information_visibility > GameTypes.InformationVisibility.PRIVATE:
 		return &"invalid_information_visibility"
+	var required_phases := [
+		GameTypes.Phase.START, GameTypes.Phase.MAIN_1, GameTypes.Phase.HAND_PLAY,
+		GameTypes.Phase.MAIN_2, GameTypes.Phase.END,
+	]
+	for phase in _phase_timers:
+		if not phase is int or phase not in required_phases:
+			return &"unknown_phase_timer"
+	for phase in required_phases:
+		if not _phase_timers.has(phase):
+			return &"missing_phase_timer"
 	for duration in _phase_timers.values():
 		if not duration is int or duration <= 0:
 			return &"invalid_phase_timer"
@@ -181,6 +191,8 @@ func to_dict() -> Dictionary:
 			"id": str(definition.id), "timing": definition.timing, "tags": tags,
 			"effect_id": str(definition.effect_id), "field_duration": definition.field_duration,
 			"conflict_group": str(definition.conflict_group),
+			"effect_parameters": definition.effect_parameters,
+			"choice_schema": definition.choice_schema,
 		})
 	var normal_definitions: Array = []
 	for definition in _normal_definitions:
@@ -225,7 +237,8 @@ static func from_dict(data: Dictionary) -> MatchConfig:
 		for tag: String in item.tags: tags.append(StringName(tag))
 		definitions.append(AbilityDefinition.new(
 			StringName(item.id), item.timing, tags, StringName(item.effect_id),
-			item.field_duration, StringName(item.conflict_group)
+			item.field_duration, StringName(item.conflict_group),
+			item.get("effect_parameters", {}), item.get("choice_schema", {})
 		))
 	var normal_definitions: Array[NormalHandDefinition] = []
 	for item: Dictionary in data.get("normal_definitions", []):

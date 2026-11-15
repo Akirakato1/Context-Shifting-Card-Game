@@ -26,15 +26,24 @@ var _accepted_command_ids: Dictionary = {}
 var _start_requests: Dictionary = {}
 var _effect_registry: EffectRegistry
 var _end_transaction_active := false
-var _queued_disconnects: Array[StringName] = []
+var _queued_disconnects: Array[Dictionary] = []
+var _reconnect_token_provider: Callable
 var end_transaction_probe: Callable
 
 
-func _init(match_state: MatchState, effects: EffectRegistry = null) -> void:
+func _init(
+	match_state: MatchState,
+	effects: EffectRegistry = null,
+	reconnect_token_provider: Callable = Callable()
+) -> void:
 	state = match_state
 	_effect_registry = effects if effects != null else EffectRegistry.new()
+	_reconnect_token_provider = reconnect_token_provider
+	_accepted_command_ids = state.accepted_command_ids
+	_start_requests = state.start_requests
 	for player_id in state.players:
-		_accepted_command_ids[player_id] = {}
+		if not _accepted_command_ids.has(player_id):
+			_accepted_command_ids[player_id] = {}
 	if state.phase == GameTypes.Phase.START:
 		_prepare_start_phase()
 
@@ -45,7 +54,7 @@ func submit(command: GameCommand, now_msec: int) -> CommandResult:
 	if command != null and command.kind == CommandKinds.JOIN_SPECTATOR:
 		return _join_spectator(command)
 	if command != null and command.kind == CommandKinds.RECONNECT:
-		return _reconnect(command, now_msec)
+		return _submit_reconnect(command, now_msec)
 	if command != null and command.kind == CommandKinds.FORFEIT:
 		return _forfeit_command(command, now_msec)
 	if state.frozen:
@@ -55,6 +64,10 @@ func submit(command: GameCommand, now_msec: int) -> CommandResult:
 		return CommandResult.new(false, common_error)
 	if _accepted_command_ids[command.player_id].has(command.command_id):
 		return CommandResult.new(false, &"duplicate_command")
+	if not _command_allowed_in_current_phase(command.kind):
+		return CommandResult.new(false, &"command_not_allowed_in_phase")
+	if state.phase_deadline_msec >= 0 and now_msec > state.phase_deadline_msec:
+		return CommandResult.new(false, &"phase_deadline_passed")
 
 	var result: CommandResult
 	if state.phase == GameTypes.Phase.START:
@@ -122,6 +135,39 @@ func _validate_common(command: GameCommand) -> StringName:
 	return &""
 
 
+func _validate_lifecycle_command(command: GameCommand) -> StringName:
+	if command == null or command.command_id.is_empty() or command.player_id.is_empty():
+		return &"malformed_command"
+	if not state.players.has(command.player_id):
+		return &"unknown_player"
+	if not _accepted_command_ids.has(command.player_id):
+		_accepted_command_ids[command.player_id] = {}
+	if _accepted_command_ids[command.player_id].has(command.command_id):
+		return &"duplicate_command"
+	return &""
+
+
+func _is_identifier(value: Variant) -> bool:
+	return value is String or value is StringName
+
+
+func _command_allowed_in_current_phase(kind: StringName) -> bool:
+	match state.phase:
+		GameTypes.Phase.START:
+			return kind in [CommandKinds.SET_REPLENISHMENT_REQUEST, CommandKinds.SET_READY]
+		GameTypes.Phase.MAIN_1, GameTypes.Phase.MAIN_2:
+			return kind in [CommandKinds.SET_READY, CommandKinds.PLAY_PUBLIC_ABILITY]
+		GameTypes.Phase.HAND_PLAY:
+			return kind in [
+				CommandKinds.STAGE_MANIPULATION, CommandKinds.CANCEL_MANIPULATION,
+				CommandKinds.COMMIT_MANIPULATION, CommandKinds.STAGE_HAND,
+				CommandKinds.LOCK_HAND,
+			]
+		GameTypes.Phase.END:
+			return kind == CommandKinds.CHOOSE_ABILITY_DISCARDS
+	return false
+
+
 func _submit_start(command: GameCommand, now_msec: int) -> CommandResult:
 	match command.kind:
 		CommandKinds.SET_REPLENISHMENT_REQUEST:
@@ -148,13 +194,18 @@ func _submit_start(command: GameCommand, now_msec: int) -> CommandResult:
 	return CommandResult.new(false, &"command_not_allowed_in_phase")
 
 
-func _prepare_start_phase() -> void:
+func _prepare_start_phase() -> Array[DomainEvent]:
+	var events: Array[DomainEvent] = []
 	if state.start_prepared_round == state.round_number:
-		return
+		return events
 	if state.round_number > 1:
 		state.active_context = posmod(
 			state.active_context + state.context_direction, 3
 		)
+		events.append(DomainEvent.new(
+			EventKinds.CONTEXT_ADVANCED,
+			{"context": state.active_context, "direction": state.context_direction}, &"public"
+		))
 	for player_id in state.seat_order:
 		var pending_player = state.players[player_id]
 		if pending_player.pending and pending_player.activation_round <= state.round_number:
@@ -162,7 +213,9 @@ func _prepare_start_phase() -> void:
 			pending_player.active = true
 			pending_player.match_score = 0
 			pending_player.round_wins = 0
-			pending_player.hand = CardFactory.build_opening_hand(state.piles, state.rng)
+			pending_player.hand = CardFactory.build_opening_hand(
+				state.piles, state.rng, state.allocate_card_id
+			)
 			pending_player.ability_hand = state.ability_deck.draw(
 				player_id, state.ability_deck.starting_hand_size, state.rng
 			)
@@ -175,6 +228,7 @@ func _prepare_start_phase() -> void:
 	state.phase_started_msec = -1
 	state.phase_deadline_msec = -1
 	state.reaction_deadline_msec = -1
+	return events
 
 
 func _ensure_phase_clock(now_msec: int) -> void:
@@ -190,6 +244,7 @@ func _ensure_phase_clock(now_msec: int) -> void:
 func _finish_start(now_msec: int) -> Array[DomainEvent]:
 	var events: Array[DomainEvent] = []
 	var completed_requests := {}
+	var replacement_counts := {}
 	for player_id in state.seat_order:
 		var player = state.players[player_id]
 		if not player.active or player.pending or player.replenishment_needed == 0:
@@ -200,14 +255,15 @@ func _finish_start(now_msec: int) -> Array[DomainEvent]:
 		)
 		assert(completion.ok, "stored replenishment request must be completable")
 		completed_requests[str(player_id)] = completion.request.duplicate()
+		replacement_counts[str(player_id)] = player.replenishment_needed
 
-	if (
-		not completed_requests.is_empty()
-		and state.config.information_visibility == GameTypes.InformationVisibility.PUBLIC
-	):
+	if not completed_requests.is_empty():
+		var reveal_payload := {"counts": replacement_counts}
+		if state.config.information_visibility == GameTypes.InformationVisibility.PUBLIC:
+			reveal_payload["requests"] = completed_requests
 		events.append(DomainEvent.new(
 			EventKinds.REPLENISHMENT_REQUESTS_REVEALED,
-			{"requests": completed_requests}, &"public"
+			reveal_payload, &"public"
 		))
 
 	for player_id in state.seat_order:
@@ -216,7 +272,8 @@ func _finish_start(now_msec: int) -> Array[DomainEvent]:
 			continue
 		if player.replenishment_needed > 0:
 			var cards: Array[FullCardState] = CardFactory.draw_replenishment(
-				state.piles, completed_requests[str(player_id)], state.rng
+				state.piles, completed_requests[str(player_id)], state.rng,
+				state.allocate_card_id
 			)
 			player.hand.append_array(cards)
 			player.replenishment_needed = 0
@@ -297,8 +354,10 @@ func _submit_main_two(command: GameCommand, now_msec: int) -> CommandResult:
 
 
 func _play_public_ability(command: GameCommand, now_msec: int) -> CommandResult:
-	if not command.payload.has("copy_id"):
+	if not command.payload.has("copy_id") or not _is_identifier(command.payload.copy_id):
 		return CommandResult.new(false, &"malformed_command")
+	if command.payload.has("effect"):
+		return CommandResult.new(false, &"unexpected_effect_payload")
 	var copy_id := StringName(command.payload.copy_id)
 	var ability := _held_ability(command.player_id, copy_id)
 	if ability == null:
@@ -307,8 +366,11 @@ func _play_public_ability(command: GameCommand, now_msec: int) -> CommandResult:
 		return CommandResult.new(false, &"ability_timing_not_allowed")
 	if ability.definition.timing == AbilityDefinition.Timing.HAND_MANIPULATION:
 		return CommandResult.new(false, &"ability_timing_not_allowed")
-	var target_player_id := StringName(command.payload.get("target_player_id", &""))
-	var effect_payload: Dictionary = command.payload.get("effect", {})
+	var raw_target: Variant = command.payload.get("target_player_id", &"")
+	if not _is_identifier(raw_target):
+		return CommandResult.new(false, &"malformed_command")
+	var target_player_id := StringName(raw_target)
+	var effect_payload: Dictionary = ability.definition.effect_parameters
 	var effect_context := {
 		"state": state, "source_player_id": command.player_id,
 		"target_player_id": target_player_id, "ability": ability,
@@ -350,6 +412,11 @@ func _play_public_ability(command: GameCommand, now_msec: int) -> CommandResult:
 				target.submitted_faces, target.locked_normal, target.locked_context,
 				target.score_modifiers
 			)
+			events.append(DomainEvent.new(
+				EventKinds.PROVISIONAL_SCORE_UPDATED,
+				{"player_id": str(target_player_id),
+				"provisional_score": target.provisional_score.final_score}, &"public"
+			))
 	for player_id in state.seat_order:
 		if state.players[player_id].active:
 			state.players[player_id].ready = false
@@ -429,9 +496,8 @@ func _begin_end(now_msec: int) -> Array[DomainEvent]:
 			EventKinds.FIELD_EXPIRED, {"ability_id": str(field.ability.definition.id)}, &"public"
 		))
 	_end_transaction_active = false
-	for disconnected_id in _queued_disconnects:
-		if state.players.has(disconnected_id):
-			state.players[disconnected_id].connected = false
+	for queued: Dictionary in _queued_disconnects:
+		_apply_disconnect(queued.player_id, queued.detected_msec)
 	_queued_disconnects.clear()
 
 	if _all_end_discards_complete():
@@ -456,6 +522,8 @@ func _submit_end(command: GameCommand, now_msec: int) -> CommandResult:
 	var cards: Array[AbilityState] = []
 	var seen := {}
 	for raw_id in command.payload.copy_ids:
+		if not _is_identifier(raw_id):
+			return CommandResult.new(false, &"malformed_command")
 		var copy_id := StringName(raw_id)
 		if seen.has(copy_id):
 			return CommandResult.new(false, &"duplicate_ability_discard")
@@ -522,20 +590,27 @@ func _complete_end(now_msec: int) -> Array[DomainEvent]:
 	state.phase_started_msec = -1
 	state.phase_deadline_msec = -1
 	state.reaction_deadline_msec = -1
-	_prepare_start_phase()
-	return [DomainEvent.new(
+	var events := _prepare_start_phase()
+	events.append(DomainEvent.new(
 		EventKinds.PHASE_CHANGED,
 		{"phase": GameTypes.Phase.START, "round_number": state.round_number}, &"public"
-	)]
+	))
+	return events
 
 
 func notify_player_disconnected(player_id: StringName, now_msec: int = 0) -> void:
 	if not state.players.has(player_id):
 		return
 	if _end_transaction_active:
-		if player_id not in _queued_disconnects:
-			_queued_disconnects.append(player_id)
+		for queued: Dictionary in _queued_disconnects:
+			if queued.player_id == player_id:
+				return
+		_queued_disconnects.append({"player_id": player_id, "detected_msec": now_msec})
 		return
+	_apply_disconnect(player_id, now_msec)
+
+
+func _apply_disconnect(player_id: StringName, now_msec: int) -> void:
 	if player_id == state.host_player_id:
 		state.players[player_id].connected = false
 		state.match_complete = true
@@ -549,10 +624,19 @@ func notify_player_disconnected(player_id: StringName, now_msec: int = 0) -> voi
 	player.connected = false
 	player.ready = false
 	player.disconnect_deadline_msec = now_msec + state.config.reconnect_grace_msec
-	player.reconnect_token = "reconnect:%s:%s" % [str(player_id), str(state.seed)]
+	player.reconnect_token = _new_reconnect_token(player_id)
 	if not state.frozen:
 		state.frozen = true
 		state.freeze_started_msec = now_msec
+
+
+func _new_reconnect_token(player_id: StringName) -> String:
+	if _reconnect_token_provider.is_valid():
+		var provided: Variant = _reconnect_token_provider.call(player_id)
+		assert(provided is String and not provided.is_empty(), "token provider returned invalid token")
+		return provided
+	var crypto := Crypto.new()
+	return crypto.generate_random_bytes(32).hex_encode()
 
 
 func reset_for_rematch(new_seed: int) -> void:
@@ -562,10 +646,11 @@ func reset_for_rematch(new_seed: int) -> void:
 	fresh.config.match_started = false
 	fresh.phase = GameTypes.Phase.SETUP
 	state = fresh
-	_accepted_command_ids.clear()
-	_start_requests.clear()
+	_accepted_command_ids = state.accepted_command_ids
+	_start_requests = state.start_requests
 	for player_id in state.players:
-		_accepted_command_ids[player_id] = {}
+		if not _accepted_command_ids.has(player_id):
+			_accepted_command_ids[player_id] = {}
 
 
 func _all_end_discards_complete() -> bool:
@@ -619,19 +704,26 @@ func _join_spectator(command: GameCommand) -> CommandResult:
 	return CommandResult.new(true)
 
 
-func _reconnect(command: GameCommand, now_msec: int) -> CommandResult:
-	if not state.players.has(command.player_id):
-		return CommandResult.new(false, &"unknown_player")
+func _submit_reconnect(command: GameCommand, now_msec: int) -> CommandResult:
+	var common_error := _validate_lifecycle_command(command)
+	if not common_error.is_empty():
+		return CommandResult.new(false, common_error)
 	var player = state.players[command.player_id]
+	if not player.active or player.pending:
+		return CommandResult.new(false, &"not_active_player")
 	if player.connected or player.disconnect_deadline_msec < 0:
 		return CommandResult.new(false, &"player_not_disconnected")
 	if now_msec > player.disconnect_deadline_msec:
 		return CommandResult.new(false, &"reconnect_grace_expired")
-	if not command.payload.has("token") or command.payload.token != player.reconnect_token:
+	if (
+		not command.payload.has("token") or not command.payload.token is String
+		or command.payload.token != player.reconnect_token
+	):
 		return CommandResult.new(false, &"invalid_reconnect_token")
 	player.connected = true
 	player.disconnect_deadline_msec = -1
 	player.reconnect_token = ""
+	_accepted_command_ids[command.player_id][command.command_id] = true
 	_resume_if_resolved(now_msec)
 	return CommandResult.new(true, &"", [DomainEvent.new(
 		&"player_reconnected", {"player_id": str(command.player_id)}, &"public"
@@ -639,9 +731,22 @@ func _reconnect(command: GameCommand, now_msec: int) -> CommandResult:
 
 
 func _forfeit_command(command: GameCommand, now_msec: int) -> CommandResult:
-	if not state.players.has(command.player_id):
-		return CommandResult.new(false, &"unknown_player")
+	var common_error := _validate_lifecycle_command(command)
+	if not common_error.is_empty():
+		return CommandResult.new(false, common_error)
+	var player = state.players[command.player_id]
+	if not player.active or player.pending or player.spectator:
+		return CommandResult.new(false, &"not_active_player")
 	var events := _forfeit_player(command.player_id)
+	if command.player_id == state.host_player_id:
+		state.match_complete = true
+		state.winner_id = &""
+		state.phase = GameTypes.Phase.COMPLETE
+		state.config.match_started = false
+		events.append(DomainEvent.new(
+			EventKinds.MATCH_ENDED, {"winner_id": "", "reason": "host_forfeit"}, &"public"
+		))
+	_accepted_command_ids[command.player_id][command.command_id] = true
 	_resume_if_resolved(now_msec)
 	return CommandResult.new(true, &"", events)
 
@@ -664,14 +769,15 @@ func _tick_disconnects(now_msec: int) -> Array[DomainEvent]:
 
 func _forfeit_player(player_id: StringName) -> Array[DomainEvent]:
 	var player = state.players[player_id]
+	var events: Array[DomainEvent] = []
 	for card in player.hand.duplicate():
 		card.leave_hand()
 		state.piles[card.first.base_context].discard(card.first)
 		state.piles[card.second.base_context].discard(card.second)
 	player.hand.clear()
-	for ability in player.ability_hand.duplicate():
-		player.ability_hand.erase(ability)
-		state.ability_deck.discard(ability)
+	var discarded: Array[AbilityState] = []
+	discarded.assign(player.ability_hand.duplicate())
+	events.append_array(_discard_abilities(player_id, discarded))
 	player.pending_manipulation.clear()
 	player.staged_submission.clear()
 	player.submitted_cards.clear()
@@ -683,9 +789,10 @@ func _forfeit_player(player_id: StringName) -> Array[DomainEvent]:
 	state.config.unregister_active_participant(player_id)
 	if state.match_complete:
 		state.config.match_started = false
-	return [DomainEvent.new(
+	events.append(DomainEvent.new(
 		&"player_forfeited", {"player_id": str(player_id)}, &"public"
-	)]
+	))
+	return events
 
 
 func _resume_if_resolved(now_msec: int) -> void:
@@ -718,9 +825,11 @@ func _first_open_seat() -> int:
 
 
 func _submit_hand_play(command: GameCommand, now_msec: int) -> CommandResult:
+	if state.players[command.player_id].hand_locked:
+		return CommandResult.new(false, &"hand_already_locked")
 	match command.kind:
 		CommandKinds.STAGE_MANIPULATION:
-			if not command.payload.has("copy_id"):
+			if not command.payload.has("copy_id") or not _is_identifier(command.payload.copy_id):
 				return CommandResult.new(false, &"malformed_command")
 			var ability := _held_ability(command.player_id, StringName(command.payload.copy_id))
 			if ability == null:
@@ -763,8 +872,15 @@ func _commit_manipulation(command: GameCommand, now_msec: int) -> CommandResult:
 	for key in ["card_id", "half_index", "context", "rank", "suit"]:
 		if not command.payload.has(key):
 			return CommandResult.new(false, &"malformed_command")
+	if not _is_identifier(command.payload.card_id):
+		return CommandResult.new(false, &"malformed_command")
 	if not command.payload.half_index is int or command.payload.half_index < 0 or command.payload.half_index > 1:
 		return CommandResult.new(false, &"invalid_half_index")
+	if (
+		not command.payload.context is int or not command.payload.rank is int
+		or not command.payload.suit is int
+	):
+		return CommandResult.new(false, &"malformed_command")
 	if not HalfCardState.is_valid_base(command.payload.context, command.payload.rank, command.payload.suit):
 		return CommandResult.new(false, &"invalid_effective_values")
 	var card := _hand_card(command.player_id, StringName(command.payload.card_id))
@@ -773,6 +889,8 @@ func _commit_manipulation(command: GameCommand, now_msec: int) -> CommandResult:
 	var ability := _held_ability(command.player_id, player.pending_manipulation.copy_id)
 	if ability == null:
 		return CommandResult.new(false, &"ability_not_in_hand")
+	if not _manipulation_choice_allowed(ability.definition, command.payload):
+		return CommandResult.new(false, &"manipulation_choice_not_allowed")
 	_ensure_phase_clock(now_msec)
 	var half = card.first if command.payload.half_index == 0 else card.second
 	half.apply_overrides(command.payload.context, command.payload.rank, command.payload.suit)
@@ -791,7 +909,10 @@ func _stage_hand(command: GameCommand, now_msec: int) -> CommandResult:
 		return CommandResult.new(false, &"submission_size_out_of_range")
 	var seen := {}
 	for raw_selection in selections:
-		if not raw_selection is Dictionary or not raw_selection.has("card_id"):
+		if (
+			not raw_selection is Dictionary or not raw_selection.has("card_id")
+			or not _is_identifier(raw_selection.card_id)
+		):
 			return CommandResult.new(false, &"malformed_command")
 		if not raw_selection.has("half_index"):
 			return CommandResult.new(false, &"half_choice_required")
@@ -867,10 +988,12 @@ func _resolve_hand_play(now_msec: int) -> Array[DomainEvent]:
 		for ability_id in player.completed_manipulation_ids:
 			manipulation_ids.append(str(ability_id))
 		var revealed_cards: Array = []
-		for face in player.submitted_faces:
+		for index in range(player.submitted_faces.size()):
+			var face = player.submitted_faces[index]
+			var card: FullCardState = player.submitted_cards[index]
 			revealed_cards.append({
-				"card_id": str(face.card_id), "half_index": face.half_index,
-				"rank": face.rank, "suit": face.suit,
+				"card_id": str(face.card_id), "selected_half_index": face.half_index,
+				"halves": [_public_effective_half(card.first), _public_effective_half(card.second)],
 			})
 		events.append(DomainEvent.new(EventKinds.HAND_REVEALED, {
 			"player_id": str(player_id), "cards": revealed_cards,
@@ -909,6 +1032,23 @@ func _hand_card(player_id: StringName, card_id: StringName) -> FullCardState:
 		if card.card_id == card_id:
 			return card
 	return null
+
+
+func _manipulation_choice_allowed(
+	definition: AbilityDefinition,
+	payload: Dictionary
+) -> bool:
+	var schema := definition.choice_schema
+	for entry in [
+		{"key": "contexts", "value": payload.context},
+		{"key": "ranks", "value": payload.rank},
+		{"key": "suits", "value": payload.suit},
+	]:
+		if not schema.has(entry.key) or not schema[entry.key] is Array:
+			return false
+		if entry.value not in schema[entry.key]:
+			return false
+	return true
 
 
 func _held_ability(player_id: StringName, copy_id: StringName) -> AbilityState:
@@ -953,5 +1093,22 @@ func _private_card_payload(cards: Array[FullCardState]) -> Array:
 		result.append({
 			"card_id": str(card.card_id),
 			"first_id": str(card.first.copy_id), "second_id": str(card.second.copy_id),
+			"first": _private_half(card.first), "second": _private_half(card.second),
 		})
 	return result
+
+
+func _private_half(half: HalfCardState) -> Dictionary:
+	return {
+		"copy_id": str(half.copy_id), "base_context": half.base_context,
+		"base_rank": half.base_rank, "base_suit": half.base_suit,
+		"effective_context": half.effective_context(), "rank": half.effective_rank(),
+		"suit": half.effective_suit(),
+	}
+
+
+func _public_effective_half(half: HalfCardState) -> Dictionary:
+	return {
+		"context": half.effective_context(), "rank": half.effective_rank(),
+		"suit": half.effective_suit(),
+	}

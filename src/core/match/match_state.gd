@@ -36,6 +36,9 @@ var last_round_winner_id: StringName = &""
 var host_player_id: StringName = &""
 var frozen := false
 var freeze_started_msec := -1
+var next_full_card_sequence := 1
+var accepted_command_ids: Dictionary = {}
+var start_requests: Dictionary = {}
 
 
 static func create(match_config: MatchConfig, match_seed: int) -> MatchState:
@@ -58,13 +61,17 @@ static func create(match_config: MatchConfig, match_seed: int) -> MatchState:
 	for index in range(state.seat_order.size()):
 		var player_id := state.seat_order[index]
 		var player := PlayerState.new(player_id, index)
-		player.hand = CardFactory.build_opening_hand(state.piles, state.rng)
+		player.hand = CardFactory.build_opening_hand(
+			state.piles, state.rng, state.allocate_card_id
+		)
 		player.ability_hand = state.ability_deck.draw(
 			player_id, state.ability_deck.starting_hand_size, state.rng
 		)
 		state.players[player_id] = player
+		state.accepted_command_ids[player_id] = {}
 	for spectator_id in match_config.spectator_ids:
 		state.players[spectator_id] = PlayerState.new(spectator_id, -1, true)
+		state.accepted_command_ids[spectator_id] = {}
 	match_config.lock_for_match()
 	return state
 
@@ -130,6 +137,12 @@ func active_player_ids() -> Array[StringName]:
 	return result
 
 
+func allocate_card_id() -> StringName:
+	var result := StringName("card-%08d" % next_full_card_sequence)
+	next_full_card_sequence += 1
+	return result
+
+
 func to_dict() -> Dictionary:
 	var player_ids: Array = players.keys()
 	player_ids.sort()
@@ -149,6 +162,9 @@ func to_dict() -> Dictionary:
 		var completed_manipulations: Array = []
 		for ability_id in player.completed_manipulation_ids:
 			completed_manipulations.append(str(ability_id))
+		var submitted_faces: Array = []
+		for face in player.submitted_faces:
+			submitted_faces.append(_serialize_face(face))
 		serialized_players.append({
 			"player_id": str(player.player_id), "seat_index": player.seat_index,
 			"spectator": player.spectator, "active": player.active, "pending": player.pending,
@@ -161,6 +177,10 @@ func to_dict() -> Dictionary:
 			"has_staged_submission": player.has_staged_submission,
 			"hand_locked": player.hand_locked,
 			"submitted_card_ids": player.submitted_cards.map(func(card: FullCardState): return str(card.card_id)),
+			"submitted_faces": submitted_faces,
+			"locked_normal": _serialize_normal_result(player.locked_normal),
+			"locked_context": _serialize_context_result(player.locked_context),
+			"provisional_score": _serialize_score_breakdown(player.provisional_score),
 			"completed_manipulation_ids": completed_manipulations,
 			"finalized_score": player.finalized_score,
 			"end_discard_complete": player.end_discard_complete,
@@ -177,6 +197,19 @@ func to_dict() -> Dictionary:
 		}
 	var seats: Array = []
 	for id in seat_order: seats.append(str(id))
+	var serialized_accepted := {}
+	for player_id in accepted_command_ids:
+		var command_ids: Array = []
+		for command_id in accepted_command_ids[player_id]:
+			command_ids.append(str(command_id))
+		command_ids.sort()
+		serialized_accepted[str(player_id)] = command_ids
+	var serialized_requests := {}
+	for player_id in start_requests:
+		var request := {}
+		for context in start_requests[player_id]:
+			request[str(context)] = start_requests[player_id][context]
+		serialized_requests[str(player_id)] = request
 	return {
 		"config": config.to_dict(), "seed": seed, "rng_state": rng.state_token(),
 		"piles": serialized_piles, "ability_deck": ability_deck.to_dict(),
@@ -190,6 +223,9 @@ func to_dict() -> Dictionary:
 		"last_round_winner_id": str(last_round_winner_id),
 		"host_player_id": str(host_player_id), "frozen": frozen,
 		"freeze_started_msec": freeze_started_msec,
+		"next_full_card_sequence": next_full_card_sequence,
+		"accepted_command_ids": serialized_accepted,
+		"start_requests": serialized_requests,
 	}
 
 
@@ -239,6 +275,11 @@ static func from_dict(data: Dictionary) -> MatchState:
 				if card.card_id == StringName(submitted_id):
 					player.submitted_cards.append(card)
 					break
+		for face_data: Dictionary in player_data.get("submitted_faces", []):
+			player.submitted_faces.append(state._deserialize_face(face_data))
+		player.locked_normal = state._deserialize_normal_result(player_data.get("locked_normal"))
+		player.locked_context = state._deserialize_context_result(player_data.get("locked_context"))
+		player.provisional_score = state._deserialize_score_breakdown(player_data.get("provisional_score"))
 		for ability_id: String in player_data.get("completed_manipulation_ids", []):
 			player.completed_manipulation_ids.append(StringName(ability_id))
 		player.finalized_score = player_data.get("finalized_score", 0)
@@ -262,7 +303,136 @@ static func from_dict(data: Dictionary) -> MatchState:
 	state.host_player_id = StringName(data.get("host_player_id", ""))
 	state.frozen = data.get("frozen", false)
 	state.freeze_started_msec = data.get("freeze_started_msec", -1)
+	state.next_full_card_sequence = data.get("next_full_card_sequence", 1)
+	for player_id: String in data.get("accepted_command_ids", {}):
+		var accepted := {}
+		for command_id: String in data.accepted_command_ids[player_id]:
+			accepted[StringName(command_id)] = true
+		state.accepted_command_ids[StringName(player_id)] = accepted
+	for player_id in state.players:
+		if not state.accepted_command_ids.has(player_id):
+			state.accepted_command_ids[player_id] = {}
+	for player_id: String in data.get("start_requests", {}):
+		var request := {}
+		for context: String in data.start_requests[player_id]:
+			request[int(context)] = data.start_requests[player_id][context]
+		state.start_requests[StringName(player_id)] = request
 	return state
+
+
+func _serialize_face(face: ScoringTypes.SelectedCardFace) -> Dictionary:
+	return {
+		"card_id": str(face.card_id), "half_index": face.half_index,
+		"rank": face.rank, "suit": face.suit,
+	}
+
+
+func _deserialize_face(data: Dictionary) -> ScoringTypes.SelectedCardFace:
+	return ScoringTypes.SelectedCardFace.new(
+		StringName(data.card_id), data.half_index, data.rank, data.suit
+	)
+
+
+func _serialize_normal_result(value: Variant) -> Variant:
+	if value == null:
+		return null
+	var matched: Array = []
+	for face in value.matched_faces:
+		matched.append(_serialize_face(face))
+	var submitted: Array = []
+	for face in value.submitted_faces:
+		submitted.append(_serialize_face(face))
+	return {
+		"is_valid": value.is_valid, "category_id": str(value.category_id),
+		"priority": value.priority, "multiplier_numerator": value.multiplier.numerator,
+		"multiplier_denominator": value.multiplier.denominator,
+		"matched_faces": matched, "submitted_faces": submitted,
+		"tie_break": Array(value.tie_break),
+	}
+
+
+func _deserialize_normal_result(value: Variant) -> Variant:
+	if value == null:
+		return null
+	var data: Dictionary = value
+	var matched: Array[ScoringTypes.SelectedCardFace] = []
+	for face: Dictionary in data.matched_faces:
+		matched.append(_deserialize_face(face))
+	var submitted: Array[ScoringTypes.SelectedCardFace] = []
+	for face: Dictionary in data.submitted_faces:
+		submitted.append(_deserialize_face(face))
+	return ScoringTypes.NormalHandResult.new(
+		data.is_valid, StringName(data.category_id), data.priority,
+		Rational.new(data.multiplier_numerator, data.multiplier_denominator),
+		matched, submitted, PackedInt32Array(data.tie_break)
+	)
+
+
+func _serialize_context_result(value: Variant) -> Variant:
+	if value == null:
+		return null
+	var counts := {}
+	for context in value.counts:
+		counts[str(context)] = value.counts[context]
+	return {
+		"category_id": str(value.category_id), "priority": value.priority,
+		"multiplier_numerator": value.multiplier.numerator,
+		"multiplier_denominator": value.multiplier.denominator, "counts": counts,
+	}
+
+
+func _deserialize_context_result(value: Variant) -> Variant:
+	if value == null:
+		return null
+	var data: Dictionary = value
+	var counts := {}
+	for context: String in data.counts:
+		counts[int(context)] = data.counts[context]
+	return ScoringTypes.ContextHandResult.new(
+		StringName(data.category_id), data.priority,
+		Rational.new(data.multiplier_numerator, data.multiplier_denominator), counts
+	)
+
+
+func _serialize_score_breakdown(value: Variant) -> Variant:
+	if value == null:
+		return null
+	var modifier_results: Array = []
+	for result in value.after_each_modifier:
+		modifier_results.append({"numerator": result.numerator, "denominator": result.denominator})
+	return {
+		"base_value": value.base_value,
+		"normal_multiplier": _serialize_rational(value.normal_multiplier),
+		"context_multiplier": _serialize_rational(value.context_multiplier),
+		"before_modifiers": _serialize_rational(value.before_modifiers),
+		"after_each_modifier": modifier_results,
+		"unclamped_raw_score": _serialize_rational(value.unclamped_raw_score),
+		"raw_score": _serialize_rational(value.raw_score), "final_score": value.final_score,
+	}
+
+
+func _deserialize_score_breakdown(value: Variant) -> Variant:
+	if value == null:
+		return null
+	var data: Dictionary = value
+	var modifier_results: Array[Rational] = []
+	for result: Dictionary in data.after_each_modifier:
+		modifier_results.append(_deserialize_rational(result))
+	return ScoringTypes.ScoreBreakdown.new(
+		data.base_value, _deserialize_rational(data.normal_multiplier),
+		_deserialize_rational(data.context_multiplier),
+		_deserialize_rational(data.before_modifiers), modifier_results,
+		_deserialize_rational(data.unclamped_raw_score),
+		_deserialize_rational(data.raw_score), data.final_score
+	)
+
+
+func _serialize_rational(value: Rational) -> Dictionary:
+	return {"numerator": value.numerator, "denominator": value.denominator}
+
+
+func _deserialize_rational(data: Dictionary) -> Rational:
+	return Rational.new(data.numerator, data.denominator)
 
 
 func _build_piles() -> Dictionary:

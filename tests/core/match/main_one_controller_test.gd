@@ -176,11 +176,21 @@ func _main_one_state(seed_value: int) -> MatchState:
 
 
 func _ability(id: StringName, timing: int, effect_id: StringName) -> AbilityDefinition:
-	return AbilityDefinition.new(id, timing, [], effect_id)
+	var parameters := {}
+	if effect_id == &"score_modifier":
+		parameters = {
+			"operation": &"multiply" if id == &"multiply" else &"add",
+			"numerator": 2 if id == &"multiply" or id == &"buff" else 3,
+			"denominator": 1,
+		}
+	return AbilityDefinition.new(id, timing, [], effect_id, 0, &"", parameters)
 
 
 func _field(id: StringName, effect_id: StringName, conflict: StringName) -> AbilityDefinition:
-	return AbilityDefinition.new(id, AbilityDefinition.Timing.FIELD, [], effect_id, 2, conflict)
+	var parameters := {"context": GameTypes.Context.C} if effect_id == &"context_jump" else {}
+	return AbilityDefinition.new(
+		id, AbilityDefinition.Timing.FIELD, [], effect_id, 2, conflict, parameters
+	)
 
 
 func _set_ability(state: MatchState, player_id: StringName, index: int, definition: AbilityDefinition) -> void:
@@ -196,10 +206,10 @@ func _play(
 	player_id: StringName,
 	copy_id: StringName,
 	target_id: StringName = &"",
-	effect_payload: Dictionary = {}
+	_effect_payload: Dictionary = {}
 ) -> GameCommand:
 	return GameCommand.new(id, player_id, CommandKinds.PLAY_PUBLIC_ABILITY, {
-		"copy_id": copy_id, "target_player_id": target_id, "effect": effect_payload,
+		"copy_id": copy_id, "target_player_id": target_id,
 	})
 
 

@@ -17,13 +17,16 @@ static func for_recipient(
 	player_ids.sort()
 	for player_id in player_ids:
 		var player = state.players[player_id]
-		players.append({
+		var projected_player := {
 			"player_id": str(player.player_id), "seat_index": player.seat_index,
 			"spectator": player.spectator, "active": player.active, "pending": player.pending,
 			"connected": player.connected, "hand_count": player.hand.size(),
 			"ability_count": player.ability_hand.size(), "match_score": player.match_score,
 			"round_wins": player.round_wins, "ready": player.ready,
-		})
+		}
+		if player.locked_normal != null and player.locked_context != null:
+			projected_player["revealed_submission"] = _revealed_submission(player)
+		players.append(projected_player)
 	var active_fields: Array = []
 	for field in state.ability_deck.active_fields():
 		active_fields.append({
@@ -36,6 +39,10 @@ static func for_recipient(
 		"active_context": state.active_context, "context_direction": state.context_direction,
 		"players": players, "active_fields": active_fields, "frozen": state.frozen,
 		"match_complete": state.match_complete, "winner_id": str(state.winner_id),
+		"last_round_winner_id": str(state.last_round_winner_id),
+		"phase_started_msec": state.phase_started_msec,
+		"phase_deadline_msec": state.phase_deadline_msec,
+		"reaction_deadline_msec": state.reaction_deadline_msec,
 	}
 	if state.config.information_visibility == GameTypes.InformationVisibility.PUBLIC:
 		var pile_counts := {}
@@ -61,6 +68,33 @@ static func for_recipient(
 			"hand_locked": recipient.hand_locked,
 		}
 	return snapshot
+
+
+static func _revealed_submission(player) -> Dictionary:
+	var cards: Array = []
+	for index in range(player.submitted_faces.size()):
+		var face = player.submitted_faces[index]
+		var card = player.submitted_cards[index]
+		cards.append({
+			"card_id": str(face.card_id), "selected_half_index": face.half_index,
+			"halves": [_public_half(card.first), _public_half(card.second)],
+		})
+	var result := {
+		"cards": cards, "normal_category": str(player.locked_normal.category_id),
+		"context_category": str(player.locked_context.category_id),
+		"finalized_score": player.finalized_score,
+	}
+	if player.provisional_score != null:
+		result["base_value"] = player.provisional_score.base_value
+		result["provisional_score"] = player.provisional_score.final_score
+	return result
+
+
+static func _public_half(half) -> Dictionary:
+	return {
+		"context": half.effective_context(), "rank": half.effective_rank(),
+		"suit": half.effective_suit(),
+	}
 
 
 static func _private_hand(hand: Array) -> Array:

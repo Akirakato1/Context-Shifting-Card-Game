@@ -171,7 +171,7 @@ func test_disconnect_noticed_inside_end_is_applied_after_committed_award() -> vo
 
 	_ready_both(controller, 10)
 
-	assert_eq(state.winner_id, &"one")
+	assert_eq(state.winner_id, &"")
 	assert_true(state.players[&"one"].match_score >= 1)
 	assert_false(state.players[&"one"].connected)
 
@@ -257,7 +257,10 @@ func _used_half(state: MatchState, half_id: StringName):
 
 
 func _ability(id: StringName, timing: int, effect_id: StringName) -> AbilityDefinition:
-	return AbilityDefinition.new(id, timing, [], effect_id)
+	var parameters := {}
+	if effect_id == &"score_modifier":
+		parameters = {"operation": &"add", "numerator": 1, "denominator": 1}
+	return AbilityDefinition.new(id, timing, [], effect_id, 0, &"", parameters)
 
 
 func _field(id: StringName) -> AbilityDefinition:
@@ -272,9 +275,9 @@ func _ready(id: StringName, player_id: StringName) -> GameCommand:
 	return GameCommand.new(id, player_id, CommandKinds.SET_READY, {"ready": true})
 
 
-func _play(id: StringName, player_id: StringName, copy_id: StringName, target: StringName = &"", effect: Dictionary = {}) -> GameCommand:
+func _play(id: StringName, player_id: StringName, copy_id: StringName, target: StringName = &"", _effect: Dictionary = {}) -> GameCommand:
 	return GameCommand.new(id, player_id, CommandKinds.PLAY_PUBLIC_ABILITY, {
-		"copy_id": copy_id, "target_player_id": target, "effect": effect,
+		"copy_id": copy_id, "target_player_id": target,
 	})
 
 

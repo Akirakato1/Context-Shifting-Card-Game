@@ -100,7 +100,7 @@ class ForceRedrawHandler extends RefCounted:
 		state.piles[removed.second.base_context].discard(removed.second)
 		var completion := CardFactory.complete_request({}, 2, state.rng)
 		var replacement: Array[FullCardState] = CardFactory.draw_replenishment(
-			state.piles, completion.request, state.rng
+			state.piles, completion.request, state.rng, state.allocate_card_id
 		)
 		target.hand.append_array(replacement)
 		var common_payload := {

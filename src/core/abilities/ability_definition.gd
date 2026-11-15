@@ -16,6 +16,13 @@ var tags: Array[StringName]
 var effect_id: StringName
 var field_duration: int
 var conflict_group: StringName
+var _effect_parameters: Dictionary
+var _choice_schema: Dictionary
+
+var effect_parameters: Dictionary:
+	get: return _effect_parameters.duplicate(true)
+var choice_schema: Dictionary:
+	get: return _choice_schema.duplicate(true)
 
 
 func _init(
@@ -24,7 +31,9 @@ func _init(
 	definition_tags: Array,
 	definition_effect_id: StringName,
 	duration: int = 0,
-	field_conflict_group: StringName = &""
+	field_conflict_group: StringName = &"",
+	definition_effect_parameters: Dictionary = {},
+	definition_choice_schema: Dictionary = {}
 ) -> void:
 	assert(timing_category >= Timing.HAND_MANIPULATION and timing_category <= Timing.SABOTAGE)
 	assert(duration >= 0)
@@ -35,6 +44,8 @@ func _init(
 	effect_id = definition_effect_id
 	field_duration = duration
 	conflict_group = field_conflict_group
+	_effect_parameters = definition_effect_parameters.duplicate(true)
+	_choice_schema = definition_choice_schema.duplicate(true)
 
 
 func allows_phase(phase: int) -> bool:

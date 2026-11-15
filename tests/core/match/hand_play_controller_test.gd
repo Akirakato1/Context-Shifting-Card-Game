@@ -205,7 +205,12 @@ func _hand_play_state(seed_value: int) -> MatchState:
 
 func _set_manipulation(state: MatchState, player_id: StringName, index: int, id: StringName) -> void:
 	state.players[player_id].ability_hand[index].definition = AbilityDefinition.new(
-		id, AbilityDefinition.Timing.HAND_MANIPULATION, [], &"manipulate_half"
+		id, AbilityDefinition.Timing.HAND_MANIPULATION, [], &"manipulate_half",
+		0, &"", {}, {
+			"contexts": [GameTypes.Context.A, GameTypes.Context.B, GameTypes.Context.C],
+			"ranks": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+			"suits": [GameTypes.Suit.ONE, GameTypes.Suit.TWO, GameTypes.Suit.THREE],
+		}
 	)
 
 

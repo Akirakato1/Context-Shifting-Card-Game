@@ -57,7 +57,7 @@ func test_timeout_completes_partial_requests_replenishes_then_draws_abilities() 
 	)
 
 
-func test_private_visibility_suppresses_request_distribution_event() -> void:
+func test_private_visibility_reveals_replacement_count_but_not_context_distribution() -> void:
 	var state := MatchState.create(_config(GameTypes.InformationVisibility.PRIVATE), 13)
 	_discard_one_full_card(state, &"one")
 	var controller := MatchController.new(state)
@@ -65,7 +65,10 @@ func test_private_visibility_suppresses_request_distribution_event() -> void:
 
 	var events := controller.tick(5001)
 
-	assert_eq(_first_event(events, EventKinds.REPLENISHMENT_REQUESTS_REVEALED), null)
+	var revealed = _first_event(events, EventKinds.REPLENISHMENT_REQUESTS_REVEALED)
+	assert_true(revealed != null)
+	assert_eq(revealed.payload.counts.one, 1)
+	assert_false(revealed.payload.has("requests"))
 	assert_eq(state.players[&"one"].hand.size(), 6)
 
 
