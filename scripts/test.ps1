@@ -34,5 +34,14 @@ if ($TestPaths.Count -gt 0) {
     $godotArguments += $TestPaths
 }
 
-& $godotBin @godotArguments
-exit $LASTEXITCODE
+$output = & $godotBin @godotArguments 2>&1
+$godotExitCode = $LASTEXITCODE
+$renderedOutput = $output -join [Environment]::NewLine
+Write-Output $renderedOutput
+
+$hasEngineError = $renderedOutput -match '(?m)^(SCRIPT ERROR|ERROR):'
+if ($godotExitCode -ne 0 -or $hasEngineError) {
+    exit 1
+}
+
+exit 0

@@ -12,9 +12,13 @@ func _initialize() -> void:
 
 func _run() -> void:
 	var filters := OS.get_cmdline_user_args()
-	var test_paths := _discover_tests("res://tests")
-	if not filters.is_empty():
-		test_paths = test_paths.filter(_matches_filter.bind(filters))
+	var test_paths: Array[String] = []
+	if filters.is_empty():
+		test_paths = _discover_tests("res://tests")
+	else:
+		for filter_path in filters:
+			var normalized := String(filter_path).replace("\\", "/").trim_prefix("./")
+			test_paths.append(normalized if normalized.begins_with("res://") else "res://" + normalized)
 
 	if test_paths.is_empty():
 		print("FAIL: no tests matched")
@@ -47,14 +51,6 @@ func _discover_tests(directory_path: String) -> Array[String]:
 	directory.list_dir_end()
 	discovered.sort()
 	return discovered
-
-
-func _matches_filter(test_path: String, filters: Array[String]) -> bool:
-	for filter_path in filters:
-		var normalized := filter_path.replace("\\", "/")
-		if test_path == normalized or test_path.ends_with(normalized):
-			return true
-	return false
 
 
 func _run_test_script(test_path: String) -> void:
