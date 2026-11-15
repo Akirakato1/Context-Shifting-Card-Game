@@ -110,7 +110,7 @@ static func _private_hand(hand: Array) -> Array:
 static func _private_half(half) -> Dictionary:
 	return {
 		"copy_id": str(half.copy_id), "base_context": half.base_context,
-		"base_rank": half.base_rank, "base_suit": half.base_suit,
+		"base_rank": half.base_rank, "base_suit": half.base_suit, "kind": half.kind,
 		"effective_context": half.effective_context(), "effective_rank": half.effective_rank(),
 		"effective_suit": half.effective_suit(),
 	}

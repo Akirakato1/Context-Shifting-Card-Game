@@ -27,6 +27,8 @@ func test_full_card_exposes_eligible_effective_halves_and_resets_them() -> void:
 	var second := HalfCardState.new(&"b", GameTypes.Context.B, 2, GameTypes.Suit.TWO)
 	var card := FullCardState.new(&"full:a+b", first, second)
 
+	assert_eq(card.half_at(0), first)
+	assert_eq(card.half_at(1), second)
 	assert_eq(card.eligible_half_indexes(GameTypes.Context.A), PackedInt32Array([0]))
 	assert_eq(card.eligible_half_indexes(GameTypes.Context.C), PackedInt32Array())
 

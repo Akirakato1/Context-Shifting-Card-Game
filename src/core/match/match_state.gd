@@ -446,6 +446,10 @@ func _build_piles() -> Dictionary:
 						StringName("%d-%d-%d-%d" % [context, rank, suit, copy_index]),
 						context, rank, suit
 					))
+		cards.append(HalfCardState.new(
+			StringName("joker-%d" % context), context, 0, HalfCardState.NO_SUIT,
+			GameTypes.HalfKind.JOKER
+		))
 		var shuffled: Array[HalfCardState] = []
 		shuffled.assign(rng.shuffle(cards))
 		result[context] = ContextPile.new(context, shuffled)
@@ -467,7 +471,7 @@ static func _new_state() -> MatchState:
 func _serialize_half(card: HalfCardState) -> Dictionary:
 	return {
 		"copy_id": str(card.copy_id), "base_context": card.base_context,
-		"base_rank": card.base_rank, "base_suit": card.base_suit,
+		"base_rank": card.base_rank, "base_suit": card.base_suit, "kind": card.kind,
 		"effective_context": card.effective_context(), "effective_rank": card.effective_rank(),
 		"effective_suit": card.effective_suit(),
 	}
@@ -487,7 +491,8 @@ func _deserialize_halves(items: Array) -> Array[HalfCardState]:
 
 func _deserialize_half(data: Dictionary) -> HalfCardState:
 	var card := HalfCardState.new(
-		StringName(data.copy_id), data.base_context, data.base_rank, data.base_suit
+		StringName(data.copy_id), data.base_context, data.base_rank, data.base_suit,
+		data.get("kind", GameTypes.HalfKind.NORMAL)
 	)
 	if (
 		data.effective_context != data.base_context or data.effective_rank != data.base_rank

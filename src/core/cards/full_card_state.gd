@@ -16,11 +16,16 @@ func _init(id: StringName, first_half: HalfCardState, second_half: HalfCardState
 	second = second_half
 
 
+func half_at(index: int) -> HalfCardState:
+	assert(index == 0 or index == 1, "half index must be zero or one")
+	return first if index == 0 else second
+
+
 func eligible_half_indexes(active_context: int) -> PackedInt32Array:
 	var result := PackedInt32Array()
-	if first.effective_context() == active_context:
+	if first.is_joker() or first.effective_context() == active_context:
 		result.append(0)
-	if second.effective_context() == active_context:
+	if second.is_joker() or second.effective_context() == active_context:
 		result.append(1)
 	return result
 

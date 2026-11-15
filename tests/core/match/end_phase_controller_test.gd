@@ -207,9 +207,20 @@ func _main_two_state(
 
 func _stage_one_card(state: MatchState, player_id: StringName, rank: int) -> void:
 	var player = state.players[player_id]
-	var card = player.hand[0]
-	var half_index := 0
-	var half = card.first
+	var card = null
+	var half = null
+	var half_index := -1
+	for candidate in player.hand:
+		for candidate_index in range(2):
+			var candidate_half = candidate.half_at(candidate_index)
+			if not candidate_half.is_joker():
+				card = candidate
+				half = candidate_half
+				half_index = candidate_index
+				break
+		if card != null:
+			break
+	assert(card != null, "fixture needs one non-Joker half")
 	half.apply_overrides(state.active_context, rank, half.effective_suit())
 	player.submitted_cards.assign([card])
 	player.submitted_faces.assign([

@@ -93,15 +93,20 @@ func test_submission_requires_eligible_cards_and_explicit_double_active_choice()
 
 func test_zero_to_six_cards_are_legal_when_every_card_is_eligible() -> void:
 	var state := _hand_play_state(44)
+	var selected_indexes := {}
 	for card in state.players[&"one"].hand:
-		card.first.apply_overrides(
-			state.active_context, card.first.effective_rank(), card.first.effective_suit()
+		var half_index := 0 if not card.first.is_joker() else 1
+		var half = card.half_at(half_index)
+		assert_false(half.is_joker(), "fixture needs one normal half on every selected card")
+		half.apply_overrides(
+			state.active_context, half.effective_rank(), half.effective_suit()
 		)
+		selected_indexes[card.card_id] = half_index
 	var controller := MatchController.new(state)
 	assert_true(controller.submit(_stage(&"pass", &"two", []), 1).accepted)
 	var all_cards: Array = []
 	for card in state.players[&"one"].hand:
-		all_cards.append({"card_id": card.card_id, "half_index": 0})
+		all_cards.append({"card_id": card.card_id, "half_index": selected_indexes[card.card_id]})
 	assert_eq(all_cards.size(), 6)
 	assert_true(controller.submit(_stage(&"six", &"one", all_cards), 2).accepted)
 	all_cards.append(all_cards[0])

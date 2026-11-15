@@ -13,6 +13,11 @@ enum Suit {
 	THREE,
 }
 
+enum HalfKind {
+	NORMAL,
+	JOKER,
+}
+
 enum Phase {
 	SETUP,
 	START,
