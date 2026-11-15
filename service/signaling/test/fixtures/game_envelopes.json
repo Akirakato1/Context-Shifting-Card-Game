@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "envelopes": [
+    {
+      "v": 1,
+      "kind": "command",
+      "message_id": "message-command",
+      "match_id": "match-雪",
+      "sender_id": "player-猫",
+      "payload": {
+        "command_id": "command-1",
+        "display_name": "Zoë 雪",
+        "count": 3,
+        "enabled": true,
+        "tags": []
+      }
+    },
+    {
+      "v": 1,
+      "kind": "command_result",
+      "message_id": "message-result",
+      "match_id": "match-1",
+      "sender_id": "host",
+      "payload": {"accepted": true, "error_code": ""}
+    },
+    {
+      "v": 1,
+      "kind": "event_batch",
+      "message_id": "message-events",
+      "match_id": "match-1",
+      "sender_id": "host",
+      "payload": {"sequence": 4, "events": []}
+    },
+    {
+      "v": 1,
+      "kind": "snapshot",
+      "message_id": "message-snapshot",
+      "match_id": "match-1",
+      "sender_id": "host",
+      "payload": {"sequence": 4, "state": {}}
+    },
+    {
+      "v": 1,
+      "kind": "heartbeat",
+      "message_id": "message-heartbeat",
+      "match_id": "match-1",
+      "sender_id": "host",
+      "payload": {}
+    },
+    {
+      "v": 1,
+      "kind": "heartbeat_ack",
+      "message_id": "message-heartbeat-ack",
+      "match_id": "match-1",
+      "sender_id": "player-1",
+      "payload": {}
+    },
+    {
+      "v": 1,
+      "kind": "disconnect_notice",
+      "message_id": "message-disconnect",
+      "match_id": "match-1",
+      "sender_id": "host",
+      "payload": {"reason": "host_closed"}
+    }
+  ]
+}
