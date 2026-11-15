@@ -28,3 +28,7 @@ func eligible_half_indexes(active_context: int) -> PackedInt32Array:
 func reset_effective() -> void:
 	first.reset_effective()
 	second.reset_effective()
+
+
+func leave_hand() -> void:
+	reset_effective()
