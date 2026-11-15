@@ -1,0 +1,51 @@
+class_name ContextHandEvaluator
+extends RefCounted
+
+const GameTypes = preload("res://src/core/common/game_types.gd")
+const Rational = preload("res://src/core/common/rational.gd")
+const FullCardState = preload("res://src/core/cards/full_card_state.gd")
+const ScoringTypes = preload("res://src/core/scoring/scoring_types.gd")
+const ContextHandDefinition = preload("res://src/core/scoring/context_hand_definition.gd")
+
+
+static func evaluate(
+	cards: Array[FullCardState],
+	definitions: Array[ContextHandDefinition]
+) -> ScoringTypes.ContextHandResult:
+	var counts := {
+		GameTypes.Context.A: 0,
+		GameTypes.Context.B: 0,
+		GameTypes.Context.C: 0,
+	}
+	for card in cards:
+		counts[card.first.effective_context()] += 1
+		counts[card.second.effective_context()] += 1
+
+	var best: ContextHandDefinition = null
+	for definition in definitions:
+		if not _qualifies(counts, definition.minimums):
+			continue
+		if (
+			best == null
+			or definition.priority > best.priority
+			or (
+				definition.priority == best.priority
+				and String(definition.id) < String(best.id)
+			)
+		):
+			best = definition
+
+	if best == null:
+		return ScoringTypes.ContextHandResult.new(
+			&"no_context", -1, Rational.new(1, 1), counts
+		)
+	return ScoringTypes.ContextHandResult.new(
+		best.id, best.priority, best.multiplier, counts
+	)
+
+
+static func _qualifies(counts: Dictionary, minimums: Dictionary) -> bool:
+	for context in minimums:
+		if counts.get(context, 0) < minimums[context]:
+			return false
+	return true
