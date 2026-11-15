@@ -1,0 +1,224 @@
+extends "res://tests/test_case.gd"
+
+const GameTypes = preload("res://src/core/common/game_types.gd")
+const AbilityDefinition = preload("res://src/core/abilities/ability_definition.gd")
+const MatchConfig = preload("res://src/core/match/match_config.gd")
+const MatchState = preload("res://src/core/match/match_state.gd")
+const MatchController = preload("res://src/core/match/match_controller.gd")
+const DomainEvent = preload("res://src/core/events/domain_event.gd")
+const GameProtocol = preload("res://src/network/game_protocol.gd")
+const HostNetworkSession = preload("res://src/network/host_network_session.gd")
+const ClientNetworkSession = preload("res://src/network/client_network_session.gd")
+const FakePeerTransport = preload("res://tests/network/fake_peer_transport.gd")
+
+var _now_msec := 100
+
+
+func before_each() -> void:
+	_now_msec = 100
+
+
+func test_host_is_only_authority_and_deduplicates_network_message_ids() -> void:
+	var state := MatchState.create(_config(), 77)
+	var controller := MatchController.new(state)
+	var transport := FakePeerTransport.new()
+	var host = _host(controller, transport)
+	host.register_peer("peer-one", &"one", GameTypes.RecipientRole.ACTIVE_PLAYER)
+	host.register_peer("peer-two", &"two", GameTypes.RecipientRole.ACTIVE_PLAYER)
+
+	var command := _command_envelope("network-1", "one", "command-1", "set_ready", {"ready": true})
+	transport.inject_message("peer-one", GameProtocol.encode(command))
+	assert_true(state.players[&"one"].ready)
+	assert_eq(state.accepted_command_ids[&"one"].size(), 1)
+	assert_eq(_decoded_for(transport, "peer-one")[0]["kind"], "command_result")
+	assert_true(_decoded_for(transport, "peer-one")[0]["payload"]["accepted"])
+	assert_eq(_decoded_for(transport, "peer-two"), [])
+
+	transport.inject_message("peer-one", GameProtocol.encode(command))
+	assert_eq(state.accepted_command_ids[&"one"].size(), 1)
+	assert_eq(_decoded_for(transport, "peer-one").size(), 2)
+
+	transport.clear_sent()
+	transport.inject_message("peer-one", GameProtocol.encode(
+		_command_envelope("network-2", "two", "command-2", "set_ready", {"ready": true})
+	))
+	var mismatch: Dictionary = _decoded_for(transport, "peer-one")[0]
+	assert_false(mismatch["payload"]["accepted"])
+	assert_eq(mismatch["payload"]["error_code"], "sender_mismatch")
+	assert_false(state.players[&"two"].ready)
+
+	transport.clear_sent()
+	transport.inject_message("peer-one", GameProtocol.encode(
+		_command_envelope("network-3", "one", "command-3", "not_a_command", {})
+	))
+	assert_eq(_decoded_for(transport, "peer-one").size(), 1)
+	assert_eq(_decoded_for(transport, "peer-two"), [])
+	assert_false(_decoded_for(transport, "peer-one")[0]["payload"]["accepted"])
+
+
+func test_clients_cannot_author_events_or_snapshots() -> void:
+	for forbidden_kind in ["event_batch", "snapshot"]:
+		var controller := MatchController.new(MatchState.create(_config(), 88))
+		var transport := FakePeerTransport.new()
+		var host = _host(controller, transport)
+		host.register_peer("peer-one", &"one", GameTypes.RecipientRole.ACTIVE_PLAYER)
+		transport.inject_message("peer-one", GameProtocol.encode(_envelope(
+			forbidden_kind, "forbidden-%s" % forbidden_kind, "one", {}
+		)))
+		assert_eq(transport.closed, [{
+			"peer_id": "peer-one", "reason": "protocol_violation",
+		}])
+
+
+func test_event_projection_never_leaks_owner_attacker_or_host_data() -> void:
+	var controller := MatchController.new(MatchState.create(_config(), 99))
+	var transport := FakePeerTransport.new()
+	var host = _host(controller, transport)
+	host.register_peer("peer-one", &"one", GameTypes.RecipientRole.ACTIVE_PLAYER)
+	host.register_peer("peer-two", &"two", GameTypes.RecipientRole.ACTIVE_PLAYER)
+	host.register_peer("peer-watch", &"watcher", GameTypes.RecipientRole.SPECTATOR)
+	var events: Array[DomainEvent] = [
+		DomainEvent.new(&"public_event", {"value": "public"}, &"public"),
+		DomainEvent.new(&"owner_event", {"secret": "owner"}, &"player", &"one"),
+		DomainEvent.new(&"attacker_event", {"secret": "attacker"}, &"player", &"two"),
+		DomainEvent.new(&"host_event", {"secret": "host"}, &"host"),
+	]
+
+	host.publish_events(events)
+	assert_eq(_event_kinds(transport, "peer-one"), ["public_event", "owner_event"])
+	assert_eq(_event_kinds(transport, "peer-two"), ["public_event", "attacker_event"])
+	assert_eq(_event_kinds(transport, "peer-watch"), ["public_event"])
+	for entry in transport.sent:
+		var outbound_events: Array = GameProtocol.decode(entry.bytes).envelope["payload"]["events"]
+		assert_false(outbound_events.any(func(event): return event["kind"] == "host_event"))
+
+	host.publish_events([DomainEvent.new(&"second_public", {}, &"public")])
+	for peer_id in ["peer-one", "peer-two", "peer-watch"]:
+		var messages := _decoded_for(transport, peer_id)
+		assert_eq(messages[0]["payload"]["sequence"], 1)
+		assert_eq(messages[1]["payload"]["sequence"], 2)
+
+
+func test_client_orders_batches_buffers_small_gaps_and_requests_resync_for_large_gaps() -> void:
+	var transport := FakePeerTransport.new()
+	var client = ClientNetworkSession.new(transport, "host", "match-1", &"one")
+	var applied: Array = []
+	var resyncs: Array = []
+	client.events_applied.connect(func(events, sequence): applied.append([sequence, events]))
+	client.snapshot_resync_requested.connect(func(expected, received):
+		resyncs.append([expected, received])
+	)
+
+	transport.inject_message("host", GameProtocol.encode(_event_envelope(2, "second")))
+	assert_eq(applied, [])
+	transport.inject_message("host", GameProtocol.encode(_event_envelope(1, "first")))
+	assert_eq(applied.map(func(entry): return entry[0]), [1, 2])
+	assert_eq(applied[0][1][0]["kind"], "first")
+	assert_eq(applied[1][1][0]["kind"], "second")
+
+	transport.inject_message("host", GameProtocol.encode(_event_envelope(20, "too-far")))
+	assert_eq(resyncs, [[3, 20]])
+
+	var snapshot := _envelope("snapshot", "snapshot-1", "host", {
+		"sequence": 9, "state": {"phase": 2, "private_player_id": "one"},
+	})
+	transport.inject_message("host", GameProtocol.encode(snapshot))
+	assert_eq(client.latest_snapshot["private_player_id"], "one")
+	assert_eq(client.expected_sequence, 10)
+
+
+func test_outbound_payload_and_queue_limits_disconnect_slow_peer() -> void:
+	var controller := MatchController.new(MatchState.create(_config(), 111))
+	var oversized_transport := FakePeerTransport.new()
+	var oversized_host = _host(controller, oversized_transport)
+	oversized_host.register_peer("peer-one", &"one", GameTypes.RecipientRole.ACTIVE_PLAYER)
+	oversized_host.publish_events([DomainEvent.new(
+		&"huge", {"blob": "x".repeat(GameProtocol.MAX_ENVELOPE_BYTES)}, &"public"
+	)])
+	assert_eq(oversized_transport.closed, [{
+		"peer_id": "peer-one", "reason": "protocol_payload_too_large",
+	}])
+
+	var slow_transport := FakePeerTransport.new()
+	slow_transport.send_error = ERR_BUSY
+	var slow_host = _host(controller, slow_transport)
+	slow_host.register_peer("peer-slow", &"one", GameTypes.RecipientRole.ACTIVE_PLAYER)
+	for index in range(HostNetworkSession.MAX_QUEUED_MESSAGES + 1):
+		slow_host.publish_events([DomainEvent.new(
+			&"queued", {"index": index}, &"public"
+		)])
+	assert_eq(slow_transport.closed[-1], {
+		"peer_id": "peer-slow", "reason": "outbound_backpressure",
+	})
+
+
+func _host(controller, transport: FakePeerTransport):
+	return HostNetworkSession.new(
+		controller, transport, "match-1", &"host", Callable(self, "_now")
+	)
+
+
+func _config() -> MatchConfig:
+	var timers := {
+		GameTypes.Phase.START: 5000,
+		GameTypes.Phase.MAIN_1: 5000,
+		GameTypes.Phase.HAND_PLAY: 5000,
+		GameTypes.Phase.MAIN_2: 5000,
+		GameTypes.Phase.END: 2000,
+	}
+	var abilities: Array[AbilityDefinition] = []
+	for index in range(20):
+		abilities.append(AbilityDefinition.new(
+			StringName("ability-%d" % index), AbilityDefinition.Timing.HAND_SHAPE,
+			[], &"fixture"
+		))
+	return MatchConfig.new(
+		[&"one", &"two"], [&"watcher"], GameTypes.VictoryMode.SCORE_RACE, 10,
+		GameTypes.InformationVisibility.PUBLIC, timers, 1000, 5000, 30000, abilities
+	)
+
+
+func _command_envelope(
+	message_id: String, sender_id: String, command_id: String, kind: String, payload: Dictionary
+) -> Dictionary:
+	return _envelope("command", message_id, sender_id, {
+		"command_id": command_id,
+		"player_id": sender_id,
+		"kind": kind,
+		"payload": payload,
+	})
+
+
+func _event_envelope(sequence: int, kind: String) -> Dictionary:
+	return _envelope("event_batch", "event-%d" % sequence, "host", {
+		"sequence": sequence, "events": [{"kind": kind, "payload": {}}],
+	})
+
+
+func _envelope(
+	kind: String, message_id: String, sender_id: String, payload: Dictionary
+) -> Dictionary:
+	return {
+		"v": 1, "kind": kind, "message_id": message_id,
+		"match_id": "match-1", "sender_id": sender_id, "payload": payload,
+	}
+
+
+func _decoded_for(transport: FakePeerTransport, peer_id: String) -> Array:
+	var result: Array = []
+	for entry in transport.sent:
+		if entry.peer_id == peer_id:
+			var decoded = GameProtocol.decode(entry.bytes)
+			assert_true(decoded.ok)
+			if decoded.ok:
+				result.append(decoded.envelope)
+	return result
+
+
+func _event_kinds(transport: FakePeerTransport, peer_id: String) -> Array:
+	var messages := _decoded_for(transport, peer_id)
+	return messages[0]["payload"]["events"].map(func(event): return event["kind"])
+
+
+func _now() -> int:
+	return _now_msec

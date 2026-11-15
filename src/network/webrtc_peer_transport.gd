@@ -103,6 +103,10 @@ func close_peer(peer_id: String) -> void:
 	_drop_peer(peer_id, "closed")
 
 
+func disconnect_peer(peer_id: String, reason: String) -> void:
+	_drop_peer(peer_id, reason)
+
+
 func close() -> void:
 	var peer_ids: Array = _peers.keys()
 	for peer_id in peer_ids:

@@ -25,5 +25,9 @@ func close_peer(_peer_id: String) -> void:
 	pass
 
 
+func disconnect_peer(peer_id: String, _reason: String) -> void:
+	close_peer(peer_id)
+
+
 func poll() -> void:
 	pass
