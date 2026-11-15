@@ -141,6 +141,9 @@ func to_dict() -> Dictionary:
 				"operation": str(modifier.operation), "numerator": modifier.value.numerator,
 				"denominator": modifier.value.denominator, "source_id": str(modifier.source_id),
 			})
+		var completed_manipulations: Array = []
+		for ability_id in player.completed_manipulation_ids:
+			completed_manipulations.append(str(ability_id))
 		serialized_players.append({
 			"player_id": str(player.player_id), "seat_index": player.seat_index,
 			"spectator": player.spectator, "active": player.active, "pending": player.pending,
@@ -148,6 +151,12 @@ func to_dict() -> Dictionary:
 			"ability_hand": ability_ids, "match_score": player.match_score,
 			"round_wins": player.round_wins, "replenishment_needed": player.replenishment_needed,
 			"score_modifiers": modifiers,
+			"pending_manipulation": player.pending_manipulation.duplicate(true),
+			"staged_submission": player.staged_submission.duplicate(true),
+			"has_staged_submission": player.has_staged_submission,
+			"hand_locked": player.hand_locked,
+			"submitted_card_ids": player.submitted_cards.map(func(card: FullCardState): return str(card.card_id)),
+			"completed_manipulation_ids": completed_manipulations,
 		})
 	var serialized_piles := {}
 	for context in piles:
@@ -208,6 +217,17 @@ static func from_dict(data: Dictionary) -> MatchState:
 				Rational.new(modifier_data.numerator, modifier_data.denominator),
 				StringName(modifier_data.source_id)
 			))
+		player.pending_manipulation = player_data.get("pending_manipulation", {}).duplicate(true)
+		player.staged_submission.assign(player_data.get("staged_submission", []))
+		player.has_staged_submission = player_data.get("has_staged_submission", false)
+		player.hand_locked = player_data.get("hand_locked", false)
+		for submitted_id: String in player_data.get("submitted_card_ids", []):
+			for card in player.hand:
+				if card.card_id == StringName(submitted_id):
+					player.submitted_cards.append(card)
+					break
+		for ability_id: String in player_data.get("completed_manipulation_ids", []):
+			player.completed_manipulation_ids.append(StringName(ability_id))
 		state.players[player.player_id] = player
 	state.round_number = data.round_number
 	state.active_context = data.active_context

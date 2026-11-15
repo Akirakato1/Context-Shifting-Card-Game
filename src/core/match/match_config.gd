@@ -3,6 +3,9 @@ extends RefCounted
 
 const GameTypes = preload("res://src/core/common/game_types.gd")
 const AbilityDefinition = preload("res://src/core/abilities/ability_definition.gd")
+const Rational = preload("res://src/core/common/rational.gd")
+const NormalHandDefinition = preload("res://src/core/scoring/normal_hand_definition.gd")
+const ContextHandDefinition = preload("res://src/core/scoring/context_hand_definition.gd")
 
 var match_started := false
 
@@ -16,6 +19,8 @@ var _reaction_window_msec: int
 var _public_hard_limit_msec: int
 var _reconnect_grace_msec: int
 var _ability_definitions: Array[AbilityDefinition] = []
+var _normal_definitions: Array[NormalHandDefinition] = []
+var _context_definitions: Array[ContextHandDefinition] = []
 
 var active_player_ids: Array[StringName]:
 	get: return _active_player_ids.duplicate()
@@ -37,6 +42,10 @@ var reconnect_grace_msec: int:
 	get: return _reconnect_grace_msec
 var ability_definitions: Array[AbilityDefinition]:
 	get: return _ability_definitions.duplicate()
+var normal_definitions: Array[NormalHandDefinition]:
+	get: return _normal_definitions.duplicate()
+var context_definitions: Array[ContextHandDefinition]:
+	get: return _context_definitions.duplicate()
 
 
 func _init(
@@ -49,7 +58,9 @@ func _init(
 	initial_reaction_window_msec: int,
 	initial_public_hard_limit_msec: int,
 	initial_reconnect_grace_msec: int,
-	initial_ability_definitions: Array
+	initial_ability_definitions: Array,
+	initial_normal_definitions: Array = [],
+	initial_context_definitions: Array = []
 ) -> void:
 	_active_player_ids.assign(initial_active_ids)
 	_spectator_ids.assign(initial_spectator_ids)
@@ -61,6 +72,8 @@ func _init(
 	_public_hard_limit_msec = initial_public_hard_limit_msec
 	_reconnect_grace_msec = initial_reconnect_grace_msec
 	_ability_definitions.assign(initial_ability_definitions)
+	_normal_definitions.assign(initial_normal_definitions)
+	_context_definitions.assign(initial_context_definitions)
 
 
 func validate() -> StringName:
@@ -155,6 +168,24 @@ func to_dict() -> Dictionary:
 			"effect_id": str(definition.effect_id), "field_duration": definition.field_duration,
 			"conflict_group": str(definition.conflict_group),
 		})
+	var normal_definitions: Array = []
+	for definition in _normal_definitions:
+		normal_definitions.append({
+			"id": str(definition.id), "priority": definition.priority,
+			"subset_size": definition.subset_size, "rule_id": str(definition.rule_id),
+			"multiplier_numerator": definition.multiplier.numerator,
+			"multiplier_denominator": definition.multiplier.denominator,
+		})
+	var context_definitions: Array = []
+	for definition in _context_definitions:
+		var minimums := {}
+		for context in definition.minimums:
+			minimums[str(context)] = definition.minimums[context]
+		context_definitions.append({
+			"id": str(definition.id), "priority": definition.priority, "minimums": minimums,
+			"multiplier_numerator": definition.multiplier.numerator,
+			"multiplier_denominator": definition.multiplier.denominator,
+		})
 	return {
 		"active_player_ids": active, "spectator_ids": spectators,
 		"victory_mode": _victory_mode, "victory_target": _victory_target,
@@ -162,7 +193,8 @@ func to_dict() -> Dictionary:
 		"reaction_window_msec": _reaction_window_msec,
 		"public_hard_limit_msec": _public_hard_limit_msec,
 		"reconnect_grace_msec": _reconnect_grace_msec,
-		"ability_definitions": definitions, "match_started": match_started,
+		"ability_definitions": definitions, "normal_definitions": normal_definitions,
+		"context_definitions": context_definitions, "match_started": match_started,
 	}
 
 
@@ -181,11 +213,27 @@ static func from_dict(data: Dictionary) -> MatchConfig:
 			StringName(item.id), item.timing, tags, StringName(item.effect_id),
 			item.field_duration, StringName(item.conflict_group)
 		))
+	var normal_definitions: Array[NormalHandDefinition] = []
+	for item: Dictionary in data.get("normal_definitions", []):
+		normal_definitions.append(NormalHandDefinition.new(
+			StringName(item.id), item.priority, item.subset_size, StringName(item.rule_id),
+			Rational.new(item.multiplier_numerator, item.multiplier_denominator)
+		))
+	var context_definitions: Array[ContextHandDefinition] = []
+	for item: Dictionary in data.get("context_definitions", []):
+		var minimums := {}
+		for context: String in item.minimums:
+			minimums[int(context)] = item.minimums[context]
+		context_definitions.append(ContextHandDefinition.new(
+			StringName(item.id), item.priority, minimums,
+			Rational.new(item.multiplier_numerator, item.multiplier_denominator)
+		))
 	var script: Script = load("res://src/core/match/match_config.gd")
 	var config: MatchConfig = script.new(
 		active, spectators, data.victory_mode, data.victory_target,
 		data.information_visibility, timers, data.reaction_window_msec,
-		data.public_hard_limit_msec, data.reconnect_grace_msec, definitions
+		data.public_hard_limit_msec, data.reconnect_grace_msec, definitions,
+		normal_definitions, context_definitions
 	)
 	config.match_started = data.match_started
 	return config
