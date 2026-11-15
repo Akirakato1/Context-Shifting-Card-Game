@@ -1,0 +1,157 @@
+extends "res://tests/test_case.gd"
+
+const GameTypes = preload("res://src/core/common/game_types.gd")
+const AbilityDefinition = preload("res://src/core/abilities/ability_definition.gd")
+const MatchConfig = preload("res://src/core/match/match_config.gd")
+const MatchState = preload("res://src/core/match/match_state.gd")
+const MatchController = preload("res://src/core/match/match_controller.gd")
+const DomainEvent = preload("res://src/core/events/domain_event.gd")
+const GameProtocol = preload("res://src/network/game_protocol.gd")
+const HostNetworkSession = preload("res://src/network/host_network_session.gd")
+const FakePeerTransport = preload("res://tests/network/fake_peer_transport.gd")
+
+
+func test_admission_enforces_capacity_role_lock_and_pending_public_only_snapshot() -> void:
+	var full_active := _session([&"one", &"two", &"three", &"four"], [])
+	assert_eq(
+		full_active.host.admit_peer("peer-five", &"five", "active").error_code,
+		"active_seats_full"
+	)
+	var full_spectators := _session([&"one", &"two"], [&"s1", &"s2", &"s3", &"s4"])
+	assert_eq(
+		full_spectators.host.admit_peer("peer-s5", &"s5", "spectator").error_code,
+		"spectator_slots_full"
+	)
+
+	var fixture := _session([&"one", &"two"], [])
+	fixture.host.register_peer("peer-one", &"one", GameTypes.RecipientRole.ACTIVE_PLAYER)
+	var admitted: Dictionary = fixture.host.admit_peer("peer-late", &"late", "active")
+	assert_true(admitted.accepted)
+	assert_eq(fixture.state.players[&"late"].pending, true)
+	assert_eq(
+		fixture.host.admit_peer("peer-late", &"late", "spectator").error_code,
+		"role_change_not_allowed"
+	)
+	var pending_snapshot := _last_kind(fixture.transport, "peer-late", "snapshot")
+	assert_false(pending_snapshot.payload.state.has("private_hand"))
+	assert_false(pending_snapshot.payload.state.has("private_abilities"))
+	assert_true(_player_view(pending_snapshot.payload.state, "late").pending)
+	assert_true(pending_snapshot.payload.state.lobby_settings.match_started)
+
+	fixture.host.send_snapshot("peer-one")
+	var existing_snapshot := _last_kind(fixture.transport, "peer-one", "snapshot")
+	assert_eq(
+		existing_snapshot.payload.state.lobby_settings,
+		pending_snapshot.payload.state.lobby_settings
+	)
+
+
+func test_next_start_activation_sends_private_hand_and_three_abilities_only_to_owner() -> void:
+	var fixture := _session([&"one", &"two"], [])
+	fixture.host.register_peer("peer-one", &"one", GameTypes.RecipientRole.ACTIVE_PLAYER)
+	assert_true(fixture.host.admit_peer("peer-late", &"late", "active").accepted)
+	fixture.transport.clear_sent()
+
+	fixture.state.round_number = 2
+	fixture.state.phase = GameTypes.Phase.START
+	fixture.state.start_prepared_round = 1
+	fixture.controller.call("_prepare_start_phase")
+	fixture.controller.tick(0)
+	var start_events: Array = fixture.controller.tick(6000)
+	fixture.host.publish_events(start_events)
+	assert_eq(fixture.host.sync_player_activation(&"late"), OK)
+
+	var owner_snapshot := _last_kind(fixture.transport, "peer-late", "snapshot")
+	assert_eq(owner_snapshot.payload.state.private_player_id, "late")
+	assert_eq(owner_snapshot.payload.state.private_hand.size(), 6)
+	assert_eq(owner_snapshot.payload.state.private_abilities.size(), 3)
+	var other_payloads := _all_payload_text(fixture.transport, "peer-one")
+	assert_false(other_payloads.contains(owner_snapshot.payload.state.private_hand[0].card_id))
+	assert_false(other_payloads.contains(owner_snapshot.payload.state.private_abilities[0].copy_id))
+	assert_true(_event_kinds(fixture.transport, "peer-one").has("player_activated"))
+
+
+func test_mid_phase_spectator_gets_public_snapshot_and_never_private_or_ready() -> void:
+	var fixture := _session([&"one", &"two"], [])
+	fixture.state.phase = GameTypes.Phase.MAIN_1
+	fixture.host.register_peer("peer-one", &"one", GameTypes.RecipientRole.ACTIVE_PLAYER)
+	assert_true(fixture.host.admit_peer("peer-watch", &"watch", "spectator").accepted)
+	var snapshot := _last_kind(fixture.transport, "peer-watch", "snapshot")
+	assert_eq(snapshot.payload.state.phase, GameTypes.Phase.MAIN_1)
+	assert_false(snapshot.payload.state.has("private_hand"))
+	assert_false(snapshot.payload.state.has("private_abilities"))
+	assert_true(fixture.state.players[&"watch"].spectator)
+	assert_false(fixture.state.players[&"watch"].active)
+
+	fixture.transport.clear_sent()
+	fixture.host.publish_events([
+		DomainEvent.new(&"public_update", {"visible": true}, &"public"),
+		DomainEvent.new(&"private_update", {"secret": true}, &"player", &"one"),
+	])
+	assert_eq(_event_kinds(fixture.transport, "peer-watch"), ["public_update"])
+
+
+func _session(active_ids: Array, spectator_ids: Array) -> Dictionary:
+	var state := MatchState.create(_config(active_ids, spectator_ids), 5150)
+	var controller := MatchController.new(state)
+	var transport := FakePeerTransport.new()
+	var host := HostNetworkSession.new(controller, transport, "match-1", &"host")
+	return {"state": state, "controller": controller, "transport": transport, "host": host}
+
+
+func _config(active_ids: Array, spectator_ids: Array) -> MatchConfig:
+	var timers := {
+		GameTypes.Phase.START: 5000,
+		GameTypes.Phase.MAIN_1: 5000,
+		GameTypes.Phase.HAND_PLAY: 5000,
+		GameTypes.Phase.MAIN_2: 5000,
+		GameTypes.Phase.END: 2000,
+	}
+	var abilities: Array[AbilityDefinition] = []
+	for index in range(40):
+		abilities.append(AbilityDefinition.new(
+			StringName("ability-%d" % index), AbilityDefinition.Timing.HAND_SHAPE,
+			[], &"fixture"
+		))
+	return MatchConfig.new(
+		active_ids, spectator_ids, GameTypes.VictoryMode.SCORE_RACE, 10,
+		GameTypes.InformationVisibility.PUBLIC, timers, 1000, 5000, 30000, abilities
+	)
+
+
+func _last_kind(transport: FakePeerTransport, peer_id: String, kind: String) -> Dictionary:
+	var matches: Array = []
+	for entry in transport.sent:
+		if entry.peer_id != peer_id:
+			continue
+		var envelope: Dictionary = GameProtocol.decode(entry.bytes).envelope
+		if envelope.kind == kind:
+			matches.append(envelope)
+	assert_true(not matches.is_empty(), "expected %s for %s" % [kind, peer_id])
+	return matches[-1] if not matches.is_empty() else {}
+
+
+func _player_view(snapshot: Dictionary, player_id: String) -> Dictionary:
+	for player in snapshot.players:
+		if player.player_id == player_id:
+			return player
+	return {}
+
+
+func _event_kinds(transport: FakePeerTransport, peer_id: String) -> Array:
+	var result: Array = []
+	for entry in transport.sent:
+		if entry.peer_id != peer_id:
+			continue
+		var envelope: Dictionary = GameProtocol.decode(entry.bytes).envelope
+		if envelope.kind == "event_batch":
+			result.append_array(envelope.payload.events.map(func(event): return event.kind))
+	return result
+
+
+func _all_payload_text(transport: FakePeerTransport, peer_id: String) -> String:
+	var payloads: Array = []
+	for entry in transport.sent:
+		if entry.peer_id == peer_id:
+			payloads.append(GameProtocol.decode(entry.bytes).envelope.payload)
+	return JSON.stringify(payloads)

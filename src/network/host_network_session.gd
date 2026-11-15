@@ -3,6 +3,7 @@ extends RefCounted
 
 const GameTypes = preload("res://src/core/common/game_types.gd")
 const GameCommand = preload("res://src/core/commands/game_command.gd")
+const CommandKinds = preload("res://src/core/commands/command_kinds.gd")
 const DomainEvent = preload("res://src/core/events/domain_event.gd")
 const GameProtocol = preload("res://src/network/game_protocol.gd")
 const SnapshotProjector = preload("res://src/core/match/snapshot_projector.gd")
@@ -20,6 +21,7 @@ var _player_response_cache := {}
 var _recipient_sequences := {}
 var _outbound_queues := {}
 var _next_message_id := 1
+var _next_join_command_id := 1
 
 
 func _init(
@@ -46,6 +48,11 @@ func register_peer(peer_id: String, player_id: StringName, role: int) -> Error:
 		GameTypes.RecipientRole.SPECTATOR,
 	]:
 		return ERR_INVALID_PARAMETER
+	if _peers.has(peer_id):
+		var existing: Dictionary = _peers[peer_id]
+		if existing["player_id"] != player_id or existing["role"] != role:
+			return ERR_ALREADY_IN_USE
+		return ERR_ALREADY_EXISTS
 	_peers[peer_id] = {"player_id": player_id, "role": role}
 	if not _player_response_cache.has(player_id):
 		_player_response_cache[player_id] = {}
@@ -53,6 +60,68 @@ func register_peer(peer_id: String, player_id: StringName, role: int) -> Error:
 		_recipient_sequences[player_id] = 0
 	_outbound_queues[peer_id] = []
 	return OK
+
+
+func admit_peer(peer_id: String, player_id: StringName, requested_role: String) -> Dictionary:
+	if requested_role not in ["active", "spectator"]:
+		return {"accepted": false, "error_code": "invalid_role"}
+	if _peers.has(peer_id):
+		var existing: Dictionary = _peers[peer_id]
+		if existing["player_id"] != player_id or (
+			(requested_role == "spectator") != (
+				existing["role"] == GameTypes.RecipientRole.SPECTATOR
+			)
+		):
+			return {"accepted": false, "error_code": "role_change_not_allowed"}
+		return {"accepted": false, "error_code": "peer_already_admitted"}
+
+	var command_kind := (
+		CommandKinds.JOIN_ACTIVE if requested_role == "active"
+		else CommandKinds.JOIN_SPECTATOR
+	)
+	var command := GameCommand.new(
+		StringName("network-join-%d" % _next_join_command_id), player_id, command_kind
+	)
+	_next_join_command_id += 1
+	var result = _controller.submit(command, _now_msec())
+	if not result.accepted:
+		return {"accepted": false, "error_code": str(result.error_code)}
+
+	var network_role := (
+		GameTypes.RecipientRole.PENDING_PLAYER if requested_role == "active"
+		else GameTypes.RecipientRole.SPECTATOR
+	)
+	if register_peer(peer_id, player_id, network_role) != OK:
+		return {"accepted": false, "error_code": "peer_registration_failed"}
+	publish_events([DomainEvent.new(
+		&"participant_joined",
+		{"player_id": str(player_id), "role": requested_role},
+		&"public"
+	)])
+	send_snapshot(peer_id)
+	return {"accepted": true, "error_code": ""}
+
+
+func sync_player_activation(player_id: StringName) -> Error:
+	if not _controller.state.players.has(player_id):
+		return ERR_DOES_NOT_EXIST
+	var player = _controller.state.players[player_id]
+	if not player.active or player.pending:
+		return ERR_BUSY
+	var peer_id := ""
+	for candidate in _peers:
+		if _peers[candidate]["player_id"] == player_id:
+			peer_id = candidate
+			break
+	if peer_id.is_empty():
+		return ERR_DOES_NOT_EXIST
+	if _peers[peer_id]["role"] != GameTypes.RecipientRole.PENDING_PLAYER:
+		return ERR_ALREADY_EXISTS
+	_peers[peer_id]["role"] = GameTypes.RecipientRole.ACTIVE_PLAYER
+	publish_events([DomainEvent.new(
+		&"player_activated", {"player_id": str(player_id)}, &"public"
+	)])
+	return send_snapshot(peer_id)
 
 
 func unregister_peer(peer_id: String) -> void:
@@ -69,7 +138,9 @@ func publish_events(events: Array) -> void:
 		if not _peers.has(peer_id):
 			continue
 		var registration: Dictionary = _peers[peer_id]
-		var projected := _project_events(events, registration["player_id"])
+		var projected := _project_events(
+			events, registration["player_id"], registration["role"]
+		)
 		if projected.is_empty():
 			continue
 		var recipient_id: StringName = registration["player_id"]
@@ -88,6 +159,7 @@ func send_snapshot(peer_id: String) -> Error:
 	var snapshot := SnapshotProjector.for_recipient(
 		_controller.state, player_id, registration["role"]
 	)
+	snapshot["lobby_settings"] = _controller.state.config.to_dict()
 	return _send_envelope(peer_id, _envelope("snapshot", {
 		"sequence": int(_recipient_sequences.get(player_id, 0)),
 		"state": snapshot,
@@ -209,13 +281,15 @@ func _append_to_queue(peer_id: String, queue: Array, bytes: PackedByteArray) -> 
 	return OK
 
 
-func _project_events(events: Array, recipient_id: StringName) -> Array:
+func _project_events(events: Array, recipient_id: StringName, role: int) -> Array:
 	var projected: Array = []
 	for event in events:
 		if not event is DomainEvent:
 			continue
 		if event.audience == &"public" or (
-			event.audience == &"player" and event.recipient_id == recipient_id
+			event.audience == &"player"
+			and role == GameTypes.RecipientRole.ACTIVE_PLAYER
+			and event.recipient_id == recipient_id
 		):
 			projected.append({
 				"kind": str(event.kind),
