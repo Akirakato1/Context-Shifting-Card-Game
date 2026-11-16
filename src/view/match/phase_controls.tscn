@@ -94,6 +94,11 @@ alignment = 1
 layout_mode = 2
 text = "Play legal abilities, then mark ready."
 
+[node name="ReactionNotice" type="Label" parent="MainControls"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.76, 0.36, 1)
+text = ""
+
 [node name="ReadyButton" type="Button" parent="MainControls"]
 layout_mode = 2
 text = "READY"

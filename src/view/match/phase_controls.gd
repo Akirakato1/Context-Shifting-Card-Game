@@ -2,6 +2,7 @@ class_name PhaseControls
 extends VBoxContainer
 
 signal intent_requested(kind: StringName, payload: Dictionary)
+signal card_target_requested(card_id: StringName)
 
 const CARD_SCENE := preload("res://src/view/match/card_widget.tscn")
 const PHASE_START := 1
@@ -25,6 +26,10 @@ var _card_widgets: Dictionary = {}
 var _ability_discards: Array[StringName] = []
 var _last_start_request: Dictionary = {}
 var _confirmed_start_request: Dictionary = {}
+var _input_locked := false
+var _targeting := false
+var _target_eligible: Array[StringName] = []
+var _target_selected: Array[StringName] = []
 
 @onready var _status: Label = $Status
 @onready var _timeout_notice: Label = $TimeoutNotice
@@ -79,7 +84,11 @@ func render(model: Dictionary) -> void:
 	if _start.visible:
 		_render_start()
 	if _main.visible:
-		_main_ready.disabled = _pending.has(&"set_ready")
+		var reaction_remaining := maxi(
+			int(_model.get("reaction_deadline_msec", -1)) - int(_model.get("now_msec", 0)), 0
+		)
+		$MainControls/ReactionNotice.text = "Response window  %.1fs" % (reaction_remaining / 1000.0) if reaction_remaining > 0 else ""
+		_main_ready.disabled = _input_locked or _pending.has(&"set_ready")
 	if _hand_play.visible:
 		_render_hand_play()
 	if _end.visible:
@@ -88,7 +97,11 @@ func render(model: Dictionary) -> void:
 
 
 func click_card(card_id: StringName) -> void:
-	if _phase != PHASE_HAND_PLAY or _pending.has(&"stage_hand") or _pending.has(&"lock_hand"):
+	if _targeting:
+		if card_id in _target_eligible:
+			card_target_requested.emit(card_id)
+		return
+	if _input_locked or _phase != PHASE_HAND_PLAY or _pending.has(&"stage_hand") or _pending.has(&"lock_hand"):
 		return
 	if _staged.has(card_id):
 		_staged.erase(card_id)
@@ -154,6 +167,37 @@ func staged_selection(card_id: StringName) -> Dictionary:
 
 func card_widget(card_id: StringName) -> Variant:
 	return _card_widgets.get(card_id)
+
+
+func set_inputs_locked(locked: bool) -> void:
+	_input_locked = locked
+	if _phase == PHASE_HAND_PLAY:
+		_render_hand_play()
+	_refresh_buttons()
+
+
+func inputs_locked() -> bool:
+	return _input_locked
+
+
+func set_targeting(eligible: Array, selected: Array = []) -> void:
+	_targeting = true
+	_target_eligible.clear()
+	_target_selected.clear()
+	for value in eligible:
+		_target_eligible.append(StringName(value))
+	for value in selected:
+		_target_selected.append(StringName(value))
+	if _phase == PHASE_HAND_PLAY:
+		_render_hand_play()
+
+
+func clear_targeting() -> void:
+	_targeting = false
+	_target_eligible.clear()
+	_target_selected.clear()
+	if _phase == PHASE_HAND_PLAY:
+		_render_hand_play()
 
 
 func toggle_ability_discard(copy_id: StringName, selected: bool) -> void:
@@ -265,7 +309,12 @@ func _make_card_widget(
 		"selected_half_index": selection.get("half_index", _default_half_index_for_card(card_id)),
 		"joker_choices": selection.get("joker_choices", []),
 		"orientation_flipped": bool(_orientations.get(card_id, false)),
-		"interaction_disabled": locked or (not staged and not _card_is_eligible(_hand_cards[card_id])),
+		"interaction_disabled": (
+			_input_locked or locked or (_targeting and card_id not in _target_eligible)
+			or (not _targeting and not staged and not _card_is_eligible(_hand_cards[card_id]))
+		),
+		"targeting_eligible": _targeting and card_id in _target_eligible,
+		"targeting_selected": _targeting and card_id in _target_selected,
 	})
 	widget.primary_clicked.connect(click_card)
 	widget.orientation_requested.connect(right_click_card)
@@ -318,6 +367,7 @@ func _render_end() -> void:
 		var copy_id := StringName(ability.get("copy_id", ""))
 		choice.text = str(ability.get("ability_id", "Ability")).replace("_", " ").capitalize()
 		choice.button_pressed = copy_id in _ability_discards
+		choice.disabled = _input_locked
 		choice.toggled.connect(func(selected: bool): toggle_ability_discard(copy_id, selected))
 		_ability_choices.add_child(choice)
 	_update_end_button()
@@ -328,7 +378,7 @@ func _update_start_total() -> void:
 		return
 	var total := int(_start_a.value + _start_b.value + _start_c.value)
 	_start_total.text = "%d / %d selected" % [total, _required_halves]
-	_start_confirm.disabled = (
+	_start_confirm.disabled = _input_locked or (
 		total <= 0 or total > _required_halves or _required_halves == 0
 		or _pending.has(&"set_replenishment_request")
 	)
@@ -337,19 +387,19 @@ func _update_start_total() -> void:
 
 func _update_end_button() -> void:
 	var required := maxi(_model.get("private_abilities", []).size() - 3, 0)
-	_end_confirm.disabled = _ability_discards.size() != required or _pending.has(&"choose_ability_discards")
+	_end_confirm.disabled = _input_locked or _ability_discards.size() != required or _pending.has(&"choose_ability_discards")
 
 
 func _refresh_buttons() -> void:
 	if _phase == PHASE_HAND_PLAY:
 		var locked := bool(_model.get("private_staging", {}).get("hand_locked", false))
 		var busy := _pending.has(&"stage_hand") or _pending.has(&"lock_hand")
-		_lock_button.disabled = locked or busy or _staged_order.is_empty()
-		_pass_button.disabled = locked or busy
+		_lock_button.disabled = _input_locked or locked or busy or _staged_order.is_empty()
+		_pass_button.disabled = _input_locked or locked or busy
 	elif _phase == PHASE_START:
 		_update_start_total()
 	elif _phase in [PHASE_MAIN_1, PHASE_MAIN_2]:
-		_main_ready.disabled = _pending.has(&"set_ready")
+		_main_ready.disabled = _input_locked or _pending.has(&"set_ready")
 	elif _phase == PHASE_END:
 		_update_end_button()
 
@@ -449,7 +499,7 @@ func _current_start_request() -> Dictionary:
 
 
 func _start_ready_allowed() -> bool:
-	if _pending.has(&"set_ready") or _pending.has(&"set_replenishment_request"):
+	if _input_locked or _pending.has(&"set_ready") or _pending.has(&"set_replenishment_request"):
 		return false
 	if _required_halves == 0:
 		return true

@@ -14,6 +14,8 @@ var active_half_index := -1
 var face_down := false
 var interaction_disabled := false
 var orientation_flipped := false
+var targeting_eligible := false
+var targeting_selected := false
 var _card: Dictionary = {}
 var _staged := false
 
@@ -48,6 +50,8 @@ func render(
 	interaction_disabled = bool(view_state.get("interaction_disabled", hidden))
 	orientation_flipped = bool(view_state.get("orientation_flipped", false))
 	_staged = bool(view_state.get("staged", false))
+	targeting_eligible = bool(view_state.get("targeting_eligible", false))
+	targeting_selected = bool(view_state.get("targeting_selected", false))
 	_back.visible = hidden
 	_face.visible = not hidden
 	_first_choices.visible = false
@@ -74,7 +78,12 @@ func render(
 	_apply_joker_choices(first, second, view_state)
 	_apply_orientation()
 	_apply_active_style()
-	modulate = Color("8290a0") if interaction_disabled else Color.WHITE
+	if targeting_selected:
+		modulate = Color("ffd45a")
+	elif targeting_eligible:
+		modulate = Color("77e8ff")
+	else:
+		modulate = Color("8290a0") if interaction_disabled else Color.WHITE
 
 
 func _gui_input(event: InputEvent) -> void:
