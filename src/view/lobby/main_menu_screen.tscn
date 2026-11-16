@@ -1,0 +1,122 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://src/view/lobby/main_menu_screen.gd" id="1_script"]
+[ext_resource type="Theme" path="res://themes/placeholder_theme.tres" id="2_theme"]
+
+[node name="MainMenuScreen" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme = ExtResource("2_theme")
+script = ExtResource("1_script")
+
+[node name="Backdrop" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.027, 0.047, 0.069, 1)
+
+[node name="Content" type="VBoxContainer" parent="."]
+custom_minimum_size = Vector2(520, 0)
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -260.0
+offset_top = -315.0
+offset_right = 260.0
+offset_bottom = 315.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 18
+
+[node name="Eyebrow" type="Label" parent="Content"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.35, 0.78, 0.93, 1)
+theme_override_font_sizes/font_size = 16
+text = "HOST-AUTHORITATIVE CARD TABLE"
+horizontal_alignment = 1
+
+[node name="Title" type="Label" parent="Content"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.96, 0.97, 1, 1)
+theme_override_font_sizes/font_size = 64
+text = "SHIFT"
+horizontal_alignment = 1
+
+[node name="Subtitle" type="Label" parent="Content"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.68, 0.75, 0.83, 1)
+theme_override_font_sizes/font_size = 20
+text = "Build a hand. Bend the context. Outsmart the table."
+horizontal_alignment = 1
+
+[node name="Spacer" type="Control" parent="Content"]
+custom_minimum_size = Vector2(0, 16)
+layout_mode = 2
+
+[node name="PlayerNameLabel" type="Label" parent="Content"]
+layout_mode = 2
+text = "PLAYER NAME"
+
+[node name="PlayerName" type="LineEdit" parent="Content"]
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+placeholder_text = "How should the table know you?"
+max_length = 24
+
+[node name="HostButton" type="Button" parent="Content"]
+custom_minimum_size = Vector2(0, 54)
+layout_mode = 2
+text = "HOST A TABLE"
+
+[node name="Divider" type="HSeparator" parent="Content"]
+layout_mode = 2
+
+[node name="JoinPanel" type="PanelContainer" parent="Content"]
+layout_mode = 2
+
+[node name="JoinFields" type="VBoxContainer" parent="Content/JoinPanel"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="JoinLabel" type="Label" parent="Content/JoinPanel/JoinFields"]
+layout_mode = 2
+text = "JOIN AN EXISTING TABLE"
+
+[node name="Code" type="LineEdit" parent="Content/JoinPanel/JoinFields"]
+custom_minimum_size = Vector2(0, 46)
+layout_mode = 2
+placeholder_text = "ROOM CODE"
+max_length = 8
+alignment = 1
+
+[node name="Role" type="OptionButton" parent="Content/JoinPanel/JoinFields"]
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+
+[node name="JoinButton" type="Button" parent="Content/JoinPanel/JoinFields"]
+custom_minimum_size = Vector2(0, 50)
+layout_mode = 2
+text = "JOIN TABLE"
+
+[node name="Status" type="Label" parent="Content"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.72, 0.78, 0.85, 1)
+text = "Host a new table or join your friends with a room code."
+horizontal_alignment = 1
+autowrap_mode = 2
+
+[connection signal="text_changed" from="Content/PlayerName" to="." method="_on_input_changed"]
+[connection signal="pressed" from="Content/HostButton" to="." method="_on_host_pressed"]
+[connection signal="text_changed" from="Content/JoinPanel/JoinFields/Code" to="." method="_on_input_changed"]
+[connection signal="pressed" from="Content/JoinPanel/JoinFields/JoinButton" to="." method="_on_join_pressed"]
