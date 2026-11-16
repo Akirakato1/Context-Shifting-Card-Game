@@ -1,0 +1,62 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://src/view/match/player_seat.gd" id="1_script"]
+
+[sub_resource type="StyleBoxFlat" id="Style_seat"]
+bg_color = Color(0.045, 0.07, 0.098, 0.94)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.18, 0.3, 0.39, 1)
+corner_radius_top_left = 10
+corner_radius_top_right = 10
+corner_radius_bottom_right = 10
+corner_radius_bottom_left = 10
+content_margin_left = 10.0
+content_margin_top = 8.0
+content_margin_right = 10.0
+content_margin_bottom = 8.0
+
+[node name="PlayerSeat" type="VBoxContainer"]
+custom_minimum_size = Vector2(280, 142)
+theme_override_constants/separation = 5
+script = ExtResource("1_script")
+
+[node name="Background" type="Panel" parent="."]
+show_behind_parent = true
+layout_mode = 2
+theme_override_styles/panel = SubResource("Style_seat")
+
+[node name="Info" type="HBoxContainer" parent="."]
+layout_mode = 2
+
+[node name="Name" type="Label" parent="Info"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.93, 0.95, 0.98, 1)
+theme_override_font_sizes/font_size = 16
+text = "OPEN SEAT"
+
+[node name="Status" type="Label" parent="Info"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.52, 0.79, 0.68, 1)
+text = "WAITING"
+
+[node name="ScoreSummary" type="Label" parent="."]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.82, 0.38, 1)
+text = ""
+horizontal_alignment = 1
+
+[node name="Request" type="Label" parent="."]
+visible = false
+layout_mode = 2
+theme_override_colors/font_color = Color(0.45, 0.76, 0.91, 1)
+text = "DRAW  A0 · B0 · C0"
+horizontal_alignment = 1
+
+[node name="Hand" type="HBoxContainer" parent="."]
+layout_mode = 2
+size_flags_horizontal = 4
+theme_override_constants/separation = 6

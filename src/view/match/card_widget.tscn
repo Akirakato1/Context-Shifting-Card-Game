@@ -1,0 +1,55 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://src/view/match/card_widget.gd" id="1_script"]
+
+[sub_resource type="StyleBoxFlat" id="Style_card"]
+bg_color = Color(0.075, 0.105, 0.145, 1)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.27, 0.51, 0.65, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+content_margin_left = 8.0
+content_margin_top = 8.0
+content_margin_right = 8.0
+content_margin_bottom = 8.0
+
+[node name="CardWidget" type="PanelContainer"]
+custom_minimum_size = Vector2(128, 96)
+theme_override_styles/panel = SubResource("Style_card")
+script = ExtResource("1_script")
+
+[node name="Back" type="Label" parent="."]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.35, 0.78, 0.93, 1)
+theme_override_font_sizes/font_size = 18
+text = "SHIFT\nCARD"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="Face" type="VBoxContainer" parent="."]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="First" type="Label" parent="Face"]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_colors/font_color = Color(0.78, 0.82, 0.86, 1)
+text = "A  1  ONE"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="Divider" type="HSeparator" parent="Face"]
+layout_mode = 2
+
+[node name="Second" type="Label" parent="Face"]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_colors/font_color = Color(0.78, 0.82, 0.86, 1)
+text = "B  1  TWO"
+horizontal_alignment = 1
+vertical_alignment = 1
