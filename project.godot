@@ -6,6 +6,7 @@ config_version=5
 [application]
 
 config/name="Shift"
+run/main_scene="res://src/view/app/app_root.tscn"
 
 [display]
 

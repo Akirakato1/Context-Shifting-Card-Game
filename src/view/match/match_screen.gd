@@ -161,7 +161,11 @@ func _render_phase_controls() -> void:
 		return
 	_phase_controls.render(_model)
 	_phase_controls.set_inputs_locked(bool(_model.get("frozen", false)))
-	_bottom_seat.get_node("Hand").visible = int(_model.get("phase", 0)) != 3
+	var building_hand := int(_model.get("phase", 0)) == 3
+	_bottom_seat.get_node("Hand").visible = not building_hand
+	_bottom_seat.get_node("Background").visible = not building_hand
+	_bottom_seat.get_node("ScoreSummary").visible = not building_hand
+	_bottom_seat.get_node("Request").visible = not building_hand and _bottom_seat.get_node("Request").visible
 
 
 func _render_abilities() -> void:

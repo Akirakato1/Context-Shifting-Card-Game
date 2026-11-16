@@ -1,5 +1,5 @@
 class_name AbilityPanel
-extends VBoxContainer
+extends Control
 
 signal ability_activated(copy_id: StringName, ability: Dictionary)
 

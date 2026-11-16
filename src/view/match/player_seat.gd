@@ -11,6 +11,7 @@ var _hidden_cards := 0
 @onready var _status: Label = $Info/Status
 @onready var _score: Label = $ScoreSummary
 @onready var _request: Label = $Request
+@onready var _hand_count: Label = $HandCount
 @onready var _hand: HBoxContainer = $Hand
 
 
@@ -29,6 +30,7 @@ func render(
 		_status.text = "WAITING"
 		_score.text = ""
 		_request.visible = false
+		_hand_count.visible = false
 		_hand.visible = false
 		return
 	var display_name := str(player.get("name", player.get("player_id", "Player")))
@@ -46,12 +48,19 @@ func render(
 	else:
 		hidden = true
 		_hidden_cards = int(player.get("hand_count", 0))
-		for index in _hidden_cards:
+		var visible_backs := 0 if seat_position == &"top" else mini(_hidden_cards, 3)
+		for index in visible_backs:
 			cards.append({"card_id": "back_%d" % index})
+	_hand_count.visible = hidden
+	_hand_count.text = "%d cards" % _hidden_cards if hidden else ""
+	_hand_count.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT if seat_position == &"top" else HORIZONTAL_ALIGNMENT_CENTER
+	_hand.alignment = BoxContainer.ALIGNMENT_BEGIN if seat_position == &"top" else BoxContainer.ALIGNMENT_CENTER
 	_hand.visible = show_hand and (is_local or not cards.is_empty())
 	for card in cards:
 		var widget = CARD_SCENE.instantiate()
 		_hand.add_child(widget)
+		if not is_local:
+			widget.custom_minimum_size = Vector2(72, 58)
 		widget.render(card, active_context, hidden)
 	_score.text = _score_text(player, revealed)
 

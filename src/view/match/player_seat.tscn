@@ -56,6 +56,13 @@ theme_override_colors/font_color = Color(0.45, 0.76, 0.91, 1)
 text = "DRAW  A0 · B0 · C0"
 horizontal_alignment = 1
 
+[node name="HandCount" type="Label" parent="."]
+visible = false
+layout_mode = 2
+theme_override_colors/font_color = Color(0.52, 0.62, 0.72, 1)
+text = "0 cards"
+horizontal_alignment = 1
+
 [node name="Hand" type="HBoxContainer" parent="."]
 layout_mode = 2
 size_flags_horizontal = 4

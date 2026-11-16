@@ -118,7 +118,7 @@ text = "SUBMISSION SHELF  ·  click a staged card to return it"
 horizontal_alignment = 1
 
 [node name="Cards" type="HBoxContainer" parent="HandPlayControls/SubmissionShelf"]
-custom_minimum_size = Vector2(0, 104)
+custom_minimum_size = Vector2(0, 72)
 layout_mode = 2
 size_flags_horizontal = 4
 alignment = 1

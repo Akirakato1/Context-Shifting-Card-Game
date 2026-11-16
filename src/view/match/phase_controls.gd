@@ -253,6 +253,15 @@ func _render_hand_play() -> void:
 		if not _hand_cards.has(card_id):
 			continue
 		_make_card_widget(card_id, active_context, true, locked, _shelf_cards)
+	if _staged_order.is_empty():
+		var shelf_hint := Label.new()
+		shelf_hint.name = "EmptyHint"
+		shelf_hint.custom_minimum_size = Vector2(720, 62)
+		shelf_hint.text = "No cards staged  ·  click any eligible card below"
+		shelf_hint.modulate = Color("718091")
+		shelf_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		shelf_hint.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		_shelf_cards.add_child(shelf_hint)
 	for card_id in _hand_order:
 		if card_id in _staged_order or not _hand_cards.has(card_id):
 			continue
