@@ -134,6 +134,27 @@ func test_unregistered_direct_peer_can_reclaim_seat_with_reconnect_command() -> 
 		state.players[&"two"].reconnect_token)
 
 
+func test_unregistered_reconnect_without_player_id_is_disconnected_cleanly() -> void:
+	var state := MatchState.create(_config([&"one", &"two"], 500), 135)
+	var controller := MatchController.new(state)
+	var transport := FakePeerTransport.new()
+	var host := _host(controller, transport, 50, 100)
+
+	transport.inject_message("malformed-peer", GameProtocol.encode(_peer_envelope(
+		"command", "malformed-reconnect-message", "two", {
+			"command_id": "malformed-reconnect-command",
+			"kind": "reconnect",
+			"payload": {"token": "some-token"},
+		}
+	)))
+
+	assert_false(host.has_peer("malformed-peer"))
+	assert_eq(transport.closed, [{
+		"peer_id": "malformed-peer",
+		"reason": "unauthorized_peer",
+	}])
+
+
 func test_grace_expiry_publishes_authoritative_forfeit_to_surviving_peer() -> void:
 	var state := MatchState.create(_config([&"one", &"two", &"three"], 200), 133)
 	var controller := MatchController.new(state)

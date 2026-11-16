@@ -134,6 +134,10 @@ func register_spectator(player_id: StringName) -> void:
 		_spectator_ids.append(player_id)
 
 
+func unregister_spectator(player_id: StringName) -> void:
+	_spectator_ids.erase(player_id)
+
+
 func set_victory_target(value: int) -> StringName:
 	if match_started: return &"config_locked"
 	_victory_target = value

@@ -252,6 +252,7 @@ func poll() -> void:
 	var controller_events: Array = _controller.tick(now_msec)
 	if not controller_events.is_empty():
 		publish_events(controller_events)
+	_sync_pending_activations()
 
 
 func _on_message_received(peer_id: String, bytes: PackedByteArray) -> void:
@@ -320,6 +321,8 @@ func _on_message_received(peer_id: String, bytes: PackedByteArray) -> void:
 	)
 	if result.accepted and not result.events.is_empty():
 		publish_events(result.events)
+	if result.accepted:
+		_sync_pending_activations()
 
 
 func _handle_unregistered_message(peer_id: String, bytes: PackedByteArray) -> void:
@@ -332,15 +335,18 @@ func _handle_unregistered_message(peer_id: String, bytes: PackedByteArray) -> vo
 		_disconnect(peer_id, "unauthorized_peer")
 		return
 	var payload: Dictionary = envelope["payload"]
+	var raw_player_id: Variant = payload.get("player_id", null)
 	if (
 		not _valid_command_payload(payload)
+		or typeof(raw_player_id) != TYPE_STRING
+		or String(raw_player_id).is_empty()
 		or payload["kind"] != str(CommandKinds.RECONNECT)
-		or envelope["sender_id"] != payload["player_id"]
+		or envelope["sender_id"] != raw_player_id
 		or typeof(payload["payload"].get("token", null)) != TYPE_STRING
 	):
 		_disconnect(peer_id, "unauthorized_peer")
 		return
-	var player_id := StringName(payload["player_id"])
+	var player_id := StringName(raw_player_id)
 	var result := reconnect_peer(peer_id, player_id, payload["payload"]["token"])
 	if not result.accepted:
 		_disconnect(peer_id, "reconnect_rejected:%s" % result.error_code)
@@ -452,6 +458,12 @@ func _on_peer_disconnected(peer_id: String, reason: String) -> void:
 	var player_id: StringName = registration["player_id"]
 	var role: int = registration["role"]
 	unregister_peer(peer_id)
+	if role in [GameTypes.RecipientRole.PENDING_PLAYER, GameTypes.RecipientRole.SPECTATOR]:
+		var events: Array = _controller.remove_transient_participant(player_id)
+		_player_response_cache.erase(player_id)
+		_recipient_sequences.erase(player_id)
+		publish_events(events)
+		return
 	if role != GameTypes.RecipientRole.ACTIVE_PLAYER:
 		return
 	if not _controller.state.players.has(player_id):
@@ -469,6 +481,23 @@ func _on_peer_disconnected(peer_id: String, reason: String) -> void:
 		},
 		&"public"
 	)])
+
+
+func _sync_pending_activations() -> void:
+	var activated: Array[StringName] = []
+	for peer_id_variant in _peers.keys():
+		var peer_id := String(peer_id_variant)
+		var registration: Dictionary = _peers[peer_id]
+		if registration["role"] != GameTypes.RecipientRole.PENDING_PLAYER:
+			continue
+		var player_id: StringName = registration["player_id"]
+		if not _controller.state.players.has(player_id):
+			continue
+		var player = _controller.state.players[player_id]
+		if player.active and not player.pending:
+			activated.append(player_id)
+	for player_id in activated:
+		sync_player_activation(player_id)
 
 
 func _ensure_reconnect_token(player_id: StringName) -> void:

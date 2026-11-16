@@ -12,6 +12,12 @@ const GameProtocol = preload("res://src/network/game_protocol.gd")
 const HostNetworkSession = preload("res://src/network/host_network_session.gd")
 const FakePeerTransport = preload("res://tests/network/fake_peer_transport.gd")
 
+var _now_msec := 1000
+
+
+func before_each() -> void:
+	_now_msec = 1000
+
 
 func test_admission_enforces_capacity_role_lock_and_pending_public_only_snapshot() -> void:
 	var full_active := _session([&"one", &"two", &"three", &"four"], [])
@@ -48,29 +54,68 @@ func test_admission_enforces_capacity_role_lock_and_pending_public_only_snapshot
 	)
 
 
-func test_next_start_activation_sends_private_hand_and_three_abilities_only_to_owner() -> void:
+func test_command_driven_next_start_promotes_pending_player_and_sends_owner_snapshot() -> void:
 	var fixture := _session([&"one", &"two"], [])
 	fixture.host.register_peer("peer-one", &"one", GameTypes.RecipientRole.ACTIVE_PLAYER)
+	fixture.host.register_peer("peer-two", &"two", GameTypes.RecipientRole.ACTIVE_PLAYER)
 	assert_true(fixture.host.admit_peer("peer-late", &"late", "active").accepted)
 	fixture.transport.clear_sent()
 
-	fixture.state.round_number = 2
-	fixture.state.phase = GameTypes.Phase.START
-	fixture.state.start_prepared_round = 1
-	fixture.controller.call("_prepare_start_phase")
-	fixture.controller.tick(0)
-	var start_events: Array = fixture.controller.tick(6000)
-	fixture.host.publish_events(start_events)
-	assert_eq(fixture.host.sync_player_activation(&"late"), OK)
+	fixture.state.phase = GameTypes.Phase.END
+	fixture.state.players[&"one"].end_discard_complete = true
+	fixture.state.players[&"two"].end_discard_complete = false
+	fixture.transport.inject_message("peer-two", GameProtocol.encode(_peer_envelope(
+		"command", "finish-end-message", "two", {
+			"command_id": "finish-end-command",
+			"player_id": "two",
+			"kind": "choose_ability_discards",
+			"payload": {"copy_ids": []},
+		}
+	)))
 
 	var owner_snapshot := _last_kind(fixture.transport, "peer-late", "snapshot")
 	assert_eq(owner_snapshot.payload.state.private_player_id, "late")
 	assert_eq(owner_snapshot.payload.state.private_hand.size(), 6)
-	assert_eq(owner_snapshot.payload.state.private_abilities.size(), 3)
+	assert_eq(owner_snapshot.payload.state.private_abilities.size(), 2)
 	var other_payloads := _all_payload_text(fixture.transport, "peer-one")
 	assert_false(other_payloads.contains(owner_snapshot.payload.state.private_hand[0].card_id))
 	assert_false(other_payloads.contains(owner_snapshot.payload.state.private_abilities[0].copy_id))
 	assert_true(_event_kinds(fixture.transport, "peer-one").has("player_activated"))
+
+
+func test_timer_driven_next_start_promotes_pending_player_and_sends_owner_snapshot() -> void:
+	var fixture := _session([&"one", &"two"], [])
+	fixture.host.register_peer("peer-one", &"one", GameTypes.RecipientRole.ACTIVE_PLAYER)
+	fixture.host.register_peer("peer-two", &"two", GameTypes.RecipientRole.ACTIVE_PLAYER)
+	assert_true(fixture.host.admit_peer("peer-late", &"late", "active").accepted)
+	fixture.transport.clear_sent()
+
+	fixture.state.phase = GameTypes.Phase.END
+	fixture.state.phase_started_msec = 0
+	fixture.state.phase_deadline_msec = _now_msec
+	fixture.host.poll()
+
+	var owner_snapshot := _last_kind(fixture.transport, "peer-late", "snapshot")
+	assert_eq(owner_snapshot.payload.state.private_player_id, "late")
+	assert_eq(owner_snapshot.payload.state.private_hand.size(), 6)
+	assert_eq(owner_snapshot.payload.state.private_abilities.size(), 2)
+	assert_true(_event_kinds(fixture.transport, "peer-one").has("player_activated"))
+
+
+func test_disconnected_transient_participants_release_their_slots() -> void:
+	var fixture := _session([&"one", &"two"], [])
+	for index in range(4):
+		var peer_id := "peer-watch-%d" % index
+		var player_id := StringName("watch-%d" % index)
+		assert_true(fixture.host.admit_peer(peer_id, player_id, "spectator").accepted)
+		fixture.transport.close_with_reason(peer_id, "left_lobby")
+		assert_false(fixture.state.players.has(player_id))
+	assert_true(fixture.host.admit_peer("peer-replacement", &"replacement", "spectator").accepted)
+
+	assert_true(fixture.host.admit_peer("peer-late", &"late", "active").accepted)
+	fixture.transport.close_with_reason("peer-late", "left_lobby")
+	assert_false(fixture.state.players.has(&"late"))
+	assert_true(fixture.host.admit_peer("peer-late-2", &"late-2", "active").accepted)
 
 
 func test_mid_phase_spectator_gets_public_snapshot_and_never_private_or_ready() -> void:
@@ -138,8 +183,26 @@ func _session(active_ids: Array, spectator_ids: Array) -> Dictionary:
 	var state := MatchState.create(_config(active_ids, spectator_ids), 5150)
 	var controller := MatchController.new(state)
 	var transport := FakePeerTransport.new()
-	var host := HostNetworkSession.new(controller, transport, "match-1", &"host")
+	var host := HostNetworkSession.new(
+		controller, transport, "match-1", &"host", Callable(self, "_now")
+	)
 	return {"state": state, "controller": controller, "transport": transport, "host": host}
+
+
+func _now() -> int:
+	return _now_msec
+
+
+func _peer_envelope(
+	kind: String,
+	message_id: String,
+	sender_id: String,
+	payload: Dictionary
+) -> Dictionary:
+	return {
+		"v": 1, "kind": kind, "message_id": message_id,
+		"match_id": "match-1", "sender_id": sender_id, "payload": payload,
+	}
 
 
 func _config(active_ids: Array, spectator_ids: Array) -> MatchConfig:

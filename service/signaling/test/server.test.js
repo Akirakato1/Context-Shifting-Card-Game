@@ -54,6 +54,12 @@ function send(socket, message) {
   socket.send(JSON.stringify({ v: 1, ...message }));
 }
 
+function nextClose(socket) {
+  return new Promise((resolve) => {
+    socket.once("close", (code, reason) => resolve({ code, reason: reason.toString("utf8") }));
+  });
+}
+
 test("protocol decoder rejects malformed, oversized, unknown, and invalid-role messages", () => {
   assert.equal(decodeClientMessage(Buffer.from("{" )).error, "malformed_json");
   assert.equal(
@@ -98,6 +104,28 @@ test("message rate limiter uses a deterministic bounded window", () => {
   assert.equal(limiter.accept(socket), false);
   now = 1000;
   assert.equal(limiter.accept(socket), true);
+});
+
+test("oversized websocket frames close only the offending socket", async (t) => {
+  const server = createSignalingServer({ codeGenerator: () => "BIG234" });
+  const address = await server.listen(0, "127.0.0.1");
+  t.after(async () => server.close());
+  const httpUrl = `http://127.0.0.1:${address.port}`;
+  const wsUrl = `ws://127.0.0.1:${address.port}`;
+
+  const attacker = await connect(wsUrl);
+  const attackerClosed = nextClose(attacker);
+  attacker.send(Buffer.alloc(MAX_MESSAGE_BYTES + 1, 65));
+  assert.equal((await attackerClosed).code, 1009);
+
+  const health = await get(`${httpUrl}/health`);
+  assert.equal(health.status, 200);
+
+  const host = await connect(wsUrl);
+  t.after(() => host.close());
+  const roomCreatedPromise = nextMessage(host);
+  send(host, { type: "host_room" });
+  assert.equal((await roomCreatedPromise).type, "room_created");
 });
 
 test("HTTP health and host-approved signaling route without accepting gameplay", async (t) => {

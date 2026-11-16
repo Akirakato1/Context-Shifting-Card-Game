@@ -40,6 +40,11 @@ export function createSignalingServer(options = {}) {
   const wsServer = new WebSocketServer({ server: httpServer, maxPayload: MAX_MESSAGE_BYTES });
 
   wsServer.on("connection", (socket) => {
+    socket.on("error", () => {
+      // Protocol and frame errors belong to this connection. `ws` closes the
+      // offending socket itself; consuming the event keeps the service alive.
+    });
+
     socket.on("message", (raw) => {
       if (!limiter.accept(socket)) {
         sendError(socket, "rate_limit_exceeded");

@@ -610,6 +610,25 @@ func notify_player_disconnected(player_id: StringName, now_msec: int = 0) -> voi
 	_apply_disconnect(player_id, now_msec)
 
 
+func remove_transient_participant(player_id: StringName) -> Array[DomainEvent]:
+	if not state.players.has(player_id):
+		return []
+	var player = state.players[player_id]
+	if player.spectator:
+		state.config.unregister_spectator(player_id)
+	elif player.pending:
+		state.seat_order.erase(player_id)
+		state.config.unregister_active_participant(player_id)
+	else:
+		return []
+	state.players.erase(player_id)
+	_accepted_command_ids.erase(player_id)
+	_start_requests.erase(player_id)
+	return [DomainEvent.new(
+		&"participant_left", {"player_id": str(player_id)}, &"public"
+	)]
+
+
 func _apply_disconnect(player_id: StringName, now_msec: int) -> void:
 	if player_id == state.host_player_id:
 		state.players[player_id].connected = false
