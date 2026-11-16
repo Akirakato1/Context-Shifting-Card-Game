@@ -27,6 +27,14 @@ if ([string]::IsNullOrWhiteSpace($GodotBin)) {
 if ([string]::IsNullOrWhiteSpace($GodotBin) -or -not (Test-Path -LiteralPath $GodotBin)) {
     Write-Error 'Godot was not found. Set SHIFT_GODOT_BIN or pass -GodotBin.'
 }
+$GodotBin = (Resolve-Path -LiteralPath $GodotBin).Path
+$godotFileName = [System.IO.Path]::GetFileName($GodotBin)
+if ($godotFileName -match '_console\.exe$') {
+    $editorCandidate = Join-Path ([System.IO.Path]::GetDirectoryName($GodotBin)) ($godotFileName -replace '_console(?=\.exe$)', '')
+    if (Test-Path -LiteralPath $editorCandidate -PathType Leaf) {
+        $GodotBin = (Resolve-Path -LiteralPath $editorCandidate).Path
+    }
+}
 if ($null -eq (Get-Command node -ErrorAction SilentlyContinue)) {
     Write-Error 'Node.js was not found on PATH.'
 }

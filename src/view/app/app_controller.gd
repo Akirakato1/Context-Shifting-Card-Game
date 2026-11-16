@@ -17,6 +17,8 @@ const MAIN_MENU_SCENE := preload("res://src/view/lobby/main_menu_screen.tscn")
 const LOBBY_SCENE := preload("res://src/view/lobby/lobby_screen.tscn")
 const MATCH_SCENE := preload("res://src/view/match/match_screen.tscn")
 const RESULTS_SCENE := preload("res://src/view/results/results_screen.tscn")
+const WEBRTC_EXTENSION_PATH := "res://addons/webrtc_native/webrtc_native.gdextension"
+const STARTUP_SMOKE_PREFIX := "--startup-smoke="
 
 var presentation_state: PresentationState
 var presentation_queue: PresentationQueue
@@ -32,6 +34,13 @@ var _last_presentation: Dictionary = {}
 
 func _ready() -> void:
 	show_screen(&"menu")
+	for argument in OS.get_cmdline_user_args():
+		if argument.begins_with(STARTUP_SMOKE_PREFIX):
+			show_screen(&"lobby")
+			var marker_path := argument.trim_prefix(STARTUP_SMOKE_PREFIX)
+			var result := write_startup_smoke_marker(marker_path)
+			get_tree().quit(0 if result == OK else 1)
+			return
 
 
 func _init() -> void:
@@ -62,6 +71,26 @@ func advance_presentation(delta_msec: int) -> void:
 
 func connection_state() -> Dictionary:
 	return _connection.duplicate(true)
+
+
+func write_startup_smoke_marker(marker_path: String) -> int:
+	if marker_path.is_empty():
+		return ERR_INVALID_PARAMETER
+	if FileAccess.file_exists(WEBRTC_EXTENSION_PATH) and not GDExtensionManager.is_extension_loaded(WEBRTC_EXTENSION_PATH):
+		var load_result := GDExtensionManager.load_extension(WEBRTC_EXTENSION_PATH)
+		if load_result != OK:
+			return int(load_result)
+	var peer := WebRTCPeerConnection.new()
+	var initialize_result := peer.initialize({"iceServers": []})
+	if initialize_result != OK:
+		return initialize_result
+	peer.close()
+	var marker := FileAccess.open(marker_path, FileAccess.WRITE)
+	if marker == null:
+		return FileAccess.get_open_error()
+	marker.store_string("startup_ok\nwebrtc_ok\n")
+	marker.close()
+	return OK
 
 
 func request_screen(screen_id: StringName, payload: Dictionary = {}) -> void:

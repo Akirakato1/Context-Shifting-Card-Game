@@ -3,3 +3,4 @@ service/signaling/node_modules/
 /godot-extension-webrtc_native.zip
 /.superpowers/
 /outputs/
+/build/

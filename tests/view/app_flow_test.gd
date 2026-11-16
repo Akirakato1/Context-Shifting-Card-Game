@@ -50,6 +50,21 @@ func test_results_return_to_lobby_preserves_room_and_unlocks_settings() -> void:
 	await _unmount(app)
 
 
+func test_startup_smoke_writes_marker_only_after_native_webrtc_initializes() -> void:
+	var app = load(APP_PATH).instantiate()
+	var marker_path := "user://startup-smoke-test.txt"
+	if FileAccess.file_exists(marker_path):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(marker_path))
+	var result: int = app.write_startup_smoke_marker(marker_path)
+	assert_eq(result, OK)
+	assert_true(FileAccess.file_exists(marker_path))
+	var marker := FileAccess.get_file_as_string(marker_path)
+	assert_true(marker.contains("startup_ok"))
+	assert_true(marker.contains("webrtc_ok"))
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(marker_path))
+	app.free()
+
+
 func _lobby_model() -> Dictionary:
 	return {
 		"is_host": true, "room_code": "ABC234", "match_started": false,
