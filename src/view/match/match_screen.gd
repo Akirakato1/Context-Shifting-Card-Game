@@ -1,6 +1,8 @@
 class_name MatchScreen
 extends Control
 
+signal intent_requested(kind: StringName, payload: Dictionary)
+
 const CONTEXT_NAMES := ["A", "B", "C"]
 const PHASE_NAMES := ["SETUP", "START", "MAIN 1", "HAND PLAY", "MAIN 2", "END", "COMPLETE"]
 
@@ -19,6 +21,7 @@ var _model: Dictionary = {}
 @onready var _clock_active: Label = $Center/ContextClock/Active
 @onready var _field_rows: VBoxContainer = $Center/Fields/FieldRows
 @onready var _round_result: Label = $Center/RoundResult
+@onready var _phase_controls = $PhaseControls
 
 
 func _ready() -> void:
@@ -26,6 +29,8 @@ func _ready() -> void:
 	_left_seat.seat_position = &"left"
 	_right_seat.seat_position = &"right"
 	_bottom_seat.seat_position = &"bottom"
+	if not _phase_controls.intent_requested.is_connected(_on_phase_intent_requested):
+		_phase_controls.intent_requested.connect(_on_phase_intent_requested)
 
 
 func render(model: Dictionary) -> void:
@@ -34,6 +39,16 @@ func render(model: Dictionary) -> void:
 	_render_context_and_piles()
 	_render_fields()
 	_render_seats()
+	_render_phase_controls()
+
+
+func handle_command_result(
+	kind: StringName,
+	accepted: bool,
+	error_code: StringName,
+	authoritative_phase: int
+) -> void:
+	_phase_controls.handle_command_result(kind, accepted, error_code, authoritative_phase)
 
 
 func _render_header() -> void:
@@ -118,6 +133,19 @@ func _render_seats() -> void:
 			player, [], int(_model.get("active_context", 0)), false,
 			_request_for(requests, player)
 		)
+
+
+func _render_phase_controls() -> void:
+	var has_private_player := not str(_model.get("private_player_id", "")).is_empty()
+	_phase_controls.visible = has_private_player
+	if not has_private_player:
+		return
+	_phase_controls.render(_model)
+	_bottom_seat.get_node("Hand").visible = int(_model.get("phase", 0)) != 3
+
+
+func _on_phase_intent_requested(kind: StringName, payload: Dictionary) -> void:
+	intent_requested.emit(kind, payload.duplicate(true))
 
 
 func _request_for(requests: Dictionary, player: Dictionary) -> Dictionary:

@@ -1,8 +1,9 @@
-[gd_scene load_steps=4 format=3]
+[gd_scene load_steps=5 format=3]
 
 [ext_resource type="Script" path="res://src/view/match/match_screen.gd" id="1_script"]
 [ext_resource type="PackedScene" path="res://src/view/match/player_seat.tscn" id="2_seat"]
 [ext_resource type="Theme" path="res://themes/placeholder_theme.tres" id="3_theme"]
+[ext_resource type="PackedScene" path="res://src/view/match/phase_controls.tscn" id="4_phase"]
 
 [node name="MatchScreen" type="Control"]
 layout_mode = 3
@@ -219,3 +220,17 @@ layout_mode = 2
 theme_override_colors/font_color = Color(1, 0.65, 0.45, 1)
 text = "NIL ROUND  ·  no progress awarded"
 horizontal_alignment = 1
+
+[node name="PhaseControls" parent="." instance=ExtResource("4_phase")]
+layout_mode = 1
+anchors_preset = 12
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -560.0
+offset_top = -410.0
+offset_right = 560.0
+offset_bottom = -12.0
+grow_horizontal = 2
+grow_vertical = 0

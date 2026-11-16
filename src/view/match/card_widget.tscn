@@ -43,6 +43,18 @@ text = "A  1  ONE"
 horizontal_alignment = 1
 vertical_alignment = 1
 
+[node name="FirstChoices" type="HBoxContainer" parent="Face"]
+visible = false
+layout_mode = 2
+
+[node name="Context" type="OptionButton" parent="Face/FirstChoices"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Suit" type="OptionButton" parent="Face/FirstChoices"]
+layout_mode = 2
+size_flags_horizontal = 3
+
 [node name="Divider" type="HSeparator" parent="Face"]
 layout_mode = 2
 
@@ -53,3 +65,22 @@ theme_override_colors/font_color = Color(0.78, 0.82, 0.86, 1)
 text = "B  1  TWO"
 horizontal_alignment = 1
 vertical_alignment = 1
+
+[node name="SecondChoices" type="HBoxContainer" parent="Face"]
+visible = false
+layout_mode = 2
+
+[node name="Context" type="OptionButton" parent="Face/SecondChoices"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Suit" type="OptionButton" parent="Face/SecondChoices"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[connection signal="item_selected" from="Face/FirstChoices/Context" to="." method="_on_first_context_selected"]
+[connection signal="item_selected" from="Face/FirstChoices/Suit" to="." method="_on_first_suit_selected"]
+[connection signal="item_selected" from="Face/SecondChoices/Context" to="." method="_on_second_context_selected"]
+[connection signal="item_selected" from="Face/SecondChoices/Suit" to="." method="_on_second_suit_selected"]
+[connection signal="gui_input" from="Face/First" to="." method="_on_first_gui_input"]
+[connection signal="gui_input" from="Face/Second" to="." method="_on_second_gui_input"]

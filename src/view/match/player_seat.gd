@@ -57,7 +57,7 @@ func render(
 
 
 func visible_card_count() -> int:
-	return _hand.get_child_count() if _hand.visible and _hidden_cards == 0 else 0
+	return _hand.get_child_count() if _hidden_cards == 0 else 0
 
 
 func hidden_card_count() -> int:

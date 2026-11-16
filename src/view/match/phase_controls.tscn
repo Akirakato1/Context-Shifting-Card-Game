@@ -1,0 +1,203 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://src/view/match/phase_controls.gd" id="1_script"]
+
+[sub_resource type="StyleBoxFlat" id="Style_panel"]
+bg_color = Color(0.025, 0.045, 0.062, 0.97)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.2, 0.39, 0.5, 1)
+corner_radius_top_left = 10
+corner_radius_top_right = 10
+corner_radius_bottom_right = 10
+corner_radius_bottom_left = 10
+content_margin_left = 12.0
+content_margin_top = 10.0
+content_margin_right = 12.0
+content_margin_bottom = 10.0
+
+[node name="PhaseControls" type="VBoxContainer"]
+custom_minimum_size = Vector2(900, 300)
+theme_override_constants/separation = 6
+script = ExtResource("1_script")
+
+[node name="Background" type="Panel" parent="."]
+show_behind_parent = true
+layout_mode = 2
+mouse_filter = 2
+theme_override_styles/panel = SubResource("Style_panel")
+
+[node name="Status" type="Label" parent="."]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.55, 0.48, 1)
+text = ""
+horizontal_alignment = 1
+
+[node name="TimeoutNotice" type="Label" parent="."]
+visible = false
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.76, 0.36, 1)
+text = ""
+horizontal_alignment = 1
+
+[node name="StartControls" type="VBoxContainer" parent="."]
+visible = false
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="Required" type="Label" parent="StartControls"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "Choose 0 half-cards"
+horizontal_alignment = 1
+
+[node name="RequestGrid" type="GridContainer" parent="StartControls"]
+layout_mode = 2
+columns = 3
+
+[node name="A" type="SpinBox" parent="StartControls/RequestGrid"]
+layout_mode = 2
+size_flags_horizontal = 3
+max_value = 5.0
+
+[node name="B" type="SpinBox" parent="StartControls/RequestGrid"]
+layout_mode = 2
+size_flags_horizontal = 3
+max_value = 5.0
+
+[node name="C" type="SpinBox" parent="StartControls/RequestGrid"]
+layout_mode = 2
+size_flags_horizontal = 3
+max_value = 5.0
+
+[node name="Total" type="Label" parent="StartControls"]
+layout_mode = 2
+text = "0 / 0 selected"
+horizontal_alignment = 1
+
+[node name="ConfirmButton" type="Button" parent="StartControls"]
+layout_mode = 2
+text = "CONFIRM REPLACEMENT REQUEST"
+
+[node name="ReadyButton" type="Button" parent="StartControls"]
+layout_mode = 2
+text = "READY FOR MAIN 1"
+
+[node name="MainControls" type="HBoxContainer" parent="."]
+visible = false
+layout_mode = 2
+alignment = 1
+
+[node name="Hint" type="Label" parent="MainControls"]
+layout_mode = 2
+text = "Play legal abilities, then mark ready."
+
+[node name="ReadyButton" type="Button" parent="MainControls"]
+layout_mode = 2
+text = "READY"
+
+[node name="HandPlayControls" type="VBoxContainer" parent="."]
+visible = false
+layout_mode = 2
+theme_override_constants/separation = 5
+
+[node name="SubmissionShelf" type="VBoxContainer" parent="HandPlayControls"]
+layout_mode = 2
+
+[node name="Heading" type="Label" parent="HandPlayControls/SubmissionShelf"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.82, 0.38, 1)
+text = "SUBMISSION SHELF  ·  click a staged card to return it"
+horizontal_alignment = 1
+
+[node name="Cards" type="HBoxContainer" parent="HandPlayControls/SubmissionShelf"]
+custom_minimum_size = Vector2(0, 104)
+layout_mode = 2
+size_flags_horizontal = 4
+alignment = 1
+theme_override_constants/separation = 6
+
+[node name="Preview" type="VBoxContainer" parent="HandPlayControls"]
+layout_mode = 2
+
+[node name="Heading" type="Label" parent="HandPlayControls/Preview"]
+layout_mode = 2
+text = "SCORE PREVIEW"
+horizontal_alignment = 1
+
+[node name="Details" type="Label" parent="HandPlayControls/Preview"]
+layout_mode = 2
+text = "Base 0"
+horizontal_alignment = 1
+
+[node name="Authority" type="Label" parent="HandPlayControls/Preview"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.58, 0.67, 0.75, 1)
+text = "Local estimate · host validates on lock"
+horizontal_alignment = 1
+
+[node name="InvalidReason" type="Label" parent="HandPlayControls"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.55, 0.48, 1)
+text = ""
+horizontal_alignment = 1
+
+[node name="Hand" type="VBoxContainer" parent="HandPlayControls"]
+layout_mode = 2
+
+[node name="Heading" type="Label" parent="HandPlayControls/Hand"]
+layout_mode = 2
+text = "YOUR HAND  ·  left-click to stage  ·  right-click to flip orientation"
+horizontal_alignment = 1
+
+[node name="Cards" type="HBoxContainer" parent="HandPlayControls/Hand"]
+custom_minimum_size = Vector2(0, 104)
+layout_mode = 2
+size_flags_horizontal = 4
+alignment = 1
+theme_override_constants/separation = 6
+
+[node name="ActionRow" type="HBoxContainer" parent="HandPlayControls"]
+layout_mode = 2
+alignment = 1
+theme_override_constants/separation = 10
+
+[node name="PassButton" type="Button" parent="HandPlayControls/ActionRow"]
+custom_minimum_size = Vector2(150, 42)
+layout_mode = 2
+text = "PASS"
+
+[node name="LockButton" type="Button" parent="HandPlayControls/ActionRow"]
+custom_minimum_size = Vector2(190, 42)
+layout_mode = 2
+text = "LOCK SUBMISSION"
+
+[node name="EndControls" type="VBoxContainer" parent="."]
+visible = false
+layout_mode = 2
+
+[node name="Required" type="Label" parent="EndControls"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "Choose 0 to discard"
+horizontal_alignment = 1
+
+[node name="AbilityChoices" type="HBoxContainer" parent="EndControls"]
+layout_mode = 2
+alignment = 1
+
+[node name="ConfirmButton" type="Button" parent="EndControls"]
+layout_mode = 2
+text = "CONFIRM DISCARD"
+
+[connection signal="value_changed" from="StartControls/RequestGrid/A" to="." method="_on_start_value_changed"]
+[connection signal="value_changed" from="StartControls/RequestGrid/B" to="." method="_on_start_value_changed"]
+[connection signal="value_changed" from="StartControls/RequestGrid/C" to="." method="_on_start_value_changed"]
+[connection signal="pressed" from="StartControls/ConfirmButton" to="." method="_on_start_confirm_pressed"]
+[connection signal="pressed" from="StartControls/ReadyButton" to="." method="_on_ready_pressed"]
+[connection signal="pressed" from="MainControls/ReadyButton" to="." method="_on_ready_pressed"]
+[connection signal="pressed" from="HandPlayControls/ActionRow/PassButton" to="." method="_on_pass_pressed"]
+[connection signal="pressed" from="HandPlayControls/ActionRow/LockButton" to="." method="_on_lock_pressed"]
+[connection signal="pressed" from="EndControls/ConfirmButton" to="." method="_on_end_confirm_pressed"]
