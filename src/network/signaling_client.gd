@@ -126,10 +126,7 @@ func send_signal(remote_peer_id: String, type: String, payload: Dictionary) -> E
 func poll() -> void:
 	if _socket == null or state == State.FAILED or state == State.CLOSED:
 		return
-	var poll_error: Error = _socket.poll()
-	if poll_error != OK:
-		_fail("signaling_socket_error")
-		return
+	_socket.poll()
 	var socket_state: int = _socket.get_ready_state()
 	if socket_state == SOCKET_OPEN and not _initial_message_sent:
 		if _send_initial_message() != OK:

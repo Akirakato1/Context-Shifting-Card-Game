@@ -256,7 +256,7 @@ func poll() -> void:
 
 func _on_message_received(peer_id: String, bytes: PackedByteArray) -> void:
 	if not _peers.has(peer_id):
-		_disconnect(peer_id, "unauthorized_peer")
+		_handle_unregistered_message(peer_id, bytes)
 		return
 	var decoded = GameProtocol.decode(bytes)
 	if not decoded.ok:
@@ -320,6 +320,32 @@ func _on_message_received(peer_id: String, bytes: PackedByteArray) -> void:
 	)
 	if result.accepted and not result.events.is_empty():
 		publish_events(result.events)
+
+
+func _handle_unregistered_message(peer_id: String, bytes: PackedByteArray) -> void:
+	var decoded = GameProtocol.decode(bytes)
+	if not decoded.ok:
+		_disconnect(peer_id, "invalid_protocol_message")
+		return
+	var envelope: Dictionary = decoded.envelope
+	if envelope["match_id"] != _match_id or envelope["kind"] != "command":
+		_disconnect(peer_id, "unauthorized_peer")
+		return
+	var payload: Dictionary = envelope["payload"]
+	if (
+		not _valid_command_payload(payload)
+		or payload["kind"] != str(CommandKinds.RECONNECT)
+		or envelope["sender_id"] != payload["player_id"]
+		or typeof(payload["payload"].get("token", null)) != TYPE_STRING
+	):
+		_disconnect(peer_id, "unauthorized_peer")
+		return
+	var player_id := StringName(payload["player_id"])
+	var result := reconnect_peer(peer_id, player_id, payload["payload"]["token"])
+	if not result.accepted:
+		_disconnect(peer_id, "reconnect_rejected:%s" % result.error_code)
+		return
+	_send_command_result(peer_id, player_id, envelope["message_id"], true, &"")
 
 
 func _send_command_result(

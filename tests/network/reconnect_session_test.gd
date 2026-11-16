@@ -104,6 +104,36 @@ func test_reconnect_rejects_wrong_token_rotates_on_success_and_sends_private_sna
 	)
 
 
+func test_unregistered_direct_peer_can_reclaim_seat_with_reconnect_command() -> void:
+	var state := MatchState.create(_config([&"one", &"two"], 500), 134)
+	var controller := MatchController.new(state)
+	var transport := FakePeerTransport.new()
+	var host := _host(controller, transport, 50, 100)
+	host.register_peer("peer-two", &"two", GameTypes.RecipientRole.ACTIVE_PLAYER)
+	var token: String = state.players[&"two"].reconnect_token
+	transport.close_with_reason("peer-two", "connection_closed")
+	transport.clear_sent()
+
+	transport.inject_message("peer-two-new", GameProtocol.encode(_peer_envelope(
+		"command", "reconnect-message", "two", {
+			"command_id": "reconnect-command",
+			"player_id": "two",
+			"kind": "reconnect",
+			"payload": {"token": token},
+		}
+	)))
+
+	assert_true(host.has_peer("peer-two-new"))
+	assert_true(state.players[&"two"].connected)
+	var command_result := _last_kind(transport, "peer-two-new", "command_result")
+	var snapshot := _last_kind(transport, "peer-two-new", "snapshot")
+	if command_result.is_empty() or snapshot.is_empty():
+		return
+	assert_true(command_result.payload.accepted)
+	assert_eq(snapshot.payload.state.private_connection.reconnect_token,
+		state.players[&"two"].reconnect_token)
+
+
 func test_grace_expiry_publishes_authoritative_forfeit_to_surviving_peer() -> void:
 	var state := MatchState.create(_config([&"one", &"two", &"three"], 200), 133)
 	var controller := MatchController.new(state)

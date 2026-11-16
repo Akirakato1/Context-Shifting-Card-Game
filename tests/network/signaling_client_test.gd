@@ -42,9 +42,42 @@ class FakeSocket extends RefCounted:
 		inbound.append(JSON.stringify(message).to_utf8_buffer())
 
 
+class VoidPollSocket extends RefCounted:
+	var ready_state := 0
+
+	func connect_to_url(_url: String) -> Error:
+		return OK
+
+	func poll() -> void:
+		pass
+
+	func get_ready_state() -> int:
+		return ready_state
+
+	func send_text(_message: String) -> Error:
+		return OK
+
+	func get_available_packet_count() -> int:
+		return 0
+
+	func get_packet() -> PackedByteArray:
+		return PackedByteArray()
+
+	func close(_code: int = 1000, _reason: String = "") -> void:
+		ready_state = 3
+
+
 func before_each() -> void:
 	_now_msec = 1000
 	_socket_queue.clear()
+
+
+func test_socket_poll_supports_the_real_void_return_contract() -> void:
+	_socket_queue.append(VoidPollSocket.new())
+	var client = _client()
+	assert_eq(client.begin_host("ws://127.0.0.1:9"), OK)
+	client.poll()
+	assert_eq(client.state, SignalingClient.State.CONNECTING)
 
 
 func test_host_receives_code_approves_join_and_routes_signals() -> void:
