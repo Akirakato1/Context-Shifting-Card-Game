@@ -624,7 +624,8 @@ func _apply_disconnect(player_id: StringName, now_msec: int) -> void:
 	player.connected = false
 	player.ready = false
 	player.disconnect_deadline_msec = now_msec + state.config.reconnect_grace_msec
-	player.reconnect_token = _new_reconnect_token(player_id)
+	if player.reconnect_token.is_empty():
+		player.reconnect_token = _new_reconnect_token(player_id)
 	if not state.frozen:
 		state.frozen = true
 		state.freeze_started_msec = now_msec
@@ -722,7 +723,7 @@ func _submit_reconnect(command: GameCommand, now_msec: int) -> CommandResult:
 		return CommandResult.new(false, &"invalid_reconnect_token")
 	player.connected = true
 	player.disconnect_deadline_msec = -1
-	player.reconnect_token = ""
+	player.reconnect_token = _new_reconnect_token(command.player_id)
 	_accepted_command_ids[command.player_id][command.command_id] = true
 	_resume_if_resolved(now_msec)
 	return CommandResult.new(true, &"", [DomainEvent.new(

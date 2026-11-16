@@ -48,7 +48,11 @@ func test_host_is_only_authority_and_deduplicates_network_message_ids() -> void:
 	transport.inject_message("peer-one", GameProtocol.encode(
 		_command_envelope("network-2", "two", "command-2", "set_ready", {"ready": true})
 	))
-	var mismatch: Dictionary = _decoded_for(transport, "peer-one")[0]
+	var mismatch_messages := _decoded_for(transport, "peer-one")
+	assert_eq(mismatch_messages.size(), 1)
+	if mismatch_messages.is_empty():
+		return
+	var mismatch: Dictionary = mismatch_messages[0]
 	assert_false(mismatch["payload"]["accepted"])
 	assert_eq(mismatch["payload"]["error_code"], "sender_mismatch")
 	assert_false(state.players[&"two"].ready)

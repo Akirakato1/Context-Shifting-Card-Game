@@ -105,6 +105,29 @@ test("host close invalidates the code and returns every pending socket", () => {
   );
 });
 
+test("transient host socket loss preserves room for bounded credential reconnect", () => {
+  const { registry, advance } = registryFixture();
+  const firstHost = new FakeSocket("host-one");
+  const secondHost = new FakeSocket("host-two");
+  const joiner = new FakeSocket("joiner");
+  const { code, hostToken } = registry.createHost(firstHost);
+  registry.requestJoin(code, ACTIVE_ROLE, joiner);
+
+  const detached = registry.removeSocket(firstHost);
+  assert.equal(detached.hostDetached, true);
+  assert.notEqual(registry.inspectRoom(code), null);
+  assert.throws(
+    () => registry.reconnectHost(secondHost, code, "wrong-token"),
+    (error) => error instanceof RoomRegistryError && error.code === "host_authorization_required",
+  );
+  assert.deepEqual(registry.reconnectHost(secondHost, code.toLowerCase(), hostToken), { code });
+  assert.equal(registry.inspectRoom(code).hostSocket, secondHost);
+
+  registry.removeSocket(secondHost);
+  advance(30_001);
+  assert.equal(registry.inspectRoom(code), null);
+});
+
 test("room records contain signaling metadata and no canonical game state", () => {
   const { registry, advance } = registryFixture();
   const host = new FakeSocket("host");
@@ -116,6 +139,7 @@ test("room records contain signaling metadata and no canonical game state", () =
   assert.deepEqual(Object.keys(room).sort(), [
     "code",
     "createdAt",
+    "hostDetachedAt",
     "hostSocket",
     "hostToken",
     "joins",

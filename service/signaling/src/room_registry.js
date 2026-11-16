@@ -37,10 +37,12 @@ export class RoomRegistry {
     codeGenerator = defaultCodeGenerator,
     tokenGenerator = defaultTokenGenerator,
     now = Date.now,
+    hostReconnectGraceMs = 30_000,
   } = {}) {
     this.codeGenerator = codeGenerator;
     this.tokenGenerator = tokenGenerator;
     this.now = now;
+    this.hostReconnectGraceMs = hostReconnectGraceMs;
     this.rooms = new Map();
     this.hostRooms = new WeakMap();
     this.socketJoins = new WeakMap();
@@ -65,6 +67,7 @@ export class RoomRegistry {
     const room = {
       code,
       hostSocket: socket,
+      hostDetachedAt: null,
       hostToken: this.tokenGenerator(),
       joins: new Map(),
       createdAt: timestamp,
@@ -77,6 +80,9 @@ export class RoomRegistry {
 
   requestJoin(code, role, socket) {
     const room = this.#requireRoom(code);
+    if (room.hostSocket === null) {
+      throw new RoomRegistryError("host_temporarily_unavailable");
+    }
     if (role !== ACTIVE_ROLE && role !== SPECTATOR_ROLE) {
       throw new RoomRegistryError("invalid_role");
     }
@@ -178,9 +184,58 @@ export class RoomRegistry {
     return { code, peerSockets };
   }
 
+  reconnectHost(socket, code, hostToken) {
+    if (this.hostRooms.has(socket)) {
+      throw new RoomRegistryError("host_already_registered");
+    }
+    const room = this.#requireRoom(code);
+    if (room.hostToken !== hostToken) {
+      throw new RoomRegistryError("host_authorization_required");
+    }
+    if (room.hostSocket !== null) {
+      throw new RoomRegistryError("host_already_registered");
+    }
+    room.hostSocket = socket;
+    room.hostDetachedAt = null;
+    room.lastActivityAt = this.now();
+    this.hostRooms.set(socket, room.code);
+    return { code: room.code };
+  }
+
+  expireDetachedHost(code, hostToken) {
+    const room = this.rooms.get(normalizeCode(code));
+    if (!room || room.hostToken !== hostToken || room.hostSocket !== null) {
+      return null;
+    }
+    if (this.now() - room.hostDetachedAt < this.hostReconnectGraceMs) {
+      return null;
+    }
+    this.rooms.delete(room.code);
+    const peerSockets = [];
+    for (const join of room.joins.values()) {
+      peerSockets.push(join.socket);
+      this.socketJoins.delete(join.socket);
+    }
+    return { code: room.code, peerSockets };
+  }
+
   removeSocket(socket) {
     if (this.hostRooms.has(socket)) {
-      return { hostClosed: true, ...this.closeHost(socket) };
+      const code = this.hostRooms.get(socket);
+      const room = this.rooms.get(code);
+      this.hostRooms.delete(socket);
+      if (!room) {
+        return { hostClosed: false, hostDetached: false };
+      }
+      room.hostSocket = null;
+      room.hostDetachedAt = this.now();
+      room.lastActivityAt = room.hostDetachedAt;
+      return {
+        hostClosed: false,
+        hostDetached: true,
+        code,
+        hostToken: room.hostToken,
+      };
     }
     const reference = this.socketJoins.get(socket);
     if (!reference) {
@@ -196,11 +251,20 @@ export class RoomRegistry {
   }
 
   inspectRoom(code) {
-    return this.rooms.get(normalizeCode(code)) ?? null;
+    const normalized = normalizeCode(code);
+    const room = this.rooms.get(normalized);
+    if (
+      room?.hostSocket === null
+      && this.now() - room.hostDetachedAt >= this.hostReconnectGraceMs
+    ) {
+      this.expireDetachedHost(normalized, room.hostToken);
+      return null;
+    }
+    return room ?? null;
   }
 
   #requireRoom(code) {
-    const room = this.rooms.get(normalizeCode(code));
+    const room = this.inspectRoom(code);
     if (!room) {
       throw new RoomRegistryError("room_not_found");
     }

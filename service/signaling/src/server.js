@@ -69,6 +69,16 @@ export function createSignalingServer(options = {}) {
           for (const peerSocket of result.peerSockets) {
             send(peerSocket, "room_closed", { code: result.code });
           }
+        } else if (result.hostDetached) {
+          const timer = setTimeout(() => {
+            const expired = registry.expireDetachedHost(result.code, result.hostToken);
+            if (expired) {
+              for (const peerSocket of expired.peerSockets) {
+                send(peerSocket, "room_closed", { code: expired.code });
+              }
+            }
+          }, registry.hostReconnectGraceMs);
+          timer.unref();
         }
       } catch {
         // Socket close is idempotent and must not take down the service.
@@ -108,6 +118,15 @@ export function createSignalingServer(options = {}) {
 
 function handleMessage(registry, socket, message) {
   if (message.type === "host_room") {
+    if (message.reconnect === true) {
+      const { code } = registry.reconnectHost(
+        socket,
+        message.code,
+        message.host_token,
+      );
+      send(socket, "room_created", { code, host_token: message.host_token });
+      return;
+    }
     const { code, hostToken } = registry.createHost(socket);
     send(socket, "room_created", { code, host_token: hostToken });
     return;

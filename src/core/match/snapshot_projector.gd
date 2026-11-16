@@ -71,6 +71,10 @@ static func for_recipient(
 			"staged_submission": recipient.staged_submission.duplicate(true),
 			"hand_locked": recipient.hand_locked,
 		}
+		snapshot["private_connection"] = {
+			"reconnect_token": recipient.reconnect_token,
+			"disconnect_deadline_msec": recipient.disconnect_deadline_msec,
+		}
 	return snapshot
 
 

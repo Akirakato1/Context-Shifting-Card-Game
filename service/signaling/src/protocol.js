@@ -44,7 +44,13 @@ export function decodeClientMessage(raw) {
     return failure("unknown_message_type");
   }
 
-  if (message.type === "join_room") {
+  if (message.type === "host_room") {
+    if (message.reconnect === true && (
+      !isNonEmptyString(message.code) || !isNonEmptyString(message.host_token)
+    )) {
+      return failure("malformed_message");
+    }
+  } else if (message.type === "join_room") {
     if (!isNonEmptyString(message.code)) {
       return failure("invalid_room_code");
     }

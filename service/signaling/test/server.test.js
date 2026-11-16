@@ -77,6 +77,15 @@ test("protocol decoder rejects malformed, oversized, unknown, and invalid-role m
     }))).error,
     "invalid_role",
   );
+  assert.equal(
+    decodeClientMessage(Buffer.from(JSON.stringify({
+      v: 1,
+      type: "host_room",
+      reconnect: true,
+      code: "ABC222",
+    }))).error,
+    "malformed_message",
+  );
 });
 
 test("message rate limiter uses a deterministic bounded window", () => {
@@ -172,7 +181,26 @@ test("HTTP health and host-approved signaling route without accepting gameplay",
   send(joiner, { type: "close_room", code: roomCreated.code });
   assert.equal((await forbiddenClosePromise).error, "host_authorization_required");
 
-  const roomClosedPromise = nextMessage(joiner);
   host.close();
+  await new Promise((resolve) => host.once("close", resolve));
+  const replacementHost = await connect(wsUrl);
+  t.after(() => replacementHost.close());
+  const recreatedPromise = nextMessage(replacementHost);
+  send(replacementHost, {
+    type: "host_room",
+    code: roomCreated.code,
+    host_token: roomCreated.host_token,
+    reconnect: true,
+  });
+  const recreated = await recreatedPromise;
+  assert.equal(recreated.type, "room_created");
+  assert.equal(recreated.code, roomCreated.code);
+
+  const roomClosedPromise = nextMessage(joiner);
+  send(replacementHost, {
+    type: "close_room",
+    code: roomCreated.code,
+    host_token: roomCreated.host_token,
+  });
   assert.equal((await roomClosedPromise).type, "room_closed");
 });

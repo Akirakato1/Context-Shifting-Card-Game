@@ -9,6 +9,7 @@ signal session_failed(reason: String)
 
 const GameProtocol = preload("res://src/network/game_protocol.gd")
 const PeerTransport = preload("res://src/network/peer_transport.gd")
+const ReconnectStore = preload("res://src/network/reconnect_store.gd")
 
 const MAX_BUFFERED_BATCHES := 8
 const MAX_SEQUENCE_GAP := 8
@@ -22,20 +23,39 @@ var _match_id: String
 var _player_id: StringName
 var _buffered_batches := {}
 var _resync_pending := false
+var _reconnect_store: ReconnectStore
+var _room_code: String
+var _reconnect_token := ""
+var _reconnect_grace_msec := 0
+var _now: Callable
+var _heartbeat_timeout_msec: int
+var _last_host_message_msec: int
+var _next_message_id := 1
+var _failed := false
 
 
 func _init(
 	transport: PeerTransport,
 	host_peer_id: String,
 	match_id: String,
-	player_id: StringName
+	player_id: StringName,
+	reconnect_store: ReconnectStore = null,
+	room_code: String = "",
+	now: Callable = Callable(),
+	heartbeat_timeout_msec: int = 6000
 ) -> void:
 	_transport = transport
 	_host_peer_id = host_peer_id
 	_match_id = match_id
 	_player_id = player_id
+	_reconnect_store = reconnect_store
+	_room_code = room_code.to_upper()
+	_now = now
+	_heartbeat_timeout_msec = maxi(1, heartbeat_timeout_msec)
+	_last_host_message_msec = _now_msec()
 	_transport.message_received.connect(_on_message_received)
 	_transport.peer_disconnected.connect(_on_peer_disconnected)
+	_transport.transport_failed.connect(_on_transport_failed)
 
 
 func submit_command(message_id: String, command: Dictionary) -> Error:
@@ -56,24 +76,27 @@ func submit_command(message_id: String, command: Dictionary) -> Error:
 		return ERR_INVALID_DATA
 	var result := _transport.send(_host_peer_id, bytes)
 	if result != OK:
-		session_failed.emit("transport_send_failed")
+		_fail("transport_send_failed")
 	return result
 
 
 func poll() -> void:
 	_transport.poll()
+	if not _failed and _now_msec() - _last_host_message_msec > _heartbeat_timeout_msec:
+		_fail("host_lost")
 
 
 func _on_message_received(peer_id: String, bytes: PackedByteArray) -> void:
 	if peer_id != _host_peer_id:
 		return
+	_last_host_message_msec = _now_msec()
 	var decoded = GameProtocol.decode(bytes)
 	if not decoded.ok:
-		session_failed.emit("invalid_protocol_message")
+		_fail("invalid_protocol_message")
 		return
 	var envelope: Dictionary = decoded.envelope
 	if envelope["match_id"] != _match_id or envelope["sender_id"] != "host":
-		session_failed.emit("protocol_violation")
+		_fail("protocol_violation")
 		return
 	match envelope["kind"]:
 		"command_result":
@@ -82,8 +105,12 @@ func _on_message_received(peer_id: String, bytes: PackedByteArray) -> void:
 			_handle_event_batch(envelope["payload"])
 		"snapshot":
 			_handle_snapshot(envelope["payload"])
+		"heartbeat":
+			_handle_heartbeat(envelope["payload"])
+		"heartbeat_ack":
+			pass
 		_:
-			session_failed.emit("protocol_violation")
+			_fail("protocol_violation")
 
 
 func _handle_command_result(payload: Dictionary) -> void:
@@ -92,7 +119,7 @@ func _handle_command_result(payload: Dictionary) -> void:
 		or typeof(payload.get("accepted", null)) != TYPE_BOOL
 		or typeof(payload.get("error_code", null)) != TYPE_STRING
 	):
-		session_failed.emit("malformed_command_result")
+		_fail("malformed_command_result")
 		return
 	command_result_received.emit(payload["request_message_id"], payload.duplicate(true))
 
@@ -102,7 +129,7 @@ func _handle_event_batch(payload: Dictionary) -> void:
 		typeof(payload.get("sequence", null)) != TYPE_INT
 		or not payload.get("events", null) is Array
 	):
-		session_failed.emit("malformed_event_batch")
+		_fail("malformed_event_batch")
 		return
 	var sequence: int = payload["sequence"]
 	if sequence < expected_sequence:
@@ -128,13 +155,34 @@ func _handle_snapshot(payload: Dictionary) -> void:
 		typeof(payload.get("sequence", null)) != TYPE_INT
 		or not payload.get("state", null) is Dictionary
 	):
-		session_failed.emit("malformed_snapshot")
+		_fail("malformed_snapshot")
 		return
 	latest_snapshot = payload["state"].duplicate(true)
 	expected_sequence = int(payload["sequence"]) + 1
 	_buffered_batches.clear()
 	_resync_pending = false
+	_persist_reconnect_record(latest_snapshot)
 	snapshot_applied.emit(latest_snapshot.duplicate(true), int(payload["sequence"]))
+
+
+func _handle_heartbeat(payload: Dictionary) -> void:
+	if typeof(payload.get("timestamp_msec", null)) != TYPE_INT:
+		_fail("malformed_heartbeat")
+		return
+	var envelope := {
+		"v": GameProtocol.VERSION,
+		"kind": "heartbeat_ack",
+		"message_id": "client-heartbeat-%d" % _next_message_id,
+		"match_id": _match_id,
+		"sender_id": str(_player_id),
+		"payload": {"timestamp_msec": payload["timestamp_msec"]},
+	}
+	_next_message_id += 1
+	var bytes := GameProtocol.encode(envelope)
+	if bytes.is_empty() or _transport.send(_host_peer_id, bytes) != OK:
+		_fail("transport_send_failed")
+		return
+	_refresh_reconnect_record()
 
 
 func _apply_batch(sequence: int, events: Array) -> void:
@@ -152,4 +200,61 @@ func _drain_buffered() -> void:
 
 func _on_peer_disconnected(peer_id: String, reason: String) -> void:
 	if peer_id == _host_peer_id:
-		session_failed.emit(reason)
+		_fail("direct_connection_failed" if reason == "direct_connection_failed" else "host_lost")
+
+
+func _on_transport_failed(reason: String) -> void:
+	if reason == "direct_connection_failed":
+		_fail(reason)
+
+
+func _persist_reconnect_record(snapshot: Dictionary) -> void:
+	if _reconnect_store == null or _room_code.is_empty():
+		return
+	if snapshot.get("match_complete", false):
+		_reconnect_token = ""
+		_reconnect_grace_msec = 0
+		_reconnect_store.clear()
+		return
+	var private_connection: Variant = snapshot.get("private_connection")
+	var lobby_settings: Variant = snapshot.get("lobby_settings")
+	if not private_connection is Dictionary or not lobby_settings is Dictionary:
+		return
+	var token: Variant = private_connection.get("reconnect_token")
+	var grace: Variant = lobby_settings.get("reconnect_grace_msec")
+	if (
+		typeof(token) != TYPE_STRING or String(token).is_empty()
+		or typeof(grace) != TYPE_INT or int(grace) <= 0
+	):
+		return
+	_reconnect_token = String(token)
+	_reconnect_grace_msec = int(grace)
+	_refresh_reconnect_record()
+
+
+func _refresh_reconnect_record() -> void:
+	if (
+		_reconnect_store == null or _room_code.is_empty()
+		or _reconnect_token.is_empty() or _reconnect_grace_msec <= 0
+	):
+		return
+	_reconnect_store.save(
+		_room_code,
+		_player_id,
+		_reconnect_token,
+		_now_msec() + _heartbeat_timeout_msec + _reconnect_grace_msec
+	)
+
+
+func _fail(reason: String) -> void:
+	if _failed:
+		return
+	_failed = true
+	session_failed.emit(reason)
+
+
+func _now_msec() -> int:
+	return (
+		int(_now.call()) if _now.is_valid()
+		else int(Time.get_unix_time_from_system() * 1000.0)
+	)
