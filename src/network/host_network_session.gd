@@ -1,6 +1,8 @@
 class_name HostNetworkSession
 extends RefCounted
 
+signal authoritative_state_changed(events: Array)
+
 const GameTypes = preload("res://src/core/common/game_types.gd")
 const GameCommand = preload("res://src/core/commands/game_command.gd")
 const CommandKinds = preload("res://src/core/commands/command_kinds.gd")
@@ -28,6 +30,7 @@ var _next_reconnect_command_id := 1
 var _heartbeat_interval_msec: int
 var _heartbeat_timeout_msec: int
 var _token_provider: Callable
+var _snapshot_decorator: Callable
 
 
 func _init(
@@ -38,7 +41,8 @@ func _init(
 	now: Callable = Callable(),
 	heartbeat_interval_msec: int = DEFAULT_HEARTBEAT_INTERVAL_MSEC,
 	heartbeat_timeout_msec: int = DEFAULT_HEARTBEAT_TIMEOUT_MSEC,
-	token_provider: Callable = Callable()
+	token_provider: Callable = Callable(),
+	snapshot_decorator: Callable = Callable()
 ) -> void:
 	_controller = controller
 	_transport = transport
@@ -48,6 +52,7 @@ func _init(
 	_heartbeat_interval_msec = maxi(1, heartbeat_interval_msec)
 	_heartbeat_timeout_msec = maxi(_heartbeat_interval_msec + 1, heartbeat_timeout_msec)
 	_token_provider = token_provider
+	_snapshot_decorator = snapshot_decorator
 	_transport.message_received.connect(_on_message_received)
 	_transport.peer_disconnected.connect(_on_peer_disconnected)
 
@@ -108,8 +113,7 @@ func reconnect_peer(peer_id: String, player_id: StringName, token: String) -> Di
 			unregister_peer(existing_peer_id)
 	if register_peer(peer_id, player_id, GameTypes.RecipientRole.ACTIVE_PLAYER) != OK:
 		return {"accepted": false, "error_code": "peer_registration_failed"}
-	publish_events(result.events)
-	send_snapshot(peer_id)
+	publish_state_change(result.events)
 	return {"accepted": true, "error_code": ""}
 
 
@@ -144,12 +148,11 @@ func admit_peer(peer_id: String, player_id: StringName, requested_role: String) 
 	)
 	if register_peer(peer_id, player_id, network_role) != OK:
 		return {"accepted": false, "error_code": "peer_registration_failed"}
-	publish_events([DomainEvent.new(
+	publish_state_change([DomainEvent.new(
 		&"participant_joined",
 		{"player_id": str(player_id), "role": requested_role},
 		&"public"
 	)])
-	send_snapshot(peer_id)
 	return {"accepted": true, "error_code": ""}
 
 
@@ -170,10 +173,10 @@ func sync_player_activation(player_id: StringName) -> Error:
 		return ERR_ALREADY_EXISTS
 	_peers[peer_id]["role"] = GameTypes.RecipientRole.ACTIVE_PLAYER
 	_ensure_reconnect_token(player_id)
-	publish_events([DomainEvent.new(
+	publish_state_change([DomainEvent.new(
 		&"player_activated", {"player_id": str(player_id)}, &"public"
 	)])
-	return send_snapshot(peer_id)
+	return OK
 
 
 func unregister_peer(peer_id: String) -> void:
@@ -203,6 +206,12 @@ func publish_events(events: Array) -> void:
 		}))
 
 
+func publish_state_change(events: Array = []) -> void:
+	publish_events(events)
+	_broadcast_snapshots()
+	authoritative_state_changed.emit(events.duplicate())
+
+
 func send_snapshot(peer_id: String) -> Error:
 	if not _peers.has(peer_id):
 		return ERR_DOES_NOT_EXIST
@@ -212,6 +221,16 @@ func send_snapshot(peer_id: String) -> Error:
 		_controller.state, player_id, registration["role"]
 	)
 	snapshot["lobby_settings"] = _controller.state.config.to_dict()
+	snapshot["server_now_msec"] = _now_msec()
+	snapshot["now_msec"] = snapshot["server_now_msec"]
+	snapshot["victory_mode"] = _controller.state.config.victory_mode
+	snapshot["victory_target"] = _controller.state.config.victory_target
+	if _snapshot_decorator.is_valid():
+		var decorated: Variant = _snapshot_decorator.call(
+			snapshot.duplicate(true), player_id, registration["role"]
+		)
+		if decorated is Dictionary:
+			snapshot = decorated
 	return _send_envelope(peer_id, _envelope("snapshot", {
 		"sequence": int(_recipient_sequences.get(player_id, 0)),
 		"state": snapshot,
@@ -251,8 +270,17 @@ func poll() -> void:
 			queue.pop_front()
 	var controller_events: Array = _controller.tick(now_msec)
 	if not controller_events.is_empty():
-		publish_events(controller_events)
+		publish_state_change(controller_events)
 	_sync_pending_activations()
+
+
+func close() -> void:
+	if _transport.message_received.is_connected(_on_message_received):
+		_transport.message_received.disconnect(_on_message_received)
+	if _transport.peer_disconnected.is_connected(_on_peer_disconnected):
+		_transport.peer_disconnected.disconnect(_on_peer_disconnected)
+	_peers.clear()
+	_outbound_queues.clear()
 
 
 func _on_message_received(peer_id: String, bytes: PackedByteArray) -> void:
@@ -319,9 +347,8 @@ func _on_message_received(peer_id: String, bytes: PackedByteArray) -> void:
 	_send_command_result(
 		peer_id, player_id, message_id, result.accepted, result.error_code
 	)
-	if result.accepted and not result.events.is_empty():
-		publish_events(result.events)
 	if result.accepted:
+		publish_state_change(result.events)
 		_sync_pending_activations()
 
 
@@ -462,7 +489,7 @@ func _on_peer_disconnected(peer_id: String, reason: String) -> void:
 		var events: Array = _controller.remove_transient_participant(player_id)
 		_player_response_cache.erase(player_id)
 		_recipient_sequences.erase(player_id)
-		publish_events(events)
+		publish_state_change(events)
 		return
 	if role != GameTypes.RecipientRole.ACTIVE_PLAYER:
 		return
@@ -472,7 +499,7 @@ func _on_peer_disconnected(peer_id: String, reason: String) -> void:
 	if not player.connected:
 		return
 	_controller.notify_player_disconnected(player_id, _now_msec())
-	publish_events([DomainEvent.new(
+	publish_state_change([DomainEvent.new(
 		&"player_disconnected",
 		{
 			"player_id": str(player_id),
@@ -481,6 +508,13 @@ func _on_peer_disconnected(peer_id: String, reason: String) -> void:
 		},
 		&"public"
 	)])
+
+
+func _broadcast_snapshots() -> void:
+	for peer_id_variant in _peers.keys():
+		var peer_id := String(peer_id_variant)
+		if _peers.has(peer_id):
+			send_snapshot(peer_id)
 
 
 func _sync_pending_activations() -> void:

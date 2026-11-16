@@ -86,8 +86,8 @@ func test_host_receives_code_approves_join_and_routes_signals() -> void:
 	var client = _client()
 	var requested: Array = []
 	var routed: Array = []
-	client.join_requested.connect(func(peer_id, role, nonce):
-		requested.append([peer_id, role, nonce])
+	client.join_requested.connect(func(peer_id, role, nonce, display_name):
+		requested.append([peer_id, role, nonce, display_name])
 	)
 	client.signal_received.connect(func(type, peer_id, payload):
 		routed.append([type, peer_id, payload])
@@ -107,10 +107,10 @@ func test_host_receives_code_approves_join_and_routes_signals() -> void:
 
 	socket.queue_message(_server("join_requested", {
 		"code": "AB3D5F", "peer_id": "peer-1", "role": "active",
-		"join_nonce": "nonce-1",
+		"join_nonce": "nonce-1", "display_name": "Mira",
 	}))
 	client.poll()
-	assert_eq(requested, [["peer-1", "active", "nonce-1"]])
+	assert_eq(requested, [["peer-1", "active", "nonce-1", "Mira"]])
 	assert_eq(client.approve_join("nonce-1"), OK)
 	assert_eq(_sent(socket, 1), {
 		"v": 1, "type": "approve_join", "code": "AB3D5F",
@@ -140,11 +140,12 @@ func test_join_sends_role_then_uses_approved_nonce_for_offer_and_answer() -> voi
 		routed.append([type, peer_id, payload])
 	)
 
-	assert_eq(client.begin_join("wss://signal.example", "ab3d5f", "spectator"), OK)
+	assert_eq(client.begin_join("wss://signal.example", "ab3d5f", "spectator", "Mira"), OK)
 	socket.open()
 	client.poll()
 	assert_eq(_sent(socket, 0), {
 		"v": 1, "type": "join_room", "code": "AB3D5F", "role": "spectator",
+		"display_name": "Mira",
 	})
 	socket.queue_message(_server("join_pending", {
 		"code": "AB3D5F", "role": "spectator", "join_nonce": "nonce-2",

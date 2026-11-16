@@ -2,7 +2,7 @@ class_name UICommandGateway
 extends RefCounted
 
 signal command_sent(message_id: String, command: Dictionary)
-signal command_completed(message_id: String, result: Dictionary)
+signal command_completed(kind: StringName, message_id: String, result: Dictionary)
 signal command_blocked(kind: StringName, reason: StringName)
 
 var _session: Variant
@@ -13,7 +13,13 @@ var _kind_by_request: Dictionary = {}
 
 
 func bind_session(session: Variant) -> void:
+	if (
+		_session != null and _session.has_signal("command_result_received")
+		and _session.command_result_received.is_connected(handle_command_result)
+	):
+		_session.command_result_received.disconnect(handle_command_result)
 	_session = session
+	clear_in_flight()
 	if (
 		_session != null and _session.has_signal("command_result_received")
 		and not _session.command_result_received.is_connected(handle_command_result)
@@ -57,7 +63,7 @@ func handle_command_result(request_message_id: String, result: Dictionary) -> vo
 	var kind: StringName = _kind_by_request[request_message_id]
 	_kind_by_request.erase(request_message_id)
 	_in_flight_by_kind.erase(kind)
-	command_completed.emit(request_message_id, result.duplicate(true))
+	command_completed.emit(kind, request_message_id, result.duplicate(true))
 
 
 func set_input_locked(locked: bool) -> void:

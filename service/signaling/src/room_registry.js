@@ -78,7 +78,7 @@ export class RoomRegistry {
     return { code, hostToken: room.hostToken };
   }
 
-  requestJoin(code, role, socket) {
+  requestJoin(code, role, socket, displayName = "Player") {
     const room = this.#requireRoom(code);
     if (room.hostSocket === null) {
       throw new RoomRegistryError("host_temporarily_unavailable");
@@ -110,6 +110,7 @@ export class RoomRegistry {
       role,
       joinNonce,
       peerId,
+      displayName,
       approved: false,
       createdAt: timestamp,
       lastActivityAt: timestamp,
@@ -129,7 +130,10 @@ export class RoomRegistry {
     join.approved = true;
     join.lastActivityAt = this.now();
     room.lastActivityAt = join.lastActivityAt;
-    return { peerId: join.peerId, socket: join.socket, role: join.role };
+    return {
+      peerId: join.peerId, socket: join.socket, role: join.role,
+      displayName: join.displayName,
+    };
   }
 
   joinRouteStatus(socket, code, joinNonce) {

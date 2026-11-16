@@ -38,11 +38,16 @@ func host_room(signaling_url: String) -> Error:
 	return _signaling.begin_host(signaling_url)
 
 
-func join_room(signaling_url: String, code: String, role: String) -> Error:
+func join_room(
+	signaling_url: String,
+	code: String,
+	role: String,
+	display_name: String = "Player"
+) -> Error:
 	if _signaling == null:
 		return ERR_UNCONFIGURED
 	_host_mode = false
-	return _signaling.begin_join(signaling_url, code, role)
+	return _signaling.begin_join(signaling_url, code, role, display_name)
 
 
 func prepare_host_peer(peer_id: String) -> Error:
@@ -243,13 +248,20 @@ func _wire_signaling() -> void:
 	_signaling.failed.connect(func(reason): transport_failed.emit(reason))
 
 
-func _on_join_requested(peer_id: String, role: String, nonce: String) -> void:
+func _on_join_requested(
+	peer_id: String,
+	role: String,
+	nonce: String,
+	display_name: String
+) -> void:
 	if not _host_mode:
 		return
 	var result := prepare_host_peer(peer_id)
 	if result == OK:
 		_signaling.approve_join(nonce)
-		join_status.emit("approved", {"peer_id": peer_id, "role": role})
+		join_status.emit("approved", {
+			"peer_id": peer_id, "role": role, "display_name": display_name,
+		})
 	else:
 		join_status.emit("rejected", {"peer_id": peer_id, "role": role, "error": result})
 
@@ -257,7 +269,10 @@ func _on_join_requested(peer_id: String, role: String, nonce: String) -> void:
 func _on_join_approved(assigned_peer_id: String, role: String) -> void:
 	if _host_mode:
 		return
-	join_status.emit("approved", {"peer_id": assigned_peer_id, "role": role})
+	join_status.emit("approved", {
+		"peer_id": assigned_peer_id, "role": role,
+		"display_name": _signaling.display_name,
+	})
 	var result := connect_direct("host")
 	if result != OK:
 		transport_failed.emit("direct_connection_failed")

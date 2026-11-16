@@ -38,11 +38,14 @@ func test_host_is_only_authority_and_deduplicates_network_message_ids() -> void:
 	assert_eq(state.accepted_command_ids[&"one"].size(), 1)
 	assert_eq(_decoded_for(transport, "peer-one")[0]["kind"], "command_result")
 	assert_true(_decoded_for(transport, "peer-one")[0]["payload"]["accepted"])
-	assert_eq(_decoded_for(transport, "peer-two"), [])
+	assert_eq(_decoded_for(transport, "peer-one")[1]["kind"], "snapshot")
+	assert_eq(_decoded_for(transport, "peer-two").map(func(message): return message.kind), ["snapshot"])
+	assert_true(_decoded_for(transport, "peer-one")[1].payload.state.players[0].has("hand_count"))
+	assert_false(_decoded_for(transport, "peer-one")[1].payload.state.players[0].has("hand"))
 
 	transport.inject_message("peer-one", GameProtocol.encode(command))
 	assert_eq(state.accepted_command_ids[&"one"].size(), 1)
-	assert_eq(_decoded_for(transport, "peer-one").size(), 2)
+	assert_eq(_decoded_for(transport, "peer-one").size(), 3)
 
 	transport.clear_sent()
 	transport.inject_message("peer-one", GameProtocol.encode(

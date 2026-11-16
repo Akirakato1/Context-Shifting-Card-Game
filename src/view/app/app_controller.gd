@@ -49,6 +49,7 @@ func _init() -> void:
 	command_gateway = UICommandGateway.new()
 	presentation_state.changed.connect(_on_presentation_changed)
 	presentation_queue.event_ready.connect(_on_event_ready)
+	command_gateway.command_completed.connect(_on_command_result)
 
 
 func bind_session(session: Variant) -> void:
@@ -59,7 +60,6 @@ func bind_session(session: Variant) -> void:
 		return
 	_connect_if_present(session, "snapshot_applied", _on_snapshot_applied)
 	_connect_if_present(session, "events_applied", _on_events_applied)
-	_connect_if_present(session, "command_result_received", _on_command_result)
 	_connect_if_present(session, "session_failed", _on_session_failed)
 	_connect_if_present(session, "connection_state_changed", _on_connection_state_changed)
 	_set_connection("connected", "")
@@ -156,8 +156,19 @@ func _on_event_ready(event: Dictionary) -> void:
 	presentation_state.apply_event(event, int(event.get("sequence", presentation_state.sequence())))
 
 
-func _on_command_result(_request_message_id: String, _result: Dictionary) -> void:
-	pass
+func _on_command_result(
+	kind: StringName,
+	_request_message_id: String,
+	result: Dictionary
+) -> void:
+	if _current_screen_id != &"match" or not _current_screen.has_method("handle_command_result"):
+		return
+	_current_screen.handle_command_result(
+		kind,
+		bool(result.get("accepted", false)),
+		StringName(result.get("error_code", "")),
+		int(_last_presentation.get("phase", -1))
+	)
 
 
 func _on_session_failed(reason: String) -> void:

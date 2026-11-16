@@ -97,6 +97,12 @@ func test_command_gateway_deduplicates_in_flight_action_and_uses_unique_ids() ->
 		return
 	var session := FakeSession.new()
 	gateway.bind_session(session)
+	var completions: Array[Dictionary] = []
+	gateway.command_completed.connect(func(kind: StringName, message_id: String, result: Dictionary):
+		completions.append({
+			"kind": kind, "message_id": message_id, "result": result,
+		})
+	)
 	var first: String = gateway.send(&"lock_hand", {"cards": []})
 	var duplicate: String = gateway.send(&"lock_hand", {"cards": []})
 	assert_false(first.is_empty())
@@ -107,6 +113,11 @@ func test_command_gateway_deduplicates_in_flight_action_and_uses_unique_ids() ->
 	assert_false(String(session.submissions[0].command.command_id).is_empty())
 
 	gateway.handle_command_result(first, {"accepted": false, "error_code": "invalid_hand"})
+	assert_eq(completions, [{
+		"kind": &"lock_hand",
+		"message_id": first,
+		"result": {"accepted": false, "error_code": "invalid_hand"},
+	}])
 	var second: String = gateway.send(&"lock_hand", {"cards": []})
 	assert_ne(second, first)
 	assert_eq(session.submissions.size(), 2)

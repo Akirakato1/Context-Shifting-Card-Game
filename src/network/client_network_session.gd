@@ -86,6 +86,15 @@ func poll() -> void:
 		_fail("host_lost")
 
 
+func close() -> void:
+	if _transport.message_received.is_connected(_on_message_received):
+		_transport.message_received.disconnect(_on_message_received)
+	if _transport.peer_disconnected.is_connected(_on_peer_disconnected):
+		_transport.peer_disconnected.disconnect(_on_peer_disconnected)
+	if _transport.transport_failed.is_connected(_on_transport_failed):
+		_transport.transport_failed.disconnect(_on_transport_failed)
+
+
 func _on_message_received(peer_id: String, bytes: PackedByteArray) -> void:
 	if peer_id != _host_peer_id:
 		return

@@ -141,18 +141,22 @@ function handleMessage(registry, socket, message) {
     if (!room) {
       throw new RoomRegistryError("room_not_found");
     }
-    const { joinNonce, peerId } = registry.requestJoin(message.code, message.role, socket);
+    const { joinNonce, peerId } = registry.requestJoin(
+      message.code, message.role, socket, message.display_name,
+    );
     send(socket, "join_pending", {
       code: room.code,
       role: message.role,
       join_nonce: joinNonce,
       peer_id: peerId,
+      display_name: message.display_name,
     });
     send(room.hostSocket, "join_requested", {
       code: room.code,
       role: message.role,
       join_nonce: joinNonce,
       peer_id: peerId,
+      display_name: message.display_name,
     });
     return;
   }
@@ -163,6 +167,7 @@ function handleMessage(registry, socket, message) {
       role: approved.role,
       join_nonce: message.join_nonce,
       peer_id: approved.peerId,
+      display_name: approved.displayName,
     });
     return;
   }

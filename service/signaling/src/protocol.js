@@ -57,6 +57,13 @@ export function decodeClientMessage(raw) {
     if (!VALID_ROLES.has(message.role)) {
       return failure("invalid_role");
     }
+    if (
+      !isNonEmptyString(message.display_name)
+      || message.display_name.trim().length === 0
+      || message.display_name.length > 32
+    ) {
+      return failure("invalid_display_name");
+    }
   } else if (message.type === "approve_join") {
     if (
       !isNonEmptyString(message.code)
