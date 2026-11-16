@@ -148,7 +148,7 @@ func test_reconnect_freezes_inputs_and_failure_reasons_offer_distinct_actions() 
 
 	var expectations := {
 		&"forfeit": ["forfeited", "RETURN TO LOBBY"],
-		&"host_lost": ["host connection", "RETURN TO MENU"],
+		&"host_lost": ["host connection", "TRY RECONNECT"],
 		&"direct_connection_failed": ["direct connection", "TRY AGAIN"],
 		&"room_closed": ["closed", "RETURN TO MENU"],
 	}
@@ -176,6 +176,35 @@ func test_public_ability_reaction_window_is_visible_without_revealing_private_ef
 	var history: String = _control_tree_text(match_screen.get_node("AbilityHistory"))
 	assert_true(history.contains("Pair Breaker"))
 	assert_false(history.contains("removed_card"))
+	await _unmount(match_screen)
+
+
+func test_public_ability_preserves_every_completed_choice_in_command_payload() -> void:
+	var match_screen = await _mount(MATCH_SCREEN_PATH)
+	if match_screen == null:
+		return
+	var intents: Array[Dictionary] = []
+	match_screen.intent_requested.connect(func(kind: StringName, payload: Dictionary):
+		intents.append({"kind": kind, "payload": payload})
+	)
+	var model := _active_model(2)
+	model["ability_catalog"]["pair_breaker"]["choice_schema"] = {"steps": [
+		{"key": "target_player_id", "kind": "player", "count": 1, "eligible": ["p2"]},
+		{"key": "severity", "kind": "enum", "count": 1, "eligible": ["low", "high"]},
+	]}
+	match_screen.render(model)
+	match_screen.get_node("AbilityPanel").activate_ability(&"sabotage-copy")
+	var overlay = match_screen.get_node("TargetingOverlay")
+	overlay.select_value("p2")
+	overlay.select_value("high")
+	overlay.get_node("Panel/Layout/CommitButton").pressed.emit()
+	assert_eq(intents[-1], {
+		"kind": &"play_public_ability",
+		"payload": {
+			"copy_id": "sabotage-copy", "target_player_id": "p2",
+			"choices": {"target_player_id": ["p2"], "severity": ["high"]},
+		},
+	})
 	await _unmount(match_screen)
 
 

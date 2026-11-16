@@ -3,6 +3,22 @@ extends "res://tests/test_case.gd"
 const APP_PATH := "res://src/view/app/app_root.tscn"
 
 
+class FakeSession extends RefCounted:
+	signal snapshot_applied(snapshot: Dictionary, sequence: int)
+	signal events_applied(events: Array, sequence: int)
+	signal command_result_received(request_message_id: String, result: Dictionary)
+	signal session_failed(reason: String)
+
+	var submissions: Array[Dictionary] = []
+
+	func submit_command(message_id: String, command: Dictionary) -> Error:
+		submissions.append({"message_id": message_id, "command": command.duplicate(true)})
+		return OK
+
+	func poll() -> void:
+		pass
+
+
 func test_app_starts_on_menu_and_can_present_each_mock_screen() -> void:
 	var app = await _mount_app()
 	if app == null:
@@ -47,6 +63,69 @@ func test_results_return_to_lobby_preserves_room_and_unlocks_settings() -> void:
 	var lobby = app.get_node("SafeArea/ScreenHost").get_child(0)
 	assert_eq(lobby.get_node("Layout/Header/RoomCode").text, "ROOM  ABC234")
 	assert_true(lobby.get_node("Layout/Body/Settings/VictoryTarget").editable)
+	await _unmount(app)
+
+
+func test_authoritative_screen_id_routes_lobby_then_match_without_mock_calls() -> void:
+	var app = await _mount_app()
+	if app == null:
+		return
+	var lobby := _lobby_model()
+	lobby["screen_id"] = "lobby"
+	app.present_state(lobby)
+	assert_eq(app.current_screen_id(), &"lobby")
+
+	var match_model := _match_model()
+	match_model["screen_id"] = "match"
+	app.present_state(match_model)
+	assert_eq(app.current_screen_id(), &"match")
+	assert_eq(
+		app.get_node("SafeArea/ScreenHost").get_child(0).get_node("Header/Round").text,
+		"ROUND 1"
+	)
+	await _unmount(app)
+
+
+func test_connection_banner_uses_player_friendly_failure_text() -> void:
+	var app = await _mount_app()
+	if app == null:
+		return
+	var session := FakeSession.new()
+	app.bind_session(session)
+	session.session_failed.emit("direct_connection_failed")
+	var banner: PanelContainer = app.get_node("SafeArea/ConnectionBanner")
+	var label: Label = app.get_node("SafeArea/ConnectionBanner/Label")
+	assert_true(banner.visible)
+	assert_true(label.text.contains("direct connection"))
+	assert_false(label.text.contains("direct_connection_failed"))
+	await _unmount(app)
+
+
+func test_app_routes_stage_ack_back_to_match_and_sends_followup_lock() -> void:
+	var app = await _mount_app()
+	if app == null:
+		return
+	var session := FakeSession.new()
+	app.bind_session(session)
+	var model := _match_model()
+	model["screen_id"] = "match"
+	model["phase"] = 3
+	model["private_hand"] = [{
+		"card_id": "c1",
+		"first": {"effective_context": 0, "effective_rank": 7, "effective_suit": 0, "kind": 0},
+		"second": {"effective_context": 1, "effective_rank": 4, "effective_suit": 2, "kind": 0},
+	}]
+	app.present_state(model)
+	var controls = app.get_node("SafeArea/ScreenHost").get_child(0).get_node("PhaseControls")
+	controls.click_card(&"c1")
+	controls.get_node("HandPlayControls/ActionRow/LockButton").pressed.emit()
+	assert_eq(session.submissions.size(), 1)
+	assert_eq(session.submissions[0].command.kind, "stage_hand")
+	session.command_result_received.emit(session.submissions[0].message_id, {
+		"accepted": true, "error_code": "",
+	})
+	assert_eq(session.submissions.size(), 2)
+	assert_eq(session.submissions[1].command.kind, "lock_hand")
 	await _unmount(app)
 
 

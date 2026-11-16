@@ -2,7 +2,13 @@ class_name SignalingClient
 extends RefCounted
 
 signal room_created(code: String)
-signal join_requested(peer_id: String, role: String, join_nonce: String, display_name: String)
+signal join_requested(
+	peer_id: String,
+	role: String,
+	join_nonce: String,
+	display_name: String,
+	reconnect_player_id: String
+)
 signal join_approved(peer_id: String, role: String)
 signal signal_received(type: String, peer_id: String, payload: Dictionary)
 signal failed(reason: String)
@@ -31,6 +37,7 @@ var join_nonce := ""
 var peer_id := ""
 var role := ""
 var display_name := ""
+var reconnect_player_id := ""
 
 var _socket_factory: Callable
 var _now: Callable
@@ -62,6 +69,7 @@ func begin_host(url: String) -> Error:
 	peer_id = ""
 	role = "active"
 	display_name = "Host"
+	reconnect_player_id = ""
 	_mode = "host"
 	_url = url
 	_reconnecting = false
@@ -72,7 +80,8 @@ func begin_join(
 	url: String,
 	code: String,
 	requested_role: String,
-	requested_display_name: String = "Player"
+	requested_display_name: String = "Player",
+	requested_reconnect_player_id: String = ""
 ) -> Error:
 	requested_display_name = requested_display_name.strip_edges()
 	if (
@@ -86,6 +95,7 @@ func begin_join(
 	peer_id = ""
 	role = requested_role
 	display_name = requested_display_name
+	reconnect_player_id = requested_reconnect_player_id
 	_mode = "join"
 	_url = url
 	_reconnecting = false
@@ -198,6 +208,8 @@ func _send_initial_message() -> Error:
 		"role": role,
 		"display_name": display_name,
 	}
+	if not reconnect_player_id.is_empty():
+		join_message["reconnect_player_id"] = reconnect_player_id
 	if _reconnecting:
 		join_message["reconnect"] = true
 	return _send(join_message)
@@ -257,7 +269,7 @@ func _handle_packet(bytes: PackedByteArray) -> void:
 				return
 			join_requested.emit(
 				parsed["peer_id"], parsed["role"], parsed["join_nonce"],
-				parsed["display_name"]
+				parsed["display_name"], str(parsed.get("reconnect_player_id", ""))
 			)
 		"offer", "answer", "ice_candidate":
 			if not _has_strings(parsed, ["peer_id"]) or not parsed.get("payload") is Dictionary:

@@ -5,6 +5,7 @@ signal primary_clicked(card_id: StringName)
 signal orientation_requested(card_id: StringName)
 signal half_choice_requested(card_id: StringName, half_index: int)
 signal joker_choice_changed(card_id: StringName, half_index: int, context: int, suit: int)
+signal reorder_requested(card_id: StringName, delta: int)
 
 const CONTEXT_NAMES := ["A", "B", "C"]
 const SUIT_NAMES := ["ONE", "TWO", "THREE"]
@@ -29,6 +30,9 @@ var _staged := false
 @onready var _second_choices: HBoxContainer = $Face/SecondChoices
 @onready var _second_context: OptionButton = $Face/SecondChoices/Context
 @onready var _second_suit: OptionButton = $Face/SecondChoices/Suit
+@onready var _order_controls: HBoxContainer = $Face/OrderControls
+@onready var _move_left: Button = $Face/OrderControls/MoveLeft
+@onready var _move_right: Button = $Face/OrderControls/MoveRight
 
 
 func _ready() -> void:
@@ -52,6 +56,9 @@ func render(
 	_staged = bool(view_state.get("staged", false))
 	targeting_eligible = bool(view_state.get("targeting_eligible", false))
 	targeting_selected = bool(view_state.get("targeting_selected", false))
+	_order_controls.visible = bool(view_state.get("reorder_enabled", false)) and not hidden
+	_move_left.disabled = interaction_disabled
+	_move_right.disabled = interaction_disabled
 	_back.visible = hidden
 	_face.visible = not hidden
 	_first_choices.visible = false
@@ -194,6 +201,16 @@ func _on_second_context_selected(index: int) -> void:
 
 func _on_second_suit_selected(index: int) -> void:
 	joker_choice_changed.emit(StringName(card_id), 1, _second_context.selected, index)
+
+
+func _on_move_left_pressed() -> void:
+	if not interaction_disabled:
+		reorder_requested.emit(StringName(card_id), -1)
+
+
+func _on_move_right_pressed() -> void:
+	if not interaction_disabled:
+		reorder_requested.emit(StringName(card_id), 1)
 
 
 func _on_first_gui_input(event: InputEvent) -> void:

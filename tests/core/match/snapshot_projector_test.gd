@@ -46,6 +46,24 @@ func test_private_visibility_omits_exact_pile_counts() -> void:
 	assert_false(snapshot.has("pile_counts"))
 
 
+func test_replacement_context_requests_follow_lobby_visibility_setting() -> void:
+	var public_state := _state(GameTypes.InformationVisibility.PUBLIC)
+	public_state.start_requests[&"one"] = {0: 3, 1: 2, 2: 1}
+	var public_snapshot := SnapshotProjector.for_recipient(
+		public_state, &"watcher", GameTypes.RecipientRole.SPECTATOR
+	)
+	assert_eq(public_snapshot.replacement_requests, {
+		"one": {"0": 3, "1": 2, "2": 1},
+	})
+
+	var private_state := _state(GameTypes.InformationVisibility.PRIVATE)
+	private_state.start_requests[&"one"] = {0: 3, 1: 2, 2: 1}
+	var private_snapshot := SnapshotProjector.for_recipient(
+		private_state, &"watcher", GameTypes.RecipientRole.SPECTATOR
+	)
+	assert_false(private_snapshot.has("replacement_requests"))
+
+
 func test_player_snapshot_contains_only_that_players_private_values() -> void:
 	var state := _state(GameTypes.InformationVisibility.PUBLIC)
 	var own_card_id := str(state.players[&"one"].hand[0].card_id)
@@ -60,6 +78,10 @@ func test_player_snapshot_contains_only_that_players_private_values() -> void:
 	assert_true(encoded.contains(own_card_id))
 	assert_false(encoded.contains(opponent_card_id))
 	assert_eq(snapshot.private_player_id, "one")
+	for card in snapshot.private_hand:
+		assert_true(card.has("eligible_half_indexes"))
+	for ability in snapshot.private_abilities:
+		assert_false(ability.legal)
 
 
 func test_joker_draft_is_owner_only_and_resolved_view_is_public() -> void:

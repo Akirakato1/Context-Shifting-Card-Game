@@ -162,6 +162,27 @@ min_value = 1.0
 max_value = 60.0
 value = 3.0
 
+[node name="ReactionTimerLabel" type="Label" parent="Layout/Body/Settings"]
+layout_mode = 2
+text = "Reaction window (seconds)"
+
+[node name="ReactionTimer" type="SpinBox" parent="Layout/Body/Settings"]
+layout_mode = 2
+min_value = 0.5
+max_value = 30.0
+step = 0.5
+value = 2.0
+
+[node name="HardLimitTimerLabel" type="Label" parent="Layout/Body/Settings"]
+layout_mode = 2
+text = "Public phase hard limit (seconds)"
+
+[node name="HardLimitTimer" type="SpinBox" parent="Layout/Body/Settings"]
+layout_mode = 2
+min_value = 2.0
+max_value = 180.0
+value = 30.0
+
 [node name="ReconnectTimerLabel" type="Label" parent="Layout/Body/Settings"]
 layout_mode = 2
 text = "Reconnect grace (seconds)"
@@ -231,6 +252,8 @@ text = "START MATCH"
 [connection signal="value_changed" from="Layout/Body/Settings/MainTimer" to="." method="_on_main_timer_changed"]
 [connection signal="value_changed" from="Layout/Body/Settings/HandTimer" to="." method="_on_hand_timer_changed"]
 [connection signal="value_changed" from="Layout/Body/Settings/EndTimer" to="." method="_on_end_timer_changed"]
+[connection signal="value_changed" from="Layout/Body/Settings/ReactionTimer" to="." method="_on_reaction_timer_changed"]
+[connection signal="value_changed" from="Layout/Body/Settings/HardLimitTimer" to="." method="_on_hard_limit_timer_changed"]
 [connection signal="value_changed" from="Layout/Body/Settings/ReconnectTimer" to="." method="_on_reconnect_timer_changed"]
 [connection signal="pressed" from="Layout/StatusPanel/RetryButton" to="." method="_on_retry_pressed"]
 [connection signal="pressed" from="Layout/StatusPanel/DetailsButton" to="." method="_on_details_pressed"]

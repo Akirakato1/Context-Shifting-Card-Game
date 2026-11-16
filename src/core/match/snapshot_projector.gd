@@ -56,6 +56,13 @@ static func for_recipient(
 				"used_count": state.piles[context].used_count(),
 			}
 		snapshot["pile_counts"] = pile_counts
+		var replacement_requests := {}
+		for player_id in state.start_requests:
+			var request := {}
+			for context in state.start_requests[player_id]:
+				request[str(context)] = state.start_requests[player_id][context]
+			replacement_requests[str(player_id)] = request
+		snapshot["replacement_requests"] = replacement_requests
 	if (
 		role == GameTypes.RecipientRole.ACTIVE_PLAYER
 		and state.players.has(recipient_id)
@@ -64,8 +71,10 @@ static func for_recipient(
 	):
 		var recipient = state.players[recipient_id]
 		snapshot["private_player_id"] = str(recipient_id)
-		snapshot["private_hand"] = _private_hand(recipient.hand)
-		snapshot["private_abilities"] = _private_abilities(recipient.ability_hand)
+		snapshot["private_hand"] = _private_hand(recipient.hand, state.active_context)
+		snapshot["private_abilities"] = _private_abilities(
+			recipient.ability_hand, state.phase
+		)
 		snapshot["private_staging"] = {
 			"pending_manipulation": recipient.pending_manipulation.duplicate(true),
 			"staged_submission": recipient.staged_submission.duplicate(true),
@@ -90,12 +99,16 @@ static func _revealed_submission(player) -> Dictionary:
 		result["provisional_score"] = player.provisional_score.final_score
 	return result
 
-static func _private_hand(hand: Array) -> Array:
+static func _private_hand(hand: Array, active_context: int) -> Array:
 	var result: Array = []
 	for card in hand:
+		var eligible_indexes: Array = []
+		for half_index in card.eligible_half_indexes(active_context):
+			eligible_indexes.append(half_index)
 		result.append({
 			"card_id": str(card.card_id),
 			"first": _private_half(card.first), "second": _private_half(card.second),
+			"eligible_half_indexes": eligible_indexes,
 		})
 	return result
 
@@ -109,10 +122,11 @@ static func _private_half(half) -> Dictionary:
 	}
 
 
-static func _private_abilities(abilities: Array) -> Array:
+static func _private_abilities(abilities: Array, phase: int) -> Array:
 	var result: Array = []
 	for ability in abilities:
 		result.append({
 			"copy_id": str(ability.copy_id), "ability_id": str(ability.definition.id),
+			"legal": ability.definition.allows_phase(phase),
 		})
 	return result

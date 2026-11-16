@@ -64,6 +64,12 @@ export function decodeClientMessage(raw) {
     ) {
       return failure("invalid_display_name");
     }
+    if (
+      message.reconnect_player_id !== undefined
+      && !isNonEmptyString(message.reconnect_player_id)
+    ) {
+      return failure("invalid_reconnect_player_id");
+    }
   } else if (message.type === "approve_join") {
     if (
       !isNonEmptyString(message.code)

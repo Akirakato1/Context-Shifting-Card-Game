@@ -157,11 +157,12 @@ test("HTTP health and host-approved signaling route without accepting gameplay",
   const joinPendingPromise = nextMessage(joiner);
   send(joiner, {
     type: "join_room", code: roomCreated.code.toLowerCase(), role: "active",
-    display_name: "Mira",
+    display_name: "Mira", reconnect_player_id: "old-player",
   });
   const [hostJoin, joinPending] = await Promise.all([hostJoinPromise, joinPendingPromise]);
   assert.equal(hostJoin.type, "join_requested");
   assert.equal(hostJoin.display_name, "Mira");
+  assert.equal(hostJoin.reconnect_player_id, "old-player");
   assert.equal(joinPending.type, "join_pending");
   assert.equal(hostJoin.join_nonce, joinPending.join_nonce);
 
@@ -185,6 +186,7 @@ test("HTTP health and host-approved signaling route without accepting gameplay",
   assert.equal(approved.type, "join_approved");
   assert.equal(approved.peer_id, hostJoin.peer_id);
   assert.equal(approved.display_name, "Mira");
+  assert.equal(approved.reconnect_player_id, "old-player");
 
   const routedOfferPromise = nextMessage(host);
   send(joiner, {

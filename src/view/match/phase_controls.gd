@@ -30,6 +30,7 @@ var _input_locked := false
 var _targeting := false
 var _target_eligible: Array[StringName] = []
 var _target_selected: Array[StringName] = []
+var _authoritative_staging_signature := ""
 
 @onready var _status: Label = $Status
 @onready var _timeout_notice: Label = $TimeoutNotice
@@ -66,6 +67,7 @@ func render(model: Dictionary) -> void:
 		_ability_discards.clear()
 		_staged.clear()
 		_staged_order.clear()
+		_authoritative_staging_signature = ""
 		if next_phase == PHASE_START:
 			_last_start_request.clear()
 			_confirmed_start_request.clear()
@@ -120,7 +122,7 @@ func click_card(card_id: StringName) -> void:
 func choose_half(card_id: StringName, half_index: int) -> void:
 	if not _staged.has(card_id) or half_index < 0 or half_index > 1:
 		return
-	if not _half_is_eligible(_card_half(_hand_cards[card_id], half_index)):
+	if not _half_index_is_eligible(_hand_cards[card_id], half_index):
 		return
 	_staged[card_id]["half_index"] = half_index
 	_render_hand_play()
@@ -153,8 +155,27 @@ func reorder_hand(card_id: StringName, target_index: int) -> void:
 	_render_hand_play()
 
 
+func move_card(card_id: StringName, delta: int) -> void:
+	if _input_locked or delta == 0:
+		return
+	var order := _staged_order if _staged.has(card_id) else _hand_order
+	var current_index := order.find(card_id)
+	if current_index < 0:
+		return
+	var target_index := clampi(current_index + delta, 0, order.size() - 1)
+	if target_index == current_index:
+		return
+	order.remove_at(current_index)
+	order.insert(target_index, card_id)
+	_render_hand_play()
+
+
 func local_hand_order() -> Array[StringName]:
 	return _hand_order.duplicate()
+
+
+func staged_order() -> Array[StringName]:
+	return _staged_order.duplicate()
 
 
 func has_staged_card(card_id: StringName) -> bool:
@@ -291,9 +312,13 @@ func _load_private_hand() -> void:
 
 
 func _load_authoritative_staging_if_needed() -> void:
-	if not _staged.is_empty() or not _staged_order.is_empty():
-		return
 	var authoritative: Array = _model.get("private_staging", {}).get("staged_submission", [])
+	var signature := JSON.stringify(authoritative)
+	if signature == _authoritative_staging_signature:
+		return
+	_authoritative_staging_signature = signature
+	_staged.clear()
+	_staged_order.clear()
 	for selection in authoritative:
 		if not selection is Dictionary:
 			continue
@@ -324,11 +349,13 @@ func _make_card_widget(
 		),
 		"targeting_eligible": _targeting and card_id in _target_eligible,
 		"targeting_selected": _targeting and card_id in _target_selected,
+		"reorder_enabled": not _targeting and not locked,
 	})
 	widget.primary_clicked.connect(click_card)
 	widget.orientation_requested.connect(right_click_card)
 	widget.half_choice_requested.connect(choose_half)
 	widget.joker_choice_changed.connect(set_joker_choice)
+	widget.reorder_requested.connect(move_card)
 	_card_widgets[card_id] = widget
 	return widget
 
@@ -473,7 +500,15 @@ func _canonical_staging() -> Array:
 
 
 func _card_is_eligible(card: Dictionary) -> bool:
+	if card.has("eligible_half_indexes"):
+		return not card.eligible_half_indexes.is_empty()
 	return _half_is_eligible(card.get("first", {})) or _half_is_eligible(card.get("second", {}))
+
+
+func _half_index_is_eligible(card: Dictionary, half_index: int) -> bool:
+	if card.has("eligible_half_indexes"):
+		return half_index in card.eligible_half_indexes
+	return _half_is_eligible(_card_half(card, half_index))
 
 
 func _half_is_eligible(half: Dictionary) -> bool:
@@ -485,12 +520,12 @@ func _card_half(card: Dictionary, half_index: int) -> Dictionary:
 
 
 func _default_half_index(card: Dictionary) -> int:
-	return 0 if _half_is_eligible(card.get("first", {})) else 1
+	return 0 if _half_index_is_eligible(card, 0) else 1
 
 
 func _default_half_index_for_card(card_id: StringName) -> int:
 	var card: Dictionary = _hand_cards.get(card_id, {})
-	if bool(_orientations.get(card_id, false)) and _half_is_eligible(card.get("second", {})):
+	if bool(_orientations.get(card_id, false)) and _half_index_is_eligible(card, 1):
 		return 1
 	return _default_half_index(card)
 

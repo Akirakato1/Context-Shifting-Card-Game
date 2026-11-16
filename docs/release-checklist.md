@@ -3,6 +3,7 @@
 ## Build
 
 - Install the exact Godot 4.7.2 stable Windows x64 export template.
+- Prefer `scripts/install_windows_export_template.ps1`; it verifies the pinned official template SHA-256 before installing it.
 - Set `SHIFT_GODOT_BIN` to the Godot 4.7.2 console executable when Godot is not on `PATH`.
 - Run `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/export_windows.ps1`.
 - Confirm the script reports `export_ok` and creates `build/shift-windows-x64.zip`.
@@ -11,7 +12,8 @@
 
 ## Multiplayer smoke test
 
-- Configure the intended secure WebSocket signaling URL and STUN URLs for the release environment.
+- Set `shift/network/signaling_url` and `shift/network/ice_servers` in `project.godot` before export. For temporary local testing, `SHIFT_SIGNALING_URL` overrides the project URL at runtime.
+- Configure the intended secure WebSocket signaling URL for the release environment; the checked-in URL points to a local signaling service for development only. The checked-in ICE configuration uses the public Google STUN endpoint documented by WebRTC and intentionally contains no TURN relay.
 - On machine 1, host a lobby and verify the six-character room code is shown without exposing its IP address.
 - On machine 2, join by room code over a different home/mobile network when possible and confirm gameplay uses a direct WebRTC route.
 - Repeat with four active players and, separately, up to four spectators.

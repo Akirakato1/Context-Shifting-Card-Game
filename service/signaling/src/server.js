@@ -143,13 +143,18 @@ function handleMessage(registry, socket, message) {
     }
     const { joinNonce, peerId } = registry.requestJoin(
       message.code, message.role, socket, message.display_name,
+      message.reconnect_player_id ?? "",
     );
+    const reconnectFields = message.reconnect_player_id
+      ? { reconnect_player_id: message.reconnect_player_id }
+      : {};
     send(socket, "join_pending", {
       code: room.code,
       role: message.role,
       join_nonce: joinNonce,
       peer_id: peerId,
       display_name: message.display_name,
+      ...reconnectFields,
     });
     send(room.hostSocket, "join_requested", {
       code: room.code,
@@ -157,6 +162,7 @@ function handleMessage(registry, socket, message) {
       join_nonce: joinNonce,
       peer_id: peerId,
       display_name: message.display_name,
+      ...reconnectFields,
     });
     return;
   }
@@ -168,6 +174,9 @@ function handleMessage(registry, socket, message) {
       join_nonce: message.join_nonce,
       peer_id: approved.peerId,
       display_name: approved.displayName,
+      ...(approved.reconnectPlayerId
+        ? { reconnect_player_id: approved.reconnectPlayerId }
+        : {}),
     });
     return;
   }

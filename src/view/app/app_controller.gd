@@ -13,6 +13,7 @@ signal rematch_requested(payload: Dictionary)
 const PresentationState = preload("res://src/view/common/presentation_state.gd")
 const PresentationQueue = preload("res://src/view/common/presentation_queue.gd")
 const UICommandGateway = preload("res://src/view/common/ui_command_gateway.gd")
+const RuntimeGameSession = preload("res://src/view/app/runtime_game_session.gd")
 const MAIN_MENU_SCENE := preload("res://src/view/lobby/main_menu_screen.tscn")
 const LOBBY_SCENE := preload("res://src/view/lobby/lobby_screen.tscn")
 const MATCH_SCENE := preload("res://src/view/match/match_screen.tscn")
@@ -30,6 +31,8 @@ var _current_screen: Node
 var _last_presentation: Dictionary = {}
 
 @onready var _screen_host: Control = $SafeArea/ScreenHost
+@onready var _connection_banner: PanelContainer = $SafeArea/ConnectionBanner
+@onready var _connection_banner_label: Label = $SafeArea/ConnectionBanner/Label
 
 
 func _ready() -> void:
@@ -53,8 +56,14 @@ func _init() -> void:
 
 
 func bind_session(session: Variant) -> void:
+	if _session != null and _session != session:
+		_disconnect_if_present(_session, "snapshot_applied", _on_snapshot_applied)
+		_disconnect_if_present(_session, "events_applied", _on_events_applied)
+		_disconnect_if_present(_session, "session_failed", _on_session_failed)
+		_disconnect_if_present(_session, "connection_state_changed", _on_connection_state_changed)
 	_session = session
 	command_gateway.bind_session(session)
+	command_gateway.set_input_locked(false)
 	if session == null:
 		_set_connection("idle", "")
 		return
@@ -125,9 +134,12 @@ func show_screen(screen_id: StringName, model: Dictionary = {}) -> void:
 
 func present_state(state: Dictionary) -> void:
 	_last_presentation = state.duplicate(true)
+	var requested_screen := StringName(state.get("screen_id", ""))
 	if bool(state.get("match_complete", false)):
-		show_screen(&"results", state)
-	elif _current_screen_id == &"match":
+		requested_screen = &"results"
+	if requested_screen in [&"lobby", &"match", &"results"] and requested_screen != _current_screen_id:
+		show_screen(requested_screen, state)
+	elif _current_screen != null and _current_screen.has_method("render"):
 		_current_screen.render(state)
 
 
@@ -175,11 +187,20 @@ func _on_session_failed(reason: String) -> void:
 	command_gateway.set_input_locked(true)
 	presentation_queue.skip_to_latest()
 	_set_connection("failed", reason)
+	if _current_screen_id == &"menu" and _current_screen.has_method("show_error"):
+		_current_screen.show_error(_connection_error_message(reason))
+	elif _current_screen_id == &"lobby" and _current_screen.has_method("show_error"):
+		_current_screen.show_error(StringName(reason))
+	elif _current_screen_id == &"match" and _current_screen.has_method("show_connection_failure"):
+		_current_screen.show_connection_failure(StringName(reason))
 
 
 func _on_connection_state_changed(value: Variant) -> void:
 	if value is Dictionary:
 		_connection = value.duplicate(true)
+		if str(_connection.get("status", "")) == "connected":
+			command_gateway.set_input_locked(false)
+		_render_connection_banner()
 		connection_changed.emit(_connection.duplicate(true))
 	else:
 		_set_connection(str(value), "")
@@ -193,20 +214,103 @@ func _on_presentation_changed(state: Dictionary, sequence: int) -> void:
 func _wire_current_screen() -> void:
 	match _current_screen_id:
 		&"menu":
-			_current_screen.host_requested.connect(func(player_name: String): host_requested.emit(player_name))
-			_current_screen.join_requested.connect(func(player_name: String, code: String, role: String): join_requested.emit(player_name, code, role))
+			_current_screen.host_requested.connect(_begin_host_runtime)
+			_current_screen.join_requested.connect(_begin_join_runtime)
 		&"lobby":
-			_current_screen.setting_change_requested.connect(func(key: StringName, value: Variant): lobby_intent_requested.emit(&"setting", {"key": key, "value": value}))
-			_current_screen.ready_requested.connect(func(ready: bool): lobby_intent_requested.emit(&"ready", {"ready": ready}))
-			_current_screen.start_requested.connect(func(): lobby_intent_requested.emit(&"start", {}))
-			_current_screen.leave_requested.connect(func(): show_screen(&"menu"))
+			_current_screen.setting_change_requested.connect(func(key: StringName, value: Variant): _on_lobby_intent(&"setting", {"key": key, "value": value}))
+			_current_screen.ready_requested.connect(func(ready: bool): _on_lobby_intent(&"ready", {"ready": ready}))
+			_current_screen.start_requested.connect(func(): _on_lobby_intent(&"start", {}))
+			_current_screen.leave_requested.connect(_return_to_menu)
 		&"match":
 			_current_screen.intent_requested.connect(_on_match_intent)
 			_current_screen.connection_action_requested.connect(_on_connection_action)
 		&"results":
 			_current_screen.rematch_requested.connect(_on_rematch_requested)
 			_current_screen.return_to_lobby_requested.connect(_on_return_to_lobby_requested)
-			_current_screen.menu_requested.connect(func(): show_screen(&"menu"))
+			_current_screen.menu_requested.connect(_return_to_menu)
+
+
+func _begin_host_runtime(player_name: String) -> void:
+	host_requested.emit(player_name)
+	_replace_runtime_session()
+	var error: Error = _session.start_host(_signaling_url(), player_name)
+	if error != OK:
+		_show_current_error("Could not start the room service (%d)." % error)
+
+
+func _begin_join_runtime(player_name: String, room_code: String, role: String) -> void:
+	join_requested.emit(player_name, room_code, role)
+	_replace_runtime_session()
+	var error: Error = _session.start_join(
+		_signaling_url(), room_code, role, player_name
+	)
+	if error != OK:
+		_show_current_error("Could not contact that room (%d)." % error)
+
+
+func _replace_runtime_session() -> void:
+	if _session != null and _session.has_method("close"):
+		_session.close()
+	bind_session(RuntimeGameSession.new())
+
+
+func _on_lobby_intent(kind: StringName, payload: Dictionary) -> void:
+	lobby_intent_requested.emit(kind, payload.duplicate(true))
+	if _session == null:
+		return
+	match kind:
+		&"setting":
+			if not _session.has_method("update_lobby_setting"):
+				return
+			var error: StringName = _session.update_lobby_setting(
+				StringName(payload.get("key", "")), payload.get("value")
+			)
+			if not error.is_empty() and _current_screen.has_method("show_error"):
+				_current_screen.show_error(error)
+		&"ready":
+			command_gateway.send(&"set_ready", {"ready": bool(payload.get("ready", false))})
+		&"start":
+			if not _session.has_method("start_match"):
+				return
+			var result: Error = _session.start_match()
+			if result != OK:
+				if _current_screen.has_method("show_error"):
+					_current_screen.show_error(&"not_enough_players")
+				return
+			command_gateway.send(&"set_ready", {"ready": true})
+
+
+func _return_to_menu() -> void:
+	if _session != null and _session.has_method("close"):
+		_session.close()
+	bind_session(null)
+	presentation_state.clear()
+	show_screen(&"menu")
+
+
+func _signaling_url() -> String:
+	var environment_url := OS.get_environment("SHIFT_SIGNALING_URL").strip_edges()
+	if not environment_url.is_empty():
+		return environment_url
+	return str(ProjectSettings.get_setting(
+		"shift/network/signaling_url", "ws://127.0.0.1:8080"
+	)).strip_edges()
+
+
+func _show_current_error(message: String) -> void:
+	if _current_screen != null and _current_screen.has_method("show_error"):
+		_current_screen.show_error(message)
+
+
+func _connection_error_message(reason: String) -> String:
+	var messages := {
+		"room_not_found": "That room was not found. Check the code and try again.",
+		"signaling_timeout": "The room service did not respond. Try again.",
+		"active_capacity_reached": "The player seats are full. Try joining as a spectator.",
+		"spectator_capacity_reached": "The spectator seats are full.",
+		"direct_connection_failed": "A direct connection could not be established on this network.",
+	}
+	return messages.get(reason, "The room connection failed. Please try again.")
 
 
 func _on_match_intent(kind: StringName, payload: Dictionary) -> void:
@@ -217,9 +321,13 @@ func _on_match_intent(kind: StringName, payload: Dictionary) -> void:
 
 func _on_connection_action(action: StringName) -> void:
 	if action == &"menu":
-		show_screen(&"menu")
+		_return_to_menu()
 	elif action == &"lobby":
 		show_screen(&"lobby", _lobby_from_result({}))
+	elif action == &"retry" and _session != null and _session.has_method("retry_connection"):
+		var error: Error = _session.retry_connection()
+		if error != OK:
+			_return_to_menu()
 
 
 func _on_rematch_requested(payload: Dictionary) -> void:
@@ -265,7 +373,21 @@ func _lobby_from_result(payload: Dictionary) -> Dictionary:
 
 func _set_connection(status: String, reason: String) -> void:
 	_connection = {"status": status, "reason": reason}
+	_render_connection_banner()
 	connection_changed.emit(_connection.duplicate(true))
+
+
+func _render_connection_banner() -> void:
+	if not is_node_ready():
+		return
+	var status := str(_connection.get("status", "idle"))
+	_connection_banner.visible = status in ["connecting", "reconnecting", "failed"]
+	match status:
+		"connecting": _connection_banner_label.text = "Connecting to the room service…"
+		"reconnecting": _connection_banner_label.text = "Restoring the room connection…"
+		"failed": _connection_banner_label.text = _connection_error_message(
+			str(_connection.get("reason", "unknown"))
+		)
 
 
 func _connect_if_present(target: Variant, signal_name: String, callable: Callable) -> void:
@@ -273,3 +395,10 @@ func _connect_if_present(target: Variant, signal_name: String, callable: Callabl
 		var signal_value: Signal = target.get(signal_name)
 		if not signal_value.is_connected(callable):
 			signal_value.connect(callable)
+
+
+func _disconnect_if_present(target: Variant, signal_name: String, callable: Callable) -> void:
+	if target.has_signal(signal_name):
+		var signal_value: Signal = target.get(signal_name)
+		if signal_value.is_connected(callable):
+			signal_value.disconnect(callable)

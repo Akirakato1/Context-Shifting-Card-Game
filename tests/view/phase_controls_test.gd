@@ -89,14 +89,20 @@ func test_orientation_and_reorder_stay_local_while_lock_payload_is_canonical() -
 	)
 	controls.render(_model(3, _hand(), {}))
 	controls.right_click_card(&"c1")
-	controls.reorder_hand(&"c6", 0)
+	controls.card_widget(&"c6").get_node("Face/OrderControls/MoveLeft").pressed.emit()
 	assert_true(controls.card_widget(&"c1").orientation_flipped)
-	assert_eq(controls.local_hand_order()[0], &"c6")
+	assert_eq(controls.local_hand_order(), [&"c1", &"c2", &"c3", &"c4", &"c6", &"c5"])
 	controls.click_card(&"c1")
+	controls.click_card(&"c2")
+	controls.card_widget(&"c2").get_node("Face/OrderControls/MoveLeft").pressed.emit()
+	assert_eq(controls.staged_order(), [&"c2", &"c1"])
 	controls.get_node("HandPlayControls/ActionRow/LockButton").pressed.emit()
 	assert_eq(intents.size(), 1)
 	assert_eq(intents[0].kind, &"stage_hand")
-	assert_eq(intents[0].payload.cards, [{"card_id": "c1", "half_index": 0, "joker_choices": []}])
+	assert_eq(intents[0].payload.cards, [
+		{"card_id": "c2", "half_index": 0, "joker_choices": []},
+		{"card_id": "c1", "half_index": 0, "joker_choices": []},
+	])
 	assert_false(str(intents[0].payload).contains("orientation"))
 	controls.handle_command_result(&"stage_hand", true, &"", 3)
 	assert_eq(intents.size(), 2)
@@ -126,6 +132,35 @@ func test_phase_change_cancels_stale_actions_and_pass_waits_for_stage_ack() -> v
 	controls.handle_command_result(&"stage_hand", false, &"invalid_normal_hand", 3)
 	assert_false(controls.get_node("HandPlayControls/ActionRow/PassButton").disabled)
 	assert_true(controls.get_node("Status").text.contains("invalid"))
+	await _unmount(controls)
+
+
+func test_same_phase_snapshot_reconciles_only_when_authoritative_staging_changes() -> void:
+	var controls = await _mount_controls()
+	if controls == null:
+		return
+	controls.render(_model(3, _hand(), {}))
+	controls.click_card(&"c1")
+	controls.render(_model(3, _hand(), {}))
+	assert_true(controls.has_staged_card(&"c1"))
+
+	var staged_c2 := [{"card_id": "c2", "half_index": 0, "joker_choices": []}]
+	controls.render(_model(3, _hand(), {
+		"private_staging": {
+			"staged_submission": staged_c2, "hand_locked": false,
+			"pending_manipulation": {},
+		},
+	}))
+	assert_false(controls.has_staged_card(&"c1"))
+	assert_true(controls.has_staged_card(&"c2"))
+
+	controls.render(_model(3, _hand(), {
+		"private_staging": {
+			"staged_submission": [], "hand_locked": false,
+			"pending_manipulation": {},
+		},
+	}))
+	assert_true(controls.staged_order().is_empty())
 	await _unmount(controls)
 
 

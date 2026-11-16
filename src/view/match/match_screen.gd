@@ -11,6 +11,7 @@ var _model: Dictionary = {}
 var _active_ability: Dictionary = {}
 var _active_copy_id: StringName = &""
 var _connection_action: StringName = &""
+var _timer_local_deadline_msec := -1
 
 @onready var _phase: Label = $Header/Phase
 @onready var _round: Label = $Header/Round
@@ -59,6 +60,11 @@ func render(model: Dictionary) -> void:
 	_render_connection_state()
 
 
+func _process(_delta: float) -> void:
+	if _timer_local_deadline_msec >= 0:
+		_update_timer(maxi(0, _timer_local_deadline_msec - Time.get_ticks_msec()))
+
+
 func handle_command_result(
 	kind: StringName,
 	accepted: bool,
@@ -74,8 +80,13 @@ func _render_header() -> void:
 	var phase_index := int(_model.get("phase", 0))
 	_phase.text = PHASE_NAMES[phase_index] if phase_index >= 0 and phase_index < PHASE_NAMES.size() else "UNKNOWN"
 	_round.text = "ROUND %d" % int(_model.get("round_number", 0))
-	var remaining: int = maxi(0, int(_model.get("phase_deadline_msec", 0)) - int(_model.get("now_msec", Time.get_ticks_msec())))
-	_timer.text = "%.1fs" % (remaining / 1000.0)
+	var deadline := int(_model.get("phase_deadline_msec", -1))
+	var server_now := int(_model.get(
+		"server_now_msec", _model.get("now_msec", deadline)
+	))
+	var remaining := maxi(0, deadline - server_now) if deadline >= 0 else 0
+	_timer_local_deadline_msec = Time.get_ticks_msec() + remaining if deadline >= 0 else -1
+	_update_timer(remaining)
 	var spectator_count := 0
 	for player in _model.get("players", []):
 		if player is Dictionary and bool(player.get("spectator", false)):
@@ -88,6 +99,10 @@ func _render_header() -> void:
 		_progress.text = "ROUND-WIN RACE  ·  %d / %d" % [int(progress_player.get("round_wins", 0)), target]
 	else:
 		_progress.text = "SCORE RACE  ·  %d / %d" % [int(progress_player.get("match_score", 0)), target]
+
+
+func _update_timer(remaining_msec: int) -> void:
+	_timer.text = "%.1fs" % (remaining_msec / 1000.0) if _timer_local_deadline_msec >= 0 else "—"
 
 
 func _render_context_and_piles() -> void:
@@ -218,7 +233,7 @@ func _render_connection_state() -> void:
 func show_connection_failure(reason: StringName) -> void:
 	var states := {
 		&"forfeit": ["You forfeited this match.", "RETURN TO LOBBY", &"lobby"],
-		&"host_lost": ["The host connection was lost. This match cannot continue.", "RETURN TO MENU", &"menu"],
+		&"host_lost": ["The host connection was lost. Reconnect before your grace period expires.", "TRY RECONNECT", &"retry"],
 		&"direct_connection_failed": ["A direct connection could not be established.", "TRY AGAIN", &"retry"],
 		&"room_closed": ["This room was closed by the host.", "RETURN TO MENU", &"menu"],
 	}
@@ -260,6 +275,7 @@ func _on_targeting_commit_requested(choices: Dictionary) -> void:
 		intent_requested.emit(&"play_public_ability", {
 			"copy_id": str(_active_copy_id),
 			"target_player_id": str(_single_choice(choices, "target_player_id", "")),
+			"choices": choices.duplicate(true),
 		})
 
 

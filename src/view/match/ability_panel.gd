@@ -31,7 +31,9 @@ func render(abilities: Array, phase: int, catalog: Dictionary, input_locked: boo
 		var model: Dictionary = ability_ref.duplicate(true)
 		model.merge(definition, true)
 		_abilities[copy_id] = model
-		var legal := _timing_allows(int(model.get("timing", -1)), phase)
+		var legal := bool(model.get(
+			"legal", _timing_allows(int(model.get("timing", -1)), phase)
+		))
 		if legal:
 			_legal_ids.append(copy_id)
 		var button := Button.new()

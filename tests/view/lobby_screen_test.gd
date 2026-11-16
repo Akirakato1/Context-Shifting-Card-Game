@@ -39,6 +39,10 @@ func test_host_lobby_shows_code_counts_and_editable_settings_until_start() -> vo
 
 	lobby.get_node("Layout/Body/Settings/VictoryTarget").value = 25
 	assert_eq(changes[-1], {"key": &"victory_target", "value": 25})
+	lobby.get_node("Layout/Body/Settings/ReactionTimer").value = 3.5
+	assert_eq(changes[-1], {"key": &"reaction_window_msec", "value": 3500})
+	lobby.get_node("Layout/Body/Settings/HardLimitTimer").value = 45
+	assert_eq(changes[-1], {"key": &"public_hard_limit_msec", "value": 45000})
 	lobby.render(_lobby_model(true, true, 2, 1))
 	var change_count := changes.size()
 	lobby.get_node("Layout/Body/Settings/VictoryTarget").value = 30
@@ -111,6 +115,8 @@ func _lobby_model(
 			"main_timer_msec": 5000,
 			"hand_timer_msec": 15000,
 			"end_timer_msec": 3000,
+			"reaction_window_msec": 2000,
+			"public_hard_limit_msec": 30000,
 			"reconnect_grace_msec": 30000,
 		},
 		"connection": {"status": "connected", "reason": ""},

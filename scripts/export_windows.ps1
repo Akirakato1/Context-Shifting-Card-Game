@@ -11,6 +11,8 @@ $zipPath = [System.IO.Path]::GetFullPath((Join-Path $projectRoot 'build\shift-wi
 $executablePath = Join-Path $windowsDirectory 'Shift.exe'
 $markerPath = Join-Path ([System.IO.Path]::GetTempPath()) ('shift-startup-smoke-' + [guid]::NewGuid().ToString('N') + '.txt')
 $releaseDll = Join-Path $projectRoot 'addons\webrtc_native\lib\libwebrtc_native.windows.template_release.x86_64.dll'
+$requiredGodotTemplateVersion = '4.7.2.stable'
+$requiredWindowsTemplateSha256 = 'D34D36F3BE1A6C49C56525AE86469B92E4F417DDF0B43CF00DD80C385C4B0562'
 
 function Assert-ProjectChildPath([string]$Path, [string]$ExpectedRelativePath) {
     $expected = [System.IO.Path]::GetFullPath((Join-Path $projectRoot $ExpectedRelativePath))
@@ -59,10 +61,17 @@ if (-not $versionMatch.Success) {
     throw "Unrecognized Godot version string: $versionOutput"
 }
 $templateVersion = $versionMatch.Groups['version'].Value + '.' + $versionMatch.Groups['status'].Value
+if ($templateVersion -ne $requiredGodotTemplateVersion) {
+    throw "This release is pinned to Godot $requiredGodotTemplateVersion; found $versionOutput."
+}
 $templateDirectory = Join-Path $env:APPDATA "Godot\export_templates\$templateVersion"
 $releaseTemplate = Join-Path $templateDirectory 'windows_release_x86_64.exe'
 if (-not (Test-Path -LiteralPath $releaseTemplate -PathType Leaf)) {
     throw "Godot $templateVersion Windows x64 export template is missing: $releaseTemplate. Install the matching export templates from Editor > Manage Export Templates."
+}
+$templateHash = (Get-FileHash -LiteralPath $releaseTemplate -Algorithm SHA256).Hash
+if ($templateHash -ne $requiredWindowsTemplateSha256) {
+    throw "Godot Windows export template hash mismatch. Expected $requiredWindowsTemplateSha256, found $templateHash."
 }
 
 if ($ValidateOnly) {

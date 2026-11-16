@@ -21,6 +21,8 @@ var _action_pending := false
 @onready var _main_timer: SpinBox = $Layout/Body/Settings/MainTimer
 @onready var _hand_timer: SpinBox = $Layout/Body/Settings/HandTimer
 @onready var _end_timer: SpinBox = $Layout/Body/Settings/EndTimer
+@onready var _reaction_timer: SpinBox = $Layout/Body/Settings/ReactionTimer
+@onready var _hard_limit_timer: SpinBox = $Layout/Body/Settings/HardLimitTimer
 @onready var _reconnect_timer: SpinBox = $Layout/Body/Settings/ReconnectTimer
 @onready var _status: Label = $Layout/StatusPanel/Status
 @onready var _retry: Button = $Layout/StatusPanel/RetryButton
@@ -59,16 +61,21 @@ func render(model: Dictionary) -> void:
 	_main_timer.value = int(settings.get("main_timer_msec", 5000)) / 1000.0
 	_hand_timer.value = int(settings.get("hand_timer_msec", 15000)) / 1000.0
 	_end_timer.value = int(settings.get("end_timer_msec", 3000)) / 1000.0
+	_reaction_timer.value = int(settings.get("reaction_window_msec", 2000)) / 1000.0
+	_hard_limit_timer.value = int(settings.get("public_hard_limit_msec", 30000)) / 1000.0
 	_reconnect_timer.value = int(settings.get("reconnect_grace_msec", 30000)) / 1000.0
 	var editable := is_host and not started
 	_victory_mode.disabled = not editable
 	_victory_target.editable = editable
 	_visibility.disabled = not editable
-	for timer in [_start_timer, _main_timer, _hand_timer, _end_timer, _reconnect_timer]:
+	for timer in [
+		_start_timer, _main_timer, _hand_timer, _end_timer,
+		_reaction_timer, _hard_limit_timer, _reconnect_timer,
+	]:
 		timer.editable = editable
 	_start_button.visible = is_host
 	_start_button.disabled = not editable or active_count < 2
-	_ready_button.disabled = started
+	_ready_button.disabled = started or str(_model.get("local_role", "active")) == "spectator"
 	var connection: Dictionary = _model.get("connection", {})
 	if connection.get("status", "connected") == "connected":
 		_status.text = "Room ready. Share the code when everyone is seated."
@@ -139,6 +146,14 @@ func _on_hand_timer_changed(value: float) -> void:
 
 func _on_end_timer_changed(value: float) -> void:
 	_on_setting_changed(value, &"end_timer_msec", true)
+
+
+func _on_reaction_timer_changed(value: float) -> void:
+	_on_setting_changed(value, &"reaction_window_msec", true)
+
+
+func _on_hard_limit_timer_changed(value: float) -> void:
+	_on_setting_changed(value, &"public_hard_limit_msec", true)
 
 
 func _on_reconnect_timer_changed(value: float) -> void:

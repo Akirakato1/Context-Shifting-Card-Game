@@ -142,10 +142,13 @@ func admit_peer(peer_id: String, player_id: StringName, requested_role: String) 
 	if not result.accepted:
 		return {"accepted": false, "error_code": str(result.error_code)}
 
-	var network_role := (
-		GameTypes.RecipientRole.PENDING_PLAYER if requested_role == "active"
-		else GameTypes.RecipientRole.SPECTATOR
-	)
+	var network_role := GameTypes.RecipientRole.SPECTATOR
+	if requested_role == "active":
+		var admitted_player = _controller.state.players[player_id]
+		network_role = (
+			GameTypes.RecipientRole.PENDING_PLAYER if admitted_player.pending
+			else GameTypes.RecipientRole.ACTIVE_PLAYER
+		)
 	if register_peer(peer_id, player_id, network_role) != OK:
 		return {"accepted": false, "error_code": "peer_registration_failed"}
 	publish_state_change([DomainEvent.new(

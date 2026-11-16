@@ -78,9 +78,30 @@ size_flags_horizontal = 3
 layout_mode = 2
 size_flags_horizontal = 3
 
+[node name="OrderControls" type="HBoxContainer" parent="Face"]
+visible = false
+layout_mode = 2
+alignment = 1
+
+[node name="MoveLeft" type="Button" parent="Face/OrderControls"]
+custom_minimum_size = Vector2(42, 22)
+layout_mode = 2
+tooltip_text = "Move this card left"
+text = "◀"
+flat = true
+
+[node name="MoveRight" type="Button" parent="Face/OrderControls"]
+custom_minimum_size = Vector2(42, 22)
+layout_mode = 2
+tooltip_text = "Move this card right"
+text = "▶"
+flat = true
+
 [connection signal="item_selected" from="Face/FirstChoices/Context" to="." method="_on_first_context_selected"]
 [connection signal="item_selected" from="Face/FirstChoices/Suit" to="." method="_on_first_suit_selected"]
 [connection signal="item_selected" from="Face/SecondChoices/Context" to="." method="_on_second_context_selected"]
 [connection signal="item_selected" from="Face/SecondChoices/Suit" to="." method="_on_second_suit_selected"]
 [connection signal="gui_input" from="Face/First" to="." method="_on_first_gui_input"]
 [connection signal="gui_input" from="Face/Second" to="." method="_on_second_gui_input"]
+[connection signal="pressed" from="Face/OrderControls/MoveLeft" to="." method="_on_move_left_pressed"]
+[connection signal="pressed" from="Face/OrderControls/MoveRight" to="." method="_on_move_right_pressed"]

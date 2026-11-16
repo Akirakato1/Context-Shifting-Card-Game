@@ -368,11 +368,23 @@ func _play_public_ability(command: GameCommand, now_msec: int) -> CommandResult:
 	if not _is_identifier(raw_target):
 		return CommandResult.new(false, &"malformed_command")
 	var target_player_id := StringName(raw_target)
+	var choices: Variant = command.payload.get("choices", {})
+	if not choices is Dictionary:
+		return CommandResult.new(false, &"malformed_command")
+	var choice_error := _validate_public_ability_choices(
+		ability.definition.choice_schema, choices
+	)
+	if not choice_error.is_empty():
+		return CommandResult.new(false, choice_error)
+	if choices.has("target_player_id"):
+		var selected_targets: Array = choices.target_player_id
+		if selected_targets.size() != 1 or str(selected_targets[0]) != str(target_player_id):
+			return CommandResult.new(false, &"target_choice_mismatch")
 	var effect_payload: Dictionary = ability.definition.effect_parameters
 	var effect_context := {
 		"state": state, "source_player_id": command.player_id,
 		"target_player_id": target_player_id, "ability": ability,
-		"effect": effect_payload,
+		"effect": effect_payload, "choices": choices.duplicate(true),
 	}
 	var effect_error := _effect_registry.validate(ability.definition.effect_id, effect_context)
 	if not effect_error.is_empty():
@@ -697,9 +709,19 @@ func _join_active(command: GameCommand) -> CommandResult:
 		return CommandResult.new(false, &"active_seats_full")
 	var seat_index := _first_open_seat()
 	var player = PlayerState.new(command.player_id, seat_index)
-	player.pending = true
+	var joining_open_lobby := (
+		not state.config.match_started and state.phase == GameTypes.Phase.START
+	)
+	player.pending = not joining_open_lobby
 	player.active = true
-	player.activation_round = state.round_number + 1
+	player.activation_round = state.round_number if joining_open_lobby else state.round_number + 1
+	if joining_open_lobby:
+		player.hand = CardFactory.build_opening_hand(
+			state.piles, state.rng, state.allocate_card_id
+		)
+		player.ability_hand = state.ability_deck.draw(
+			command.player_id, state.ability_deck.starting_hand_size, state.rng
+		)
 	state.players[command.player_id] = player
 	state.seat_order.append(command.player_id)
 	state.config.register_active_participant(command.player_id)
@@ -1089,6 +1111,41 @@ func _manipulation_choice_allowed(
 		if entry.value not in schema[entry.key]:
 			return false
 	return true
+
+
+func _validate_public_ability_choices(
+	schema: Dictionary,
+	choices: Dictionary
+) -> StringName:
+	var steps: Variant = schema.get("steps", [])
+	if not steps is Array:
+		return &"invalid_choice_schema"
+	if steps.is_empty():
+		return &"unexpected_ability_choices" if not choices.is_empty() else &""
+	var expected_keys := {}
+	for raw_step in steps:
+		if not raw_step is Dictionary:
+			return &"invalid_choice_schema"
+		var key := str(raw_step.get("key", ""))
+		var eligible: Variant = raw_step.get("eligible", [])
+		var count := int(raw_step.get("count", 1))
+		if key.is_empty() or not eligible is Array or count <= 0:
+			return &"invalid_choice_schema"
+		expected_keys[key] = true
+		var selected: Variant = choices.get(key)
+		if not selected is Array or selected.size() != count:
+			return &"incomplete_ability_choices"
+		var unique: Array = []
+		for value in selected:
+			if value not in eligible:
+				return &"invalid_ability_choice"
+			if value in unique:
+				return &"duplicate_ability_choice"
+			unique.append(value)
+	for key in choices:
+		if not expected_keys.has(str(key)):
+			return &"unexpected_ability_choice"
+	return &""
 
 
 func _held_ability(player_id: StringName, copy_id: StringName) -> AbilityState:

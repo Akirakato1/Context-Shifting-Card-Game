@@ -5,12 +5,18 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $templateVersion = "$Version.$Status"
+$requiredTemplateVersion = '4.7.2.stable'
+$requiredTemplateSha256 = 'D34D36F3BE1A6C49C56525AE86469B92E4F417DDF0B43CF00DD80C385C4B0562'
+if ($templateVersion -ne $requiredTemplateVersion) {
+    throw "This installer is pinned to $requiredTemplateVersion; requested $templateVersion."
+}
 $fileName = 'windows_release_x86_64.exe'
 $archiveUrl = "https://godot-releases.nbg1.your-objectstorage.com/$Version-$Status/Godot_v$Version-$Status`_export_templates.tpz"
 $targetDirectory = Join-Path $env:APPDATA "Godot\export_templates\$templateVersion"
 $targetPath = Join-Path $targetDirectory $fileName
 $temporaryRoot = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath()).TrimEnd('\', '/')
 $temporaryDirectory = [System.IO.Path]::GetFullPath((Join-Path $temporaryRoot ('shift-godot-template-' + [guid]::NewGuid().ToString('N'))))
+$verifiedTemplatePath = Join-Path $temporaryDirectory $fileName
 $temporaryPrefix = $temporaryRoot + [System.IO.Path]::DirectorySeparatorChar
 if (-not $temporaryDirectory.StartsWith($temporaryPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
     throw "Temporary path escaped the system temp directory: $temporaryDirectory"
@@ -122,7 +128,6 @@ try {
     $miniZipPath = Join-Path $temporaryDirectory 'template.zip'
     [System.IO.File]::WriteAllBytes($miniZipPath, $miniZip)
 
-    New-Item -ItemType Directory -Force -Path $targetDirectory | Out-Null
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $archive = [System.IO.Compression.ZipFile]::OpenRead($miniZipPath)
     try {
@@ -131,7 +136,7 @@ try {
             throw 'The reconstructed template archive did not contain the expected entry.'
         }
         $inputStream = $zipEntry.Open()
-        $outputStream = [System.IO.File]::Create($targetPath)
+        $outputStream = [System.IO.File]::Create($verifiedTemplatePath)
         try {
             $inputStream.CopyTo($outputStream)
         } finally {
@@ -141,11 +146,17 @@ try {
     } finally {
         $archive.Dispose()
     }
-    if ((Get-Item -LiteralPath $targetPath).Length -ne $entry.UncompressedSize) {
-        throw "Extracted template size mismatch for $targetPath."
+    if ((Get-Item -LiteralPath $verifiedTemplatePath).Length -ne $entry.UncompressedSize) {
+        throw "Extracted template size mismatch for $verifiedTemplatePath."
     }
+    $templateHash = (Get-FileHash -LiteralPath $verifiedTemplatePath -Algorithm SHA256).Hash
+    if ($templateHash -ne $requiredTemplateSha256) {
+        throw "Downloaded template hash mismatch. Expected $requiredTemplateSha256, found $templateHash."
+    }
+    New-Item -ItemType Directory -Force -Path $targetDirectory | Out-Null
+    Move-Item -LiteralPath $verifiedTemplatePath -Destination $targetPath -Force
     Set-Content -LiteralPath (Join-Path $targetDirectory 'version.txt') -Value $templateVersion -NoNewline
-    Write-Output "installed_ok template=$targetPath"
+    Write-Output "installed_ok template=$targetPath sha256=$templateHash"
 } finally {
     if (Test-Path -LiteralPath $temporaryDirectory) {
         $resolvedTemporary = [System.IO.Path]::GetFullPath($temporaryDirectory)

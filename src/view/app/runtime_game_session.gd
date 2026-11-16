@@ -25,6 +25,7 @@ const ReconnectStore = preload("res://src/network/reconnect_store.gd")
 
 const MATCH_ID := "shift-match"
 const HOST_PLAYER_ID := &"host"
+const RECONNECT_MESSAGE_ID := "runtime-reconnect-message"
 
 var _transport: Variant
 var _now: Callable
@@ -33,6 +34,7 @@ var _role := "active"
 var _local_player_id: StringName = &""
 var _local_display_name := ""
 var _room_code := ""
+var _signaling_url := ""
 var _host_session: Variant
 var _client_session: Variant
 var _controller: Variant
@@ -41,18 +43,34 @@ var _peer_assignments: Dictionary = {}
 var _display_names: Dictionary = {}
 var _settings: Dictionary
 var _closed := false
+var _failed := false
+var _reconnect_store: ReconnectStore
+var _reconnect_pending := false
+var _reconnect_token := ""
+var _transport_factory: Callable
 
 
-func _init(transport_override: Variant = null, now: Callable = Callable()) -> void:
+func _init(
+	transport_override: Variant = null,
+	now: Callable = Callable(),
+	reconnect_store_override: ReconnectStore = null,
+	transport_factory: Callable = Callable()
+) -> void:
 	_transport = transport_override
 	_now = now
 	_settings = _default_settings()
+	_reconnect_store = (
+		reconnect_store_override if reconnect_store_override != null
+		else ReconnectStore.new()
+	)
+	_transport_factory = transport_factory
 
 
 func start_host(signaling_url: String, display_name: String) -> Error:
 	if not _mode.is_empty() or signaling_url.is_empty() or display_name.strip_edges().is_empty():
 		return ERR_INVALID_PARAMETER
 	_mode = "host"
+	_signaling_url = signaling_url
 	_role = "active"
 	_local_player_id = HOST_PLAYER_ID
 	_local_display_name = display_name.strip_edges().left(32)
@@ -75,14 +93,42 @@ func start_join(
 	):
 		return ERR_INVALID_PARAMETER
 	_mode = "client"
+	_signaling_url = signaling_url
 	_role = role
 	_room_code = room_code.to_upper()
 	_local_display_name = display_name.strip_edges().left(32)
+	_reconnect_store.clear()
 	_ensure_transport()
 	_wire_transport()
 	_emit_connection("connecting", "")
 	return _transport.join_room(
 		signaling_url, _room_code, _role, _local_display_name
+	)
+
+
+func retry_connection() -> Error:
+	if _mode != "client" or _role != "active" or _room_code.is_empty():
+		return ERR_UNCONFIGURED
+	var record := _reconnect_store.load_record(_reconnect_now_msec())
+	if record.is_empty():
+		return ERR_DOES_NOT_EXIST
+	if _client_session != null:
+		_client_session.close()
+	_disconnect_transport_signals()
+	if _transport != null and _transport.has_method("close"):
+		_transport.close()
+	_client_session = null
+	_transport = null
+	_local_player_id = StringName(record.player_id)
+	_reconnect_token = str(record.token)
+	_reconnect_pending = true
+	_failed = false
+	_ensure_transport()
+	_wire_transport()
+	_emit_connection("reconnecting", "direct")
+	return _transport.join_room(
+		_signaling_url, _room_code, _role, _local_display_name,
+		str(_local_player_id)
 	)
 
 
@@ -174,6 +220,9 @@ func close() -> void:
 func _ensure_transport() -> void:
 	if _transport != null:
 		return
+	if _transport_factory.is_valid():
+		_transport = _transport_factory.call()
+		return
 	var signaling := SignalingClient.new()
 	_transport = WebRTCPeerTransport.new(signaling, _ice_servers(), Callable(), 15_000)
 
@@ -205,7 +254,8 @@ func _disconnect_transport_signals() -> void:
 func _on_lobby_created(code: String) -> void:
 	_room_code = code.to_upper()
 	_emit_connection("connected", "")
-	_emit_lobby_snapshot()
+	if _controller == null:
+		_emit_lobby_snapshot()
 
 
 func _on_join_status(status: String, details: Dictionary) -> void:
@@ -219,13 +269,20 @@ func _on_join_status(status: String, details: Dictionary) -> void:
 	var assignment := {
 		"role": str(details.get("role", "active")),
 		"display_name": str(details.get("display_name", "Player")).left(32),
+		"reconnect_player_id": str(details.get("reconnect_player_id", "")),
 	}
 	if _mode == "host":
 		_peer_assignments[peer_id] = assignment
-		_display_names[StringName(peer_id)] = assignment.display_name
-		_emit_lobby_snapshot()
+		var named_player_id := StringName(
+			assignment.reconnect_player_id if not assignment.reconnect_player_id.is_empty()
+			else peer_id
+		)
+		_display_names[named_player_id] = assignment.display_name
+		if _controller == null:
+			_emit_lobby_snapshot()
 	else:
-		_local_player_id = StringName(peer_id)
+		if not _reconnect_pending:
+			_local_player_id = StringName(peer_id)
 		_display_names[_local_player_id] = _local_display_name
 
 
@@ -235,10 +292,17 @@ func _on_peer_connected(peer_id: String) -> void:
 			return
 		_client_session = ClientNetworkSession.new(
 			_transport, "host", MATCH_ID, _local_player_id,
-			ReconnectStore.new(), _room_code, _now
+			_reconnect_store, _room_code, _now
 		)
 		_client_session.command_result_received.connect(
 			func(message_id: String, result: Dictionary):
+				if message_id == RECONNECT_MESSAGE_ID:
+					if bool(result.get("accepted", false)):
+						_reconnect_pending = false
+						_reconnect_token = ""
+						_emit_connection("connected", "")
+					else:
+						_fail("reconnect_rejected:%s" % result.get("error_code", "unknown"))
 				command_result_received.emit(message_id, result.duplicate(true))
 		)
 		_client_session.events_applied.connect(
@@ -247,12 +311,26 @@ func _on_peer_connected(peer_id: String) -> void:
 		)
 		_client_session.snapshot_applied.connect(_on_client_snapshot)
 		_client_session.session_failed.connect(_fail)
-		_emit_connection("connected", "")
+		if _reconnect_pending:
+			var reconnect_error: Error = _client_session.submit_command(
+				RECONNECT_MESSAGE_ID, {
+					"command_id": "runtime-reconnect-%d" % _reconnect_now_msec(),
+					"kind": "reconnect", "payload": {"token": _reconnect_token},
+				}
+			)
+			if reconnect_error != OK:
+				_fail("reconnect_send_failed")
+		else:
+			_emit_connection("connected", "")
 		return
 	if not _peer_assignments.has(peer_id):
 		_fail("unapproved_peer")
 		return
 	var assignment: Dictionary = _peer_assignments[peer_id]
+	if not str(assignment.get("reconnect_player_id", "")).is_empty():
+		if _host_session == null:
+			_transport.disconnect_peer(peer_id, "reconnect_unavailable")
+		return
 	if _controller == null and assignment.role == "active":
 		_create_host_authority(peer_id)
 		return
@@ -424,12 +502,21 @@ func _on_peer_disconnected(peer_id: String, reason: String) -> void:
 
 
 func _on_transport_failed(reason: String) -> void:
+	if reason == "signaling_closed" and not _room_code.is_empty():
+		if _mode == "host" and _transport.has_method("reconnect_signaling"):
+			var reconnect_error: Error = _transport.reconnect_signaling()
+			if reconnect_error == OK:
+				_emit_connection("reconnecting", "signaling")
+				return
+		elif _mode == "client" and _client_session != null:
+			return
 	_fail(reason)
 
 
 func _fail(reason: String) -> void:
-	if _closed:
+	if _closed or _failed:
 		return
+	_failed = true
 	_emit_connection("failed", reason)
 	session_failed.emit(reason)
 
@@ -590,3 +677,10 @@ func _ice_servers() -> Array:
 
 func _now_msec() -> int:
 	return int(_now.call()) if _now.is_valid() else Time.get_ticks_msec()
+
+
+func _reconnect_now_msec() -> int:
+	return (
+		int(_now.call()) if _now.is_valid()
+		else int(Time.get_unix_time_from_system() * 1000.0)
+	)
