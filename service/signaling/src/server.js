@@ -9,6 +9,11 @@ import {
   decodeClientMessage,
   serverMessage,
 } from "./protocol.js";
+import {
+  createIceServerProvider,
+  fallbackIceServers,
+  normalizeIceServers,
+} from "./ice_server_provider.js";
 import { RoomRegistry, RoomRegistryError } from "./room_registry.js";
 
 function send(socket, type, fields = {}) {
@@ -23,6 +28,7 @@ function sendError(socket, error) {
 
 export function createSignalingServer(options = {}) {
   const registry = new RoomRegistry(options);
+  const iceServerProvider = options.iceServerProvider ?? createIceServerProvider();
   const limiter = new MessageRateLimiter({
     limit: options.rateLimit ?? 120,
     windowMs: options.rateWindowMs ?? 10_000,
@@ -31,7 +37,17 @@ export function createSignalingServer(options = {}) {
   const httpServer = http.createServer((request, response) => {
     if (request.method === "GET" && request.url === "/health") {
       response.writeHead(200, { "content-type": "application/json; charset=utf-8" });
-      response.end(JSON.stringify({ ok: true, service: "shift-signaling", v: PROTOCOL_VERSION }));
+      response.end(JSON.stringify({
+        ok: true,
+        service: "shift-signaling",
+        v: PROTOCOL_VERSION,
+        relay: {
+          provider: typeof iceServerProvider.name === "string"
+            ? iceServerProvider.name
+            : "unknown",
+          configured: iceServerProvider.configured === true,
+        },
+      }));
       return;
     }
     response.writeHead(404, { "content-type": "application/json; charset=utf-8" });
@@ -40,6 +56,7 @@ export function createSignalingServer(options = {}) {
   const wsServer = new WebSocketServer({ server: httpServer, maxPayload: MAX_MESSAGE_BYTES });
 
   wsServer.on("connection", (socket) => {
+    let messageQueue = Promise.resolve();
     socket.on("error", () => {
       // Protocol and frame errors belong to this connection. `ws` closes the
       // offending socket itself; consuming the event keeps the service alive.
@@ -56,15 +73,15 @@ export function createSignalingServer(options = {}) {
         sendError(socket, decoded.error);
         return;
       }
-      try {
-        handleMessage(registry, socket, decoded.message);
-      } catch (error) {
+      messageQueue = messageQueue
+        .then(() => handleMessage(registry, iceServerProvider, socket, decoded.message))
+        .catch((error) => {
         if (error instanceof RoomRegistryError) {
           sendError(socket, error.code);
           return;
         }
         sendError(socket, "internal_error");
-      }
+        });
     });
 
     socket.on("close", () => {
@@ -121,7 +138,20 @@ export function createSignalingServer(options = {}) {
   };
 }
 
-function handleMessage(registry, socket, message) {
+async function icePayload(provider) {
+  try {
+    const iceServers = normalizeIceServers(await provider.getIceServers());
+    const relayAvailable = iceServers.some((entry) => (
+      typeof entry.username === "string"
+      && entry.urls.some((url) => /^(?:turn|turns):/i.test(url))
+    ));
+    return { ice_servers: iceServers, relay_available: relayAvailable };
+  } catch {
+    return { ice_servers: fallbackIceServers(), relay_available: false };
+  }
+}
+
+async function handleMessage(registry, provider, socket, message) {
   if (message.type === "host_room") {
     if (message.reconnect === true) {
       const { code } = registry.reconnectHost(
@@ -129,11 +159,19 @@ function handleMessage(registry, socket, message) {
         message.code,
         message.host_token,
       );
-      send(socket, "room_created", { code, host_token: message.host_token });
+      send(socket, "room_created", {
+        code,
+        host_token: message.host_token,
+        ...await icePayload(provider),
+      });
       return;
     }
     const { code, hostToken } = registry.createHost(socket);
-    send(socket, "room_created", { code, host_token: hostToken });
+    send(socket, "room_created", {
+      code,
+      host_token: hostToken,
+      ...await icePayload(provider),
+    });
     return;
   }
   if (message.type === "join_room") {
@@ -177,6 +215,7 @@ function handleMessage(registry, socket, message) {
       ...(approved.reconnectPlayerId
         ? { reconnect_player_id: approved.reconnectPlayerId }
         : {}),
+      ...await icePayload(provider),
     });
     return;
   }
