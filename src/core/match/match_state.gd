@@ -137,6 +137,21 @@ func active_player_ids() -> Array[StringName]:
 	return result
 
 
+func ordered_player_ids() -> Array[StringName]:
+	var result: Array[StringName] = []
+	result.assign(seat_order)
+	var non_seated: Array[StringName] = []
+	for player_id_variant in players:
+		var player_id: StringName = player_id_variant
+		if not result.has(player_id):
+			non_seated.append(player_id)
+	non_seated.sort_custom(func(first: StringName, second: StringName):
+		return str(first) < str(second)
+	)
+	result.append_array(non_seated)
+	return result
+
+
 func allocate_card_id() -> StringName:
 	var result := StringName("card-%08d" % next_full_card_sequence)
 	next_full_card_sequence += 1
@@ -144,8 +159,7 @@ func allocate_card_id() -> StringName:
 
 
 func to_dict() -> Dictionary:
-	var player_ids: Array = players.keys()
-	player_ids.sort()
+	var player_ids := ordered_player_ids()
 	var serialized_players: Array = []
 	for player_id in player_ids:
 		var player: PlayerState = players[player_id]

@@ -84,6 +84,28 @@ func test_player_snapshot_contains_only_that_players_private_values() -> void:
 		assert_false(ability.legal)
 
 
+func test_player_lists_follow_seat_order_before_spectators() -> void:
+	var state := _state(GameTypes.InformationVisibility.PUBLIC)
+	state.seat_order = [&"two", &"one"]
+	state.players[&"two"].seat_index = 0
+	state.players[&"one"].seat_index = 1
+	var host_snapshot := SnapshotProjector.for_recipient(
+		state, &"two", GameTypes.RecipientRole.HOST
+	)
+	var public_snapshot := SnapshotProjector.for_recipient(
+		state, &"watcher", GameTypes.RecipientRole.SPECTATOR
+	)
+
+	assert_eq(
+		host_snapshot.players.map(func(player): return player.player_id),
+		["two", "one", "watcher"]
+	)
+	assert_eq(
+		public_snapshot.players.map(func(player): return player.player_id),
+		["two", "one", "watcher"]
+	)
+
+
 func test_joker_draft_is_owner_only_and_resolved_view_is_public() -> void:
 	var state := _state(GameTypes.InformationVisibility.PUBLIC)
 	state.phase = GameTypes.Phase.HAND_PLAY

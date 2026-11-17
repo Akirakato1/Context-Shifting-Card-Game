@@ -13,8 +13,7 @@ static func for_recipient(
 	if role == GameTypes.RecipientRole.HOST:
 		return state.to_dict()
 	var players: Array = []
-	var player_ids: Array = state.players.keys()
-	player_ids.sort()
+	var player_ids := state.ordered_player_ids()
 	for player_id in player_ids:
 		var player = state.players[player_id]
 		var projected_player := {
