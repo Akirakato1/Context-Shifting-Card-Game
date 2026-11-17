@@ -4,8 +4,8 @@ Shift uses a host-authoritative star topology. One player's Godot process owns t
 
 ```text
 remote player ─┐
-remote player ─┼── direct WebRTC game-v1 channels ── player-host
-remote player ─┤
+remote player ─┼── WebRTC game-v1 ── direct when possible ── player-host
+remote player ─┤                    └─ Cloudflare TURN fallback ─┘
 spectator(s)  ─┘
 
 all participants ── WSS setup only ── signaling service
@@ -18,7 +18,7 @@ Remote participants do not connect to each other. There is no host migration: lo
 The application coordinator supplies:
 
 - Signaling URL: a local `ws://127.0.0.1:<port>` URL for development or the deployed `wss://` URL.
-- STUN URLs: passed to `WebRTCPeerTransport` as an array. Empty is valid for loopback tests.
+- ICE server dictionaries: passed to `WebRTCPeerTransport` with `urls` plus paired `username`/`credential` fields for TURN. Empty is valid for loopback tests.
 - Protocol version: game and signaling envelopes currently use integer version `1`.
 - Direct-connect timeout: 15 seconds by default.
 - Heartbeat interval/timeout: 2 seconds / 6 seconds by default.
@@ -28,13 +28,14 @@ The native dependency is the pinned official `godotengine/webrtc-native` 1.2.2 G
 
 ## Lobby and connection flow
 
-1. The host opens a signaling socket and receives a six-character code plus a private host token.
+1. The host opens a signaling socket and receives a six-character code, a private host token, and a short-lived ICE configuration. Without relay configuration this is the public STUN fallback.
 2. A joiner submits the code and requests `active` or `spectator`.
-3. The host approves the server-issued join nonce after capacity and role checks.
+3. The host approves the server-issued join nonce after capacity and role checks. Only then does the joiner receive its own short-lived ICE configuration.
 4. The signaling service routes the offer, answer, and ICE candidates.
-5. A negotiated binary `game-v1` channel opens with channel ID `1`, reliable ordered delivery, and protocol label `shift-game-v1`.
-6. The host admits the peer through `HostNetworkSession` and sends the recipient-safe snapshot.
-7. Gameplay commands and projected events use the direct channel; the signaling service is not in this path.
+5. ICE selects a direct candidate when possible and a Cloudflare TURN candidate when direct traversal is unavailable.
+6. A negotiated binary `game-v1` channel opens with channel ID `1`, reliable ordered delivery, and protocol label `shift-game-v1`.
+7. The host admits the peer through `HostNetworkSession` and sends the recipient-safe snapshot.
+8. Gameplay commands and projected events use the WebRTC channel; the signaling service is not in this path. TURN forwards the encrypted channel and is not authoritative.
 
 The host counts toward the four-player maximum, leaving three remote active seats. Four additional spectator slots are available. A player who joins during a match is pending until the next Start phase; spectators receive the current public snapshot immediately.
 
@@ -67,14 +68,16 @@ Successful reclaim rotates the token. The host remains authoritative, so an expi
 
 A transient signaling outage does not close established game channels. The host-side coordinator should call `SignalingClient.reconnect()` with the retained code and host token so late joins remain possible. An explicit room close or 30 seconds without host signaling re-registration invalidates the code.
 
-## Failure behavior and current limitation
+## Failure behavior and relay fallback
 
 - ICE or channel setup that misses the bound reports `direct_connection_failed`.
 - Host channel loss reports `host_lost`; clients do not elect or migrate to a new host.
 - Malformed or unauthorized envelopes are rejected and may disconnect the sender.
-- There is no TURN server and no WebSocket gameplay relay.
+- There is no WebSocket gameplay relay.
 
-Because the current stack is STUN/direct-only, some restrictive NAT, carrier, school, workplace, or firewall networks will fail to connect even when signaling works. That is an explicit jam-scope limitation. A future TURN fallback would change hosting cost and operational scope and should be added deliberately after real-world connection testing.
+Cloudflare Realtime TURN supplies the relay fallback. The permanent TURN key exists only in signaling-service environment secrets; each accepted participant receives expiring credentials. If Cloudflare is unconfigured or credential issuance fails, signaling returns the public STUN fallback and the lobby still works for direct-capable networks. If both direct traversal and the available relay route fail, the session reports `direct_connection_failed`.
+
+WebRTC data-channel encryption remains end-to-end between the participant and player-host while TURN forwards packets. TURN availability improves reachability but adds provider bandwidth cost and cannot provide host migration or protect a match from the host process disappearing.
 
 ## Verification and logs
 
@@ -96,7 +99,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test_network.ps1
 - one headless spectator;
 - one relaunched client process for seat reclaim.
 
-It verifies code-based joining, direct command/result flow, spectator-safe public projection, disconnect freeze, token reconnect, and controlled zero-status shutdown. Each process receives a separate stdout/stderr log under the printed temporary run directory. The host log includes `DIRECT_GAMEPLAY_RECEIVED ... kind=command`, proving the gameplay envelope reached Godot directly rather than passing through the signaling service.
+It verifies code-based joining, direct command/result flow, spectator-safe public projection, disconnect freeze, token reconnect, and controlled zero-status shutdown. The automated fixture is self-contained and deliberately does not request live Cloudflare credentials. Each process receives a separate stdout/stderr log under the printed temporary run directory. The host log includes `DIRECT_GAMEPLAY_RECEIVED ... kind=command`, proving the gameplay envelope reached Godot over WebRTC rather than passing through the signaling service.
+
+Before a public release, also run two exported clients on separate real networks. Repeat with direct traversal blocked but TURN/TLS on TCP 443 allowed, confirm the game connects, and confirm Cloudflare Realtime analytics records relay traffic. Review the [signaling deployment instructions](../service/signaling/README.md#cloudflare-turn-setup) and enable a billing alert.
 
 For deployed signaling configuration and free-tier cautions, see [the signaling service README](../service/signaling/README.md).
 

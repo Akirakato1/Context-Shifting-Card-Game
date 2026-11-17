@@ -12,15 +12,19 @@
 
 ## Multiplayer smoke test
 
-- Set `shift/network/signaling_url` and `shift/network/ice_servers` in `project.godot` before export. For temporary local testing, `SHIFT_SIGNALING_URL` overrides the project URL at runtime.
-- Configure the intended secure WebSocket signaling URL for the release environment; the checked-in URL points to a local signaling service for development only. The checked-in ICE configuration uses the public Google STUN endpoint documented by WebRTC and intentionally contains no TURN relay.
+- Set `shift/network/signaling_url` in `project.godot` before export. For temporary local testing, `SHIFT_SIGNALING_URL` overrides the project URL at runtime.
+- Configure the intended secure WebSocket signaling URL for the release environment; the checked-in URL points to a local signaling service for development only. Keep the checked-in ICE configuration as a public STUN fallback and never embed permanent TURN credentials in the project or export.
+- Create a Cloudflare Realtime TURN key. Store `CLOUDFLARE_TURN_KEY_ID` and `CLOUDFLARE_TURN_API_TOKEN` only in the signaling host's encrypted secret settings; set `TURN_CREDENTIAL_TTL_SECONDS=14400` unless a different bounded lifetime is intentional.
+- Request signaling `GET /health`. Confirm `relay.provider` is `cloudflare`, `relay.configured` is `true`, and the response contains no key ID, API token, temporary username, or temporary credential.
 - On machine 1, host a lobby and verify the six-character room code is shown without exposing its IP address.
 - On machine 2, join by room code over a different home/mobile network when possible and confirm gameplay uses a direct WebRTC route.
+- Block direct traversal on a test network while allowing TURN/TLS on TCP 443; repeat the join and confirm gameplay connects through Cloudflare TURN.
+- Confirm Cloudflare Realtime analytics records the relay smoke test, review current free-tier/pricing limits, and enable usage plus billing alerts before publishing.
 - Repeat with four active players and, separately, up to four spectators.
 - Start a match and exercise every phase: start, Main 1, simultaneous hand play, reveal/resolution, Main 2, and turn end.
 - Verify a disconnected non-host freezes appropriately, can reconnect inside the grace period, and forfeits after the deadline.
 - Verify host loss closes the match for all remaining participants with the distinct host-disconnected result.
-- Verify a network that cannot establish the direct route gets the actionable direct-connect failure; the jam build intentionally has no TURN/relay fallback.
+- Temporarily remove/disable the Cloudflare secrets and verify signaling health reports relay unconfigured while direct-capable clients can still use STUN. On a restrictive network where neither direct nor relay is available, verify the actionable `direct_connection_failed` result.
 
 ## itch.io upload
 
