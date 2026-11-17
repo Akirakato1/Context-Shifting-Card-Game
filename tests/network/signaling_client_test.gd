@@ -236,6 +236,161 @@ func test_reconnect_preserves_host_room_credentials() -> void:
 	})
 
 
+func test_host_accepts_canonical_ice_servers_before_announcing_the_room() -> void:
+	var socket := FakeSocket.new()
+	_socket_queue.append(socket)
+	var client = _client()
+	var order: Array = []
+	client.ice_servers_received.connect(func(servers, relay_available):
+		order.append(["ice", servers, relay_available])
+	)
+	client.room_created.connect(func(code): order.append(["room", code]))
+
+	assert_eq(client.begin_host("wss://signal.example"), OK)
+	socket.open()
+	client.poll()
+	socket.queue_message(_server("room_created", {
+		"code": "AB3D5F",
+		"host_token": "host-secret",
+		"relay_available": true,
+		"ice_servers": [
+			{"urls": ["stun:stun.cloudflare.com:3478"], "ignored": "remove-me"},
+			{
+				"urls": ["turn:turn.cloudflare.com:3478?transport=udp"],
+				"username": "temporary-user",
+				"credential": "temporary-password",
+				"provider_detail": "remove-me",
+			},
+		],
+	}))
+	client.poll()
+
+	assert_eq(order, [
+		["ice", [
+			{"urls": ["stun:stun.cloudflare.com:3478"]},
+			{
+				"urls": ["turn:turn.cloudflare.com:3478?transport=udp"],
+				"username": "temporary-user",
+				"credential": "temporary-password",
+			},
+		], true],
+		["room", "AB3D5F"],
+	])
+	assert_eq(client.state, SignalingClient.State.READY)
+
+
+func test_joiner_accepts_turn_credentials_before_announcing_approval() -> void:
+	var socket := FakeSocket.new()
+	_socket_queue.append(socket)
+	var client = _client()
+	var order: Array = []
+	client.ice_servers_received.connect(func(servers, relay_available):
+		order.append(["ice", servers, relay_available])
+	)
+	client.join_approved.connect(func(approved_peer_id, approved_role):
+		order.append(["approved", approved_peer_id, approved_role])
+	)
+
+	assert_eq(client.begin_join(
+		"wss://signal.example", "AB3D5F", "active", "Mira"
+	), OK)
+	socket.open()
+	client.poll()
+	socket.queue_message(_server("join_pending", {
+		"code": "AB3D5F", "role": "active", "join_nonce": "nonce-2",
+		"peer_id": "peer-2",
+	}))
+	socket.queue_message(_server("join_approved", {
+		"code": "AB3D5F", "role": "active", "join_nonce": "nonce-2",
+		"peer_id": "peer-2", "relay_available": true,
+		"ice_servers": [{
+			"urls": ["turns:turn.cloudflare.com:5349?transport=tcp"],
+			"username": "join-user", "credential": "join-password",
+		}],
+	}))
+	client.poll()
+
+	assert_eq(order, [
+		["ice", [{
+			"urls": ["turns:turn.cloudflare.com:5349?transport=tcp"],
+			"username": "join-user", "credential": "join-password",
+		}], true],
+		["approved", "peer-2", "active"],
+	])
+
+
+func test_legacy_signaling_payload_without_ice_fields_remains_compatible() -> void:
+	var socket := FakeSocket.new()
+	_socket_queue.append(socket)
+	var client = _client()
+	var ice_events: Array = []
+	client.ice_servers_received.connect(func(servers, relay_available):
+		ice_events.append([servers, relay_available])
+	)
+
+	client.begin_host("wss://signal.example")
+	socket.open()
+	client.poll()
+	socket.queue_message(_server("room_created", {
+		"code": "AB3D5F", "host_token": "host-secret",
+	}))
+	client.poll()
+
+	assert_eq(client.state, SignalingClient.State.READY)
+	assert_eq(client.room_code, "AB3D5F")
+	assert_eq(ice_events, [])
+
+
+func test_malformed_oversized_or_unpaired_ice_data_fails_the_signaling_client() -> void:
+	var malformed_payloads: Array = [
+		{"ice_servers": [], "relay_available": false},
+		{"ice_servers": [{"urls": ["stun:one"]}]},
+		{"relay_available": false},
+		{"ice_servers": [{"urls": ["stun:one"]}], "relay_available": "false"},
+		{
+			"ice_servers": [{
+				"urls": ["turn:relay.example"], "username": "missing-credential",
+			}],
+			"relay_available": true,
+		},
+		{
+			"ice_servers": [{
+				"urls": [
+					"stun:1", "stun:2", "stun:3", "stun:4", "stun:5",
+					"stun:6", "stun:7", "stun:8", "stun:9",
+				],
+			}],
+			"relay_available": false,
+		},
+		{
+			"ice_servers": [{"urls": ["x".repeat(2049)]}],
+			"relay_available": false,
+		},
+		{
+			"ice_servers": [{"urls": ["stun:only"]}],
+			"relay_available": true,
+		},
+	]
+
+	for payload in malformed_payloads:
+		var socket := FakeSocket.new()
+		_socket_queue.append(socket)
+		var client = _client()
+		var failures: Array[String] = []
+		client.failed.connect(func(reason): failures.append(reason))
+		client.begin_host("wss://signal.example")
+		socket.open()
+		client.poll()
+		var message := {
+			"code": "AB3D5F", "host_token": "host-secret",
+		}
+		message.merge(payload)
+		socket.queue_message(_server("room_created", message))
+		client.poll()
+		assert_eq(failures, ["malformed_signaling_message"])
+		assert_eq(client.state, SignalingClient.State.FAILED)
+
+
 func _client(timeout_msec: int = 1000):
 	return SignalingClient.new(
 		Callable(self, "_make_socket"), Callable(self, "_now"), timeout_msec

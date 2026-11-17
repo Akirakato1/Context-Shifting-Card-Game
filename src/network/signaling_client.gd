@@ -2,6 +2,7 @@ class_name SignalingClient
 extends RefCounted
 
 signal room_created(code: String)
+signal ice_servers_received(servers: Array, relay_available: bool)
 signal join_requested(
 	peer_id: String,
 	role: String,
@@ -20,6 +21,10 @@ const SOCKET_CONNECTING := 0
 const SOCKET_OPEN := 1
 const SOCKET_CLOSING := 2
 const SOCKET_CLOSED := 3
+const MAX_ICE_SERVERS := 8
+const MAX_URLS_PER_SERVER := 8
+const MAX_URL_LENGTH := 2048
+const MAX_CREDENTIAL_LENGTH := 1024
 
 enum State {
 	IDLE,
@@ -235,6 +240,8 @@ func _handle_packet(bytes: PackedByteArray) -> void:
 			if not _has_strings(parsed, ["code", "host_token"]):
 				_fail("malformed_signaling_message")
 				return
+			if not _apply_ice_server_payload(parsed):
+				return
 			room_code = String(parsed["code"]).to_upper()
 			host_token = parsed["host_token"]
 			state = State.READY
@@ -256,6 +263,8 @@ func _handle_packet(bytes: PackedByteArray) -> void:
 				return
 			if not join_nonce.is_empty() and parsed["join_nonce"] != join_nonce:
 				_fail("join_nonce_mismatch")
+				return
+			if not _apply_ice_server_payload(parsed):
 				return
 			join_nonce = parsed["join_nonce"]
 			peer_id = parsed["peer_id"]
@@ -292,6 +301,95 @@ func _has_strings(message: Dictionary, keys: Array) -> bool:
 		if typeof(message.get(key, null)) != TYPE_STRING or String(message[key]).is_empty():
 			return false
 	return true
+
+
+func _apply_ice_server_payload(message: Dictionary) -> bool:
+	var has_servers := message.has("ice_servers")
+	var has_relay_available := message.has("relay_available")
+	if not has_servers and not has_relay_available:
+		return true
+	if has_servers != has_relay_available or not message["relay_available"] is bool:
+		_fail("malformed_signaling_message")
+		return false
+	var normalization := _normalize_ice_servers(message["ice_servers"])
+	if not bool(normalization.get("ok", false)):
+		_fail("malformed_signaling_message")
+		return false
+	var servers: Array = normalization["servers"]
+	var relay_available: bool = message["relay_available"]
+	if relay_available and not _has_turn_server(servers):
+		_fail("malformed_signaling_message")
+		return false
+	ice_servers_received.emit(servers.duplicate(true), relay_available)
+	return true
+
+
+func _normalize_ice_servers(value: Variant) -> Dictionary:
+	if not value is Array or value.is_empty() or value.size() > MAX_ICE_SERVERS:
+		return {"ok": false}
+	var normalized: Array = []
+	for entry_variant in value:
+		if not entry_variant is Dictionary:
+			return {"ok": false}
+		var entry: Dictionary = entry_variant
+		var source_urls: Array = []
+		if entry.get("urls") is String:
+			source_urls = [entry["urls"]]
+		elif entry.get("urls") is Array:
+			source_urls = entry["urls"]
+		else:
+			return {"ok": false}
+		if source_urls.is_empty() or source_urls.size() > MAX_URLS_PER_SERVER:
+			return {"ok": false}
+		var urls: Array[String] = []
+		for url_variant in source_urls:
+			if not url_variant is String:
+				return {"ok": false}
+			var url: String = url_variant
+			if (
+				url.is_empty() or url.length() > MAX_URL_LENGTH
+				or not _is_ice_url(url)
+			):
+				return {"ok": false}
+			urls.append(url)
+		var has_username := entry.has("username")
+		var has_credential := entry.has("credential")
+		if has_username != has_credential:
+			return {"ok": false}
+		var clean_entry := {"urls": urls}
+		if has_username:
+			if (
+				not entry["username"] is String or not entry["credential"] is String
+				or String(entry["username"]).is_empty()
+				or String(entry["credential"]).is_empty()
+				or String(entry["username"]).length() > MAX_CREDENTIAL_LENGTH
+				or String(entry["credential"]).length() > MAX_CREDENTIAL_LENGTH
+			):
+				return {"ok": false}
+			clean_entry["username"] = entry["username"]
+			clean_entry["credential"] = entry["credential"]
+		normalized.append(clean_entry)
+	return {"ok": true, "servers": normalized}
+
+
+func _has_turn_server(servers: Array) -> bool:
+	for entry_variant in servers:
+		var entry: Dictionary = entry_variant
+		if not entry.has("username") or not entry.has("credential"):
+			continue
+		for url_variant in entry["urls"]:
+			var url: String = url_variant
+			if url.to_lower().begins_with("turn:") or url.to_lower().begins_with("turns:"):
+				return true
+	return false
+
+
+func _is_ice_url(url: String) -> bool:
+	var lowered := url.to_lower()
+	return (
+		lowered.begins_with("stun:") or lowered.begins_with("stuns:")
+		or lowered.begins_with("turn:") or lowered.begins_with("turns:")
+	)
 
 
 func _fail(reason: String) -> void:

@@ -7,26 +7,36 @@ const SignalingClient = preload("res://src/network/signaling_client.gd")
 const CHANNEL_LABEL := "game-v1"
 const CHANNEL_ID := 1
 const MAX_HOST_REMOTES := 7
+const MAX_ICE_SERVERS := 8
+const MAX_URLS_PER_SERVER := 8
+const MAX_URL_LENGTH := 2048
+const MAX_CREDENTIAL_LENGTH := 1024
 
 var _signaling: SignalingClient
-var _ice_urls: Array[String] = []
+var _ice_servers: Array = []
 var _now: Callable
 var _connect_timeout_msec: int
+var _peer_factory: Callable
 var _peers := {}
 var _host_mode := false
+var relay_available := false
 
 
 func _init(
 	signaling: SignalingClient = null,
-	ice_urls: Array = [],
+	ice_servers: Array = [],
 	now: Callable = Callable(),
-	connect_timeout_msec: int = 15_000
+	connect_timeout_msec: int = 15_000,
+	peer_factory: Callable = Callable()
 ) -> void:
 	_signaling = signaling
-	for url in ice_urls:
-		_ice_urls.append(String(url))
+	var normalization := _normalize_ice_servers(ice_servers)
+	if bool(normalization.get("ok", false)):
+		_ice_servers = normalization["servers"]
+		relay_available = _has_turn_server(_ice_servers)
 	_now = now
 	_connect_timeout_msec = maxi(1, connect_timeout_msec)
+	_peer_factory = peer_factory
 	if _signaling != null:
 		_wire_signaling()
 
@@ -126,11 +136,23 @@ func close() -> void:
 		peer.close()
 	_peers.clear()
 	if _signaling != null:
+		_unwire_signaling()
 		_signaling.close()
 
 
 func reconnect_signaling() -> Error:
 	return _signaling.reconnect() if _signaling != null else ERR_UNCONFIGURED
+
+
+func set_ice_servers(servers: Array) -> Error:
+	if not _peers.is_empty():
+		return ERR_BUSY
+	var normalization := _normalize_ice_servers(servers)
+	if not bool(normalization.get("ok", false)):
+		return ERR_INVALID_DATA
+	_ice_servers = normalization["servers"]
+	relay_available = _has_turn_server(_ice_servers)
+	return OK
 
 
 func poll() -> void:
@@ -197,16 +219,20 @@ func _create_peer(peer_id: String) -> Error:
 	if not _host_mode and not _peers.is_empty():
 		return ERR_BUSY
 
-	var peer := WebRTCPeerConnection.new()
-	var ice_servers: Array = []
-	for url in _ice_urls:
-		ice_servers.append({"urls": [url]})
-	var initialize_error := peer.initialize({"iceServers": ice_servers})
+	var peer = (
+		_peer_factory.call() if _peer_factory.is_valid()
+		else WebRTCPeerConnection.new()
+	)
+	if peer == null:
+		return ERR_CANT_CREATE
+	var initialize_error: Error = peer.initialize({
+		"iceServers": _ice_servers.duplicate(true),
+	})
 	if initialize_error != OK:
 		return initialize_error
 	peer.session_description_created.connect(_on_session_description.bind(peer_id))
 	peer.ice_candidate_created.connect(_on_ice_candidate.bind(peer_id))
-	var channel := peer.create_data_channel(CHANNEL_LABEL, {
+	var channel: Variant = peer.create_data_channel(CHANNEL_LABEL, {
 		"negotiated": true,
 		"id": CHANNEL_ID,
 		"ordered": true,
@@ -248,11 +274,41 @@ func _on_ice_candidate(media: String, index: int, name: String, peer_id: String)
 
 
 func _wire_signaling() -> void:
-	_signaling.room_created.connect(func(code): lobby_created.emit(code))
+	_signaling.ice_servers_received.connect(_on_ice_servers_received)
+	_signaling.room_created.connect(_on_room_created)
 	_signaling.join_requested.connect(_on_join_requested)
 	_signaling.join_approved.connect(_on_join_approved)
 	_signaling.signal_received.connect(_on_signaling_signal)
-	_signaling.failed.connect(func(reason): transport_failed.emit(reason))
+	_signaling.failed.connect(_on_signaling_failed)
+
+
+func _unwire_signaling() -> void:
+	for pair in [
+		[_signaling.ice_servers_received, _on_ice_servers_received],
+		[_signaling.room_created, _on_room_created],
+		[_signaling.join_requested, _on_join_requested],
+		[_signaling.join_approved, _on_join_approved],
+		[_signaling.signal_received, _on_signaling_signal],
+		[_signaling.failed, _on_signaling_failed],
+	]:
+		if pair[0].is_connected(pair[1]):
+			pair[0].disconnect(pair[1])
+
+
+func _on_room_created(code: String) -> void:
+	lobby_created.emit(code)
+
+
+func _on_signaling_failed(reason: String) -> void:
+	transport_failed.emit(reason)
+
+
+func _on_ice_servers_received(servers: Array, available: bool) -> void:
+	var result := set_ice_servers(servers)
+	if result != OK:
+		transport_failed.emit("invalid_signaling_payload")
+		return
+	relay_available = available
 
 
 func _on_join_requested(
@@ -306,6 +362,74 @@ func _drop_peer(peer_id: String, reason: String) -> void:
 	peer.close()
 	_peers.erase(peer_id)
 	peer_disconnected.emit(peer_id, reason)
+
+
+func _normalize_ice_servers(value: Variant) -> Dictionary:
+	if not value is Array or value.size() > MAX_ICE_SERVERS:
+		return {"ok": false}
+	var normalized: Array = []
+	for entry_variant in value:
+		if not entry_variant is Dictionary:
+			return {"ok": false}
+		var entry: Dictionary = entry_variant
+		var source_urls: Array = []
+		if entry.get("urls") is String:
+			source_urls = [entry["urls"]]
+		elif entry.get("urls") is Array:
+			source_urls = entry["urls"]
+		else:
+			return {"ok": false}
+		if source_urls.is_empty() or source_urls.size() > MAX_URLS_PER_SERVER:
+			return {"ok": false}
+		var urls: Array[String] = []
+		for url_variant in source_urls:
+			if not url_variant is String:
+				return {"ok": false}
+			var url: String = url_variant
+			if (
+				url.is_empty() or url.length() > MAX_URL_LENGTH
+				or not _is_ice_url(url)
+			):
+				return {"ok": false}
+			urls.append(url)
+		var has_username := entry.has("username")
+		var has_credential := entry.has("credential")
+		if has_username != has_credential:
+			return {"ok": false}
+		var clean_entry := {"urls": urls}
+		if has_username:
+			if (
+				not entry["username"] is String or not entry["credential"] is String
+				or String(entry["username"]).is_empty()
+				or String(entry["credential"]).is_empty()
+				or String(entry["username"]).length() > MAX_CREDENTIAL_LENGTH
+				or String(entry["credential"]).length() > MAX_CREDENTIAL_LENGTH
+			):
+				return {"ok": false}
+			clean_entry["username"] = entry["username"]
+			clean_entry["credential"] = entry["credential"]
+		normalized.append(clean_entry)
+	return {"ok": true, "servers": normalized}
+
+
+func _has_turn_server(servers: Array) -> bool:
+	for entry_variant in servers:
+		var entry: Dictionary = entry_variant
+		if not entry.has("username") or not entry.has("credential"):
+			continue
+		for url_variant in entry["urls"]:
+			var url: String = url_variant
+			if url.to_lower().begins_with("turn:") or url.to_lower().begins_with("turns:"):
+				return true
+	return false
+
+
+func _is_ice_url(url: String) -> bool:
+	var lowered := url.to_lower()
+	return (
+		lowered.begins_with("stun:") or lowered.begins_with("stuns:")
+		or lowered.begins_with("turn:") or lowered.begins_with("turns:")
+	)
 
 
 func _now_msec() -> int:

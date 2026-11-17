@@ -1,12 +1,33 @@
 extends "res://tests/test_case.gd"
 
 const WebRTCPeerTransport = preload("res://src/network/webrtc_peer_transport.gd")
+const SignalingClient = preload("res://src/network/signaling_client.gd")
 
 var _now_msec := 1000
+var _fake_peers: Array = []
+
+
+class FakePeerConnection extends RefCounted:
+	signal session_description_created(type: String, sdp: String)
+	signal ice_candidate_created(media: String, index: int, name: String)
+
+	var initialize_configs: Array = []
+	var closed := false
+
+	func initialize(config: Dictionary) -> Error:
+		initialize_configs.append(config.duplicate(true))
+		return OK
+
+	func create_data_channel(_label: String, _options: Dictionary) -> Variant:
+		return null
+
+	func close() -> void:
+		closed = true
 
 
 func before_each() -> void:
 	_now_msec = 1000
+	_fake_peers.clear()
 
 
 func test_loopback_star_peers_exchange_reliable_ordered_binary_packets() -> void:
@@ -103,8 +124,119 @@ func test_host_capacity_is_seven_and_unconnected_peer_times_out_cleanly() -> voi
 	await _settle_native_resources()
 
 
+func test_transport_passes_complete_stun_and_turn_dictionaries_to_peer_initialization() -> void:
+	var signaling := SignalingClient.new()
+	var transport = WebRTCPeerTransport.new(
+		signaling,
+		[
+			{"urls": ["stun:stun.cloudflare.com:3478"]},
+			{
+				"urls": [
+					"turn:turn.cloudflare.com:3478?transport=udp",
+					"turns:turn.cloudflare.com:5349?transport=tcp",
+				],
+				"username": "temporary-user",
+				"credential": "temporary-password",
+			},
+		],
+		Callable(self, "_now"),
+		5000,
+		Callable(self, "_make_fake_peer"),
+	)
+
+	assert_eq(transport.prepare_host_peer("client-1"), ERR_CANT_CREATE)
+	assert_eq(_fake_peers.size(), 1)
+	assert_eq(_fake_peers[0].initialize_configs, [{
+		"iceServers": [
+			{"urls": ["stun:stun.cloudflare.com:3478"]},
+			{
+				"urls": [
+					"turn:turn.cloudflare.com:3478?transport=udp",
+					"turns:turn.cloudflare.com:5349?transport=tcp",
+				],
+				"username": "temporary-user",
+				"credential": "temporary-password",
+			},
+		],
+	}])
+	assert_true(_fake_peers[0].closed)
+	transport.close()
+	_fake_peers.clear()
+	transport = null
+	signaling = null
+	await _settle_native_resources()
+
+
+func test_transport_replaces_static_stun_after_signaling_credential_delivery() -> void:
+	var signaling := SignalingClient.new()
+	var transport = WebRTCPeerTransport.new(
+		signaling,
+		[{"urls": ["stun:static.example:3478"]}],
+		Callable(self, "_now"),
+		5000,
+		Callable(self, "_make_fake_peer"),
+	)
+	signaling.ice_servers_received.emit([{
+		"urls": ["turn:relay.example:3478?transport=udp"],
+		"username": "fresh-user",
+		"credential": "fresh-password",
+	}], true)
+
+	assert_true(transport.relay_available)
+	assert_eq(transport.prepare_host_peer("client-1"), ERR_CANT_CREATE)
+	assert_eq(_fake_peers[0].initialize_configs, [{
+		"iceServers": [{
+			"urls": ["turn:relay.example:3478?transport=udp"],
+			"username": "fresh-user",
+			"credential": "fresh-password",
+		}],
+	}])
+	transport.close()
+	_fake_peers.clear()
+	transport = null
+	signaling = null
+	await _settle_native_resources()
+
+
+func test_transport_rejects_malformed_replacement_without_losing_prior_ice_configuration() -> void:
+	var signaling := SignalingClient.new()
+	var transport = WebRTCPeerTransport.new(
+		signaling,
+		[{"urls": ["stun:static.example:3478"]}],
+		Callable(self, "_now"),
+		5000,
+		Callable(self, "_make_fake_peer"),
+	)
+
+	assert_eq(transport.set_ice_servers([{"urls": []}]), ERR_INVALID_DATA)
+	assert_false(transport.relay_available)
+	assert_eq(transport.prepare_host_peer("client-1"), ERR_CANT_CREATE)
+	assert_eq(_fake_peers[0].initialize_configs, [{
+		"iceServers": [{"urls": ["stun:static.example:3478"]}],
+	}])
+	transport.close()
+
+	var live_transport = _transport()
+	assert_eq(live_transport.prepare_host_peer("live-peer"), OK)
+	assert_eq(live_transport.set_ice_servers([
+		{"urls": ["stun:new.example:3478"]},
+	]), ERR_BUSY)
+	live_transport.close()
+	live_transport = null
+	_fake_peers.clear()
+	transport = null
+	signaling = null
+	await _settle_native_resources()
+
+
 func _transport(timeout_msec: int = 5000):
 	return WebRTCPeerTransport.new(null, [], Callable(self, "_now"), timeout_msec)
+
+
+func _make_fake_peer():
+	var peer := FakePeerConnection.new()
+	_fake_peers.append(peer)
+	return peer
 
 
 func _now() -> int:
