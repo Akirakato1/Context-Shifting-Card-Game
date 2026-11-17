@@ -308,7 +308,8 @@ func _connection_error_message(reason: String) -> String:
 		"signaling_timeout": "The room service did not respond. Try again.",
 		"active_capacity_reached": "The player seats are full. Try joining as a spectator.",
 		"spectator_capacity_reached": "The spectator seats are full.",
-		"direct_connection_failed": "A direct connection could not be established on this network.",
+		"direct_connection_failed": "The direct and relay routes could not establish a connection on this network.",
+		"relay_unavailable": "A direct route could not be established, and relay fallback was unavailable.",
 	}
 	return messages.get(reason, "The room connection failed. Please try again.")
 

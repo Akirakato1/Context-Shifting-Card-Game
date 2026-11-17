@@ -234,7 +234,8 @@ func show_connection_failure(reason: StringName) -> void:
 	var states := {
 		&"forfeit": ["You forfeited this match.", "RETURN TO LOBBY", &"lobby"],
 		&"host_lost": ["The host connection was lost. Reconnect before your grace period expires.", "TRY RECONNECT", &"retry"],
-		&"direct_connection_failed": ["A direct connection could not be established.", "TRY AGAIN", &"retry"],
+		&"direct_connection_failed": ["The direct and relay routes could not establish a connection.", "TRY AGAIN", &"retry"],
+		&"relay_unavailable": ["A direct route could not be established, and relay fallback was unavailable.", "TRY AGAIN", &"retry"],
 		&"room_closed": ["This room was closed by the host.", "RETURN TO MENU", &"menu"],
 	}
 	var state: Array = states.get(reason, ["The match connection ended.", "RETURN TO MENU", &"menu"])

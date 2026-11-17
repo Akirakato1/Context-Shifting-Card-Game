@@ -147,6 +147,14 @@ func reconnect_signaling() -> Error:
 func set_ice_servers(servers: Array) -> Error:
 	if not _peers.is_empty():
 		return ERR_BUSY
+	return _replace_ice_servers(servers)
+
+
+func has_relay_fallback() -> bool:
+	return relay_available
+
+
+func _replace_ice_servers(servers: Array) -> Error:
 	var normalization := _normalize_ice_servers(servers)
 	if not bool(normalization.get("ok", false)):
 		return ERR_INVALID_DATA
@@ -304,7 +312,9 @@ func _on_signaling_failed(reason: String) -> void:
 
 
 func _on_ice_servers_received(servers: Array, available: bool) -> void:
-	var result := set_ice_servers(servers)
+	# Existing peer connections received a deep copy during initialize(). A
+	# signaling refresh updates only the configuration used by future peers.
+	var result := _replace_ice_servers(servers)
 	if result != OK:
 		transport_failed.emit("invalid_signaling_payload")
 		return

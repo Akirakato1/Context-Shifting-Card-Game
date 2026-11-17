@@ -86,7 +86,12 @@ func test_lobby_errors_are_actionable_without_exposing_network_internals() -> vo
 	assert_false(status.contains("webrtc"))
 	lobby.show_error(&"direct_connection_failed")
 	status = lobby.get_node("Layout/StatusPanel/Status").text.to_lower()
+	assert_true(status.contains("direct and relay"))
 	assert_true(status.contains("try again"))
+	assert_true(lobby.get_node("Layout/StatusPanel/RetryButton").visible)
+	lobby.show_error(&"relay_unavailable")
+	status = lobby.get_node("Layout/StatusPanel/Status").text.to_lower()
+	assert_true(status.contains("relay fallback"))
 	assert_true(lobby.get_node("Layout/StatusPanel/RetryButton").visible)
 	await _unmount(lobby)
 

@@ -89,13 +89,17 @@ func show_error(reason: StringName) -> void:
 		&"active_seats_full": "The player seats are full. Join as a spectator or try another room.",
 		&"spectator_slots_full": "The spectator section is full. Try another room.",
 		&"room_not_found": "That room could not be found. Check the code and try again.",
-		&"direct_connection_failed": "A direct connection could not be made. Try again or return to the menu.",
+		&"direct_connection_failed": "The direct and relay routes could not connect. Try again or return to the menu.",
+		&"relay_unavailable": "A direct route could not connect, and relay fallback was unavailable. Try again or return to the menu.",
 		&"signaling_timeout": "The room service did not respond. Try again.",
 		&"host_closed": "The host closed this room. Return to the menu.",
 	}
 	_status.text = messages.get(reason, "The room could not continue. Try again.")
 	_status.modulate = Color("ff9a9a")
-	_retry.visible = reason in [&"direct_connection_failed", &"signaling_timeout", &"room_not_found"]
+	_retry.visible = reason in [
+		&"direct_connection_failed", &"relay_unavailable",
+		&"signaling_timeout", &"room_not_found",
+	]
 	_action_pending = false
 
 

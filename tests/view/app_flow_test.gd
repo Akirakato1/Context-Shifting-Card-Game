@@ -96,8 +96,10 @@ func test_connection_banner_uses_player_friendly_failure_text() -> void:
 	var banner: PanelContainer = app.get_node("SafeArea/ConnectionBanner")
 	var label: Label = app.get_node("SafeArea/ConnectionBanner/Label")
 	assert_true(banner.visible)
-	assert_true(label.text.contains("direct connection"))
+	assert_true(label.text.contains("direct and relay"))
 	assert_false(label.text.contains("direct_connection_failed"))
+	session.session_failed.emit("relay_unavailable")
+	assert_true(label.text.contains("relay fallback was unavailable"))
 	await _unmount(app)
 
 

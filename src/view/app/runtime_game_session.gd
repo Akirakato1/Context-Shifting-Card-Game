@@ -516,9 +516,16 @@ func _on_transport_failed(reason: String) -> void:
 func _fail(reason: String) -> void:
 	if _closed or _failed:
 		return
+	var reported_reason := reason
+	if (
+		reason == "direct_connection_failed" and _transport != null
+		and _transport.has_method("has_relay_fallback")
+		and not bool(_transport.has_relay_fallback())
+	):
+		reported_reason = "relay_unavailable"
 	_failed = true
-	_emit_connection("failed", reason)
-	session_failed.emit(reason)
+	_emit_connection("failed", reported_reason)
+	session_failed.emit(reported_reason)
 
 
 func _emit_connection(status: String, reason: String) -> void:

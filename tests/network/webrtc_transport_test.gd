@@ -229,6 +229,33 @@ func test_transport_rejects_malformed_replacement_without_losing_prior_ice_confi
 	await _settle_native_resources()
 
 
+func test_signaling_refresh_updates_future_ice_while_existing_peer_stays_live() -> void:
+	var signaling := SignalingClient.new()
+	var transport = WebRTCPeerTransport.new(
+		signaling,
+		[{"urls": ["stun:static.example:3478"]}],
+		Callable(self, "_now"),
+		5000,
+	)
+	var failures: Array[String] = []
+	transport.transport_failed.connect(func(reason: String): failures.append(reason))
+
+	assert_eq(transport.prepare_host_peer("existing-peer"), OK)
+	signaling.ice_servers_received.emit([{
+		"urls": ["turns:turn.cloudflare.com:443?transport=tcp"],
+		"username": "fresh-user",
+		"credential": "fresh-password",
+	}], true)
+
+	assert_eq(failures, [])
+	assert_true(transport.relay_available)
+	assert_eq(transport.remote_peer_ids(), ["existing-peer"])
+	transport.close()
+	transport = null
+	signaling = null
+	await _settle_native_resources()
+
+
 func _transport(timeout_msec: int = 5000):
 	return WebRTCPeerTransport.new(null, [], Callable(self, "_now"), timeout_msec)
 

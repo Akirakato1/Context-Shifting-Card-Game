@@ -8,6 +8,7 @@ class RuntimeTransport extends FakePeerTransport:
 	var hosted_url := ""
 	var joined: Dictionary = {}
 	var signaling_reconnects := 0
+	var relay_fallback := false
 
 	func host_room(signaling_url: String) -> Error:
 		hosted_url = signaling_url
@@ -16,6 +17,9 @@ class RuntimeTransport extends FakePeerTransport:
 	func reconnect_signaling() -> Error:
 		signaling_reconnects += 1
 		return OK
+
+	func has_relay_fallback() -> bool:
+		return relay_fallback
 
 	func join_room(
 		signaling_url: String,
@@ -124,6 +128,32 @@ func test_join_runtime_uses_assigned_peer_id_for_authoritative_commands() -> voi
 	assert_true(decoded.ok)
 	assert_eq(decoded.envelope.sender_id, "peer-one")
 	assert_eq(decoded.envelope.payload.player_id, "peer-one")
+	runtime.close()
+
+
+func test_direct_failure_reports_whether_relay_fallback_was_available() -> void:
+	var transport := RuntimeTransport.new()
+	var runtime = RuntimeGameSession.new(transport, Callable(self, "_now"))
+	var failures: Array[String] = []
+	runtime.session_failed.connect(func(reason: String): failures.append(reason))
+	assert_eq(runtime.start_join(
+		"ws://127.0.0.1:8080", "ABC234", "active", "Noah"
+	), OK)
+
+	transport.transport_failed.emit("direct_connection_failed")
+	assert_eq(failures, ["relay_unavailable"])
+	runtime.close()
+
+	transport = RuntimeTransport.new()
+	transport.relay_fallback = true
+	runtime = RuntimeGameSession.new(transport, Callable(self, "_now"))
+	failures.clear()
+	runtime.session_failed.connect(func(reason: String): failures.append(reason))
+	assert_eq(runtime.start_join(
+		"ws://127.0.0.1:8080", "ABC234", "active", "Noah"
+	), OK)
+	transport.transport_failed.emit("direct_connection_failed")
+	assert_eq(failures, ["direct_connection_failed"])
 	runtime.close()
 
 

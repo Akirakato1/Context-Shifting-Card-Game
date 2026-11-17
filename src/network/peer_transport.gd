@@ -29,5 +29,9 @@ func disconnect_peer(peer_id: String, _reason: String) -> void:
 	close_peer(peer_id)
 
 
+func has_relay_fallback() -> bool:
+	return false
+
+
 func poll() -> void:
 	pass

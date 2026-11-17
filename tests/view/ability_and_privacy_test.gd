@@ -149,7 +149,8 @@ func test_reconnect_freezes_inputs_and_failure_reasons_offer_distinct_actions() 
 	var expectations := {
 		&"forfeit": ["forfeited", "RETURN TO LOBBY"],
 		&"host_lost": ["host connection", "TRY RECONNECT"],
-		&"direct_connection_failed": ["direct connection", "TRY AGAIN"],
+		&"direct_connection_failed": ["direct and relay", "TRY AGAIN"],
+		&"relay_unavailable": ["relay fallback", "TRY AGAIN"],
 		&"room_closed": ["closed", "RETURN TO MENU"],
 	}
 	for reason in expectations:
