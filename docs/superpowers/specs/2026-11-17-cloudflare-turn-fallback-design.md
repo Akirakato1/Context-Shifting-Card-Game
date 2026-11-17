@@ -1,7 +1,7 @@
 # Cloudflare TURN fallback design
 
 **Date:** 2026-11-17
-**Status:** Awaiting final approval
+**Status:** Approved for native implementation
 **Selected approach:** Cloudflare Realtime TURN with server-issued short-lived credentials
 
 ## Intent
