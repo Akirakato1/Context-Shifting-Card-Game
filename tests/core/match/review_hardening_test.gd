@@ -3,6 +3,7 @@ extends "res://tests/test_case.gd"
 const GameTypes = preload("res://src/core/common/game_types.gd")
 const HalfCardState = preload("res://src/core/cards/half_card_state.gd")
 const FullCardState = preload("res://src/core/cards/full_card_state.gd")
+const AbilityCatalog = preload("res://src/core/abilities/ability_catalog.gd")
 const AbilityDefinition = preload("res://src/core/abilities/ability_definition.gd")
 const CommandKinds = preload("res://src/core/commands/command_kinds.gd")
 const GameCommand = preload("res://src/core/commands/game_command.gd")
@@ -77,16 +78,12 @@ func test_public_abilities_use_definition_parameters_and_reject_client_authored_
 
 func test_manipulation_choice_schema_and_malformed_values_reject_without_mutation() -> void:
 	var state := _hand_play_state(103)
-	state.players[&"one"].ability_hand[0].definition = AbilityDefinition.new(
-		&"set-ten", AbilityDefinition.Timing.HAND_MANIPULATION, [], &"manipulate_half",
-		0, &"", {}, {
-			"contexts": [GameTypes.Context.RISE], "ranks": [10],
-			"suits": [GameTypes.Suit.ONE],
-		}
-	)
+	for definition in AbilityCatalog.manipulation_definitions(1):
+		if definition.id == &"suit_imprint":
+			state.players[&"one"].ability_hand[0].definition = definition
+			break
 	var ability = state.players[&"one"].ability_hand[0]
 	var card = state.players[&"one"].hand[0]
-	card.first.apply_overrides(GameTypes.Context.RISE, card.first.effective_rank(), GameTypes.Suit.ONE)
 	var controller := MatchController.new(state)
 	assert_true(controller.submit(GameCommand.new(
 		&"begin", &"one", CommandKinds.STAGE_MANIPULATION, {"copy_id": ability.copy_id}
@@ -94,20 +91,21 @@ func test_manipulation_choice_schema_and_malformed_values_reject_without_mutatio
 	var before := state.to_dict()
 	var malformed := controller.submit(GameCommand.new(
 		&"bad-type", &"one", CommandKinds.COMMIT_MANIPULATION, {
-			"card_id": card.card_id, "half_index": 0, "context": GameTypes.Context.RISE,
-			"rank": "ten", "suit": GameTypes.Suit.ONE,
+			"choices": [],
 		}
 	), 2)
 	assert_eq(malformed.error_code, &"malformed_command")
 	assert_eq(state.to_dict(), before)
 	var disallowed := controller.submit(GameCommand.new(
 		&"bad-choice", &"one", CommandKinds.COMMIT_MANIPULATION, {
-			"card_id": card.card_id, "half_index": 0, "context": GameTypes.Context.RISE,
-			"rank": 9, "suit": GameTypes.Suit.ONE,
+			"choices": {
+				"cards": [str(card.card_id)],
+				"suit": [99],
+			},
 		}
 	), 3)
-	assert_eq(disallowed.error_code, &"manipulation_choice_not_allowed")
-	assert_eq(card.first.effective_rank(), card.first.base_rank)
+	assert_eq(disallowed.error_code, &"invalid_manipulation_choice")
+	assert_eq(state.to_dict(), before)
 
 
 func test_first_malformed_phase_command_does_not_start_clock_or_mutate_state() -> void:

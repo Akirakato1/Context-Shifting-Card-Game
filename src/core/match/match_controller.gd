@@ -6,6 +6,7 @@ const CardFactory = preload("res://src/core/cards/card_factory.gd")
 const FullCardState = preload("res://src/core/cards/full_card_state.gd")
 const AbilityState = preload("res://src/core/abilities/ability_state.gd")
 const AbilityDefinition = preload("res://src/core/abilities/ability_definition.gd")
+const ManipulationResolver = preload("res://src/core/abilities/manipulation_resolver.gd")
 const EffectRegistry = preload("res://src/core/abilities/effect_registry.gd")
 const EventKinds = preload("res://src/core/events/event_kinds.gd")
 const DomainEvent = preload("res://src/core/events/domain_event.gd")
@@ -915,33 +916,24 @@ func _commit_manipulation(command: GameCommand, now_msec: int) -> CommandResult:
 	var player = state.players[command.player_id]
 	if player.pending_manipulation.is_empty():
 		return CommandResult.new(false, &"no_pending_manipulation")
-	for key in ["card_id", "half_index", "context", "rank", "suit"]:
-		if not command.payload.has(key):
-			return CommandResult.new(false, &"malformed_command")
-	if not _is_identifier(command.payload.card_id):
+	if not command.payload.has("choices") or not command.payload.choices is Dictionary:
 		return CommandResult.new(false, &"malformed_command")
-	if not command.payload.half_index is int or command.payload.half_index < 0 or command.payload.half_index > 1:
-		return CommandResult.new(false, &"invalid_half_index")
-	if (
-		not command.payload.context is int or not command.payload.rank is int
-		or not command.payload.suit is int
-	):
-		return CommandResult.new(false, &"malformed_command")
-	if not HalfCardState.is_valid_base(command.payload.context, command.payload.rank, command.payload.suit):
-		return CommandResult.new(false, &"invalid_effective_values")
-	var card := _hand_card(command.player_id, StringName(command.payload.card_id))
-	if card == null:
-		return CommandResult.new(false, &"card_not_in_hand")
 	var ability := _held_ability(command.player_id, player.pending_manipulation.copy_id)
 	if ability == null:
 		return CommandResult.new(false, &"ability_not_in_hand")
-	if not _manipulation_choice_allowed(ability.definition, command.payload):
-		return CommandResult.new(false, &"manipulation_choice_not_allowed")
-	var half = card.first if command.payload.half_index == 0 else card.second
-	if half.is_joker():
-		return CommandResult.new(false, &"joker_manipulation_not_allowed")
+	var choice_error := ManipulationResolver.validate(
+		ability.definition, player.hand, command.payload.choices
+	)
+	if not choice_error.is_empty():
+		return CommandResult.new(false, choice_error)
 	_ensure_phase_clock(now_msec)
-	half.apply_overrides(command.payload.context, command.payload.rank, command.payload.suit)
+	ManipulationResolver.apply(
+		ability.definition,
+		player.hand,
+		command.payload.choices,
+		state.rng,
+		state.context_direction
+	)
 	_remove_held_ability(command.player_id, ability)
 	state.ability_deck.discard(ability)
 	player.completed_manipulation_ids.append(ability.definition.id)
@@ -1094,23 +1086,6 @@ func _hand_card(player_id: StringName, card_id: StringName) -> FullCardState:
 		if card.card_id == card_id:
 			return card
 	return null
-
-
-func _manipulation_choice_allowed(
-	definition: AbilityDefinition,
-	payload: Dictionary
-) -> bool:
-	var schema := definition.choice_schema
-	for entry in [
-		{"key": "contexts", "value": payload.context},
-		{"key": "ranks", "value": payload.rank},
-		{"key": "suits", "value": payload.suit},
-	]:
-		if not schema.has(entry.key) or not schema[entry.key] is Array:
-			return false
-		if entry.value not in schema[entry.key]:
-			return false
-	return true
 
 
 func _validate_public_ability_choices(

@@ -2,6 +2,7 @@ extends "res://tests/test_case.gd"
 
 const GameTypes = preload("res://src/core/common/game_types.gd")
 const Rational = preload("res://src/core/common/rational.gd")
+const AbilityCatalog = preload("res://src/core/abilities/ability_catalog.gd")
 const AbilityDefinition = preload("res://src/core/abilities/ability_definition.gd")
 const NormalHandDefinition = preload("res://src/core/scoring/normal_hand_definition.gd")
 const ContextHandDefinition = preload("res://src/core/scoring/context_hand_definition.gd")
@@ -15,9 +16,11 @@ const MatchController = preload("res://src/core/match/match_controller.gd")
 
 func test_incomplete_manipulation_cancels_but_completed_choice_is_irreversible() -> void:
 	var state := _hand_play_state(41)
-	_set_manipulation(state, &"one", 0, &"reshape")
+	_set_manipulation(state, &"one", 0, &"rise_infusion")
 	var ability = state.players[&"one"].ability_hand[0]
-	var card = state.players[&"one"].hand[0]
+	var card = _ordinary_card(state.players[&"one"].hand)
+	card.first.apply_overrides(GameTypes.Context.FALL, card.first.effective_rank(), card.first.effective_suit())
+	card.second.apply_overrides(GameTypes.Context.FALL, card.second.effective_rank(), card.second.effective_suit())
 	var controller := MatchController.new(state)
 
 	assert_true(controller.submit(_begin(&"begin", &"one", ability.copy_id), 10).accepted)
@@ -30,32 +33,31 @@ func test_incomplete_manipulation_cancels_but_completed_choice_is_irreversible()
 	controller.submit(_begin(&"begin-again", &"one", ability.copy_id), 12)
 	var committed := controller.submit(GameCommand.new(
 		&"commit", &"one", CommandKinds.COMMIT_MANIPULATION, {
-			"card_id": card.card_id, "half_index": 0,
-			"context": card.first.effective_context(), "rank": 10,
-			"suit": card.first.effective_suit(),
+			"choices": {"cards": [str(card.card_id)]},
 		}
 	), 13)
 	assert_true(committed.accepted)
-	assert_eq(card.first.effective_rank(), 10)
+	assert_eq(card.first.effective_context(), GameTypes.Context.RISE)
+	assert_eq(card.second.effective_context(), GameTypes.Context.RISE)
 	assert_false(state.players[&"one"].ability_hand.has(ability))
 	assert_eq(controller.submit(GameCommand.new(
 		&"too-late", &"one", CommandKinds.CANCEL_MANIPULATION
 	), 14).error_code, &"no_pending_manipulation")
-	assert_eq(card.first.effective_rank(), 10)
+	assert_eq(card.first.effective_context(), GameTypes.Context.RISE)
 
 
 func test_spent_manipulation_remains_spent_on_pass_and_unplayed_card_keeps_override() -> void:
 	var state := _hand_play_state(42)
-	_set_manipulation(state, &"one", 0, &"reshape")
+	_set_manipulation(state, &"one", 0, &"rise_infusion")
 	var ability = state.players[&"one"].ability_hand[0]
-	var modified_card = state.players[&"one"].hand[0]
+	var modified_card = _ordinary_card(state.players[&"one"].hand)
+	modified_card.first.apply_overrides(GameTypes.Context.FALL, modified_card.first.effective_rank(), modified_card.first.effective_suit())
+	modified_card.second.apply_overrides(GameTypes.Context.FALL, modified_card.second.effective_rank(), modified_card.second.effective_suit())
 	var controller := MatchController.new(state)
 	controller.submit(_begin(&"begin", &"one", ability.copy_id), 1)
 	controller.submit(GameCommand.new(
 		&"commit", &"one", CommandKinds.COMMIT_MANIPULATION, {
-			"card_id": modified_card.card_id, "half_index": 0,
-			"context": modified_card.first.effective_context(), "rank": 10,
-			"suit": modified_card.first.effective_suit(),
+			"choices": {"cards": [str(modified_card.card_id)]},
 		}
 	), 2)
 
@@ -66,7 +68,8 @@ func test_spent_manipulation_remains_spent_on_pass_and_unplayed_card_keeps_overr
 
 	assert_false(state.players[&"one"].ability_hand.has(ability))
 	assert_eq(state.players[&"one"].submitted_cards.size(), 0)
-	assert_eq(modified_card.first.effective_rank(), 10)
+	assert_eq(modified_card.first.effective_context(), GameTypes.Context.RISE)
+	assert_eq(modified_card.second.effective_context(), GameTypes.Context.RISE)
 
 
 func test_submission_requires_eligible_cards_and_explicit_double_active_choice() -> void:
@@ -129,7 +132,7 @@ func test_zero_to_six_cards_are_legal_when_every_card_is_eligible() -> void:
 
 func test_timeout_locks_valid_staging_cancels_incomplete_targeting_and_defaults_to_pass() -> void:
 	var state := _hand_play_state(45)
-	_set_manipulation(state, &"two", 0, &"reshape")
+	_set_manipulation(state, &"two", 0, &"mirror_rank")
 	var staged_card = _card_with_context(state.players[&"one"].hand, state.active_context)
 	var controller := MatchController.new(state)
 	controller.tick(0)
@@ -157,16 +160,16 @@ func test_reveal_scores_all_submitted_cards_and_sanitizes_manipulation_history()
 		var half_index := _active_half(selected[index], state.active_context)
 		var half = selected[index].first if half_index == 0 else selected[index].second
 		half.apply_overrides(state.active_context, ranks[index], half.effective_suit())
-	_set_manipulation(state, &"one", 0, &"reshape")
+	_set_manipulation(state, &"one", 0, &"suit_imprint")
 	var ability = state.players[&"one"].ability_hand[0]
 	var controller := MatchController.new(state)
 	controller.submit(_begin(&"begin", &"one", ability.copy_id), 1)
-	var first_half_index := _active_half(selected[0], state.active_context)
-	var first_half = selected[0].first if first_half_index == 0 else selected[0].second
 	controller.submit(GameCommand.new(
 		&"commit", &"one", CommandKinds.COMMIT_MANIPULATION, {
-			"card_id": selected[0].card_id, "half_index": first_half_index,
-			"context": state.active_context, "rank": 3, "suit": first_half.effective_suit(),
+			"choices": {
+				"cards": [str(selected[0].card_id)],
+				"suit": [GameTypes.Suit.THREE],
+			},
 		}
 	), 2)
 	var staged: Array = []
@@ -182,7 +185,7 @@ func test_reveal_scores_all_submitted_cards_and_sanitizes_manipulation_history()
 	assert_eq(state.players[&"one"].locked_normal.category_id, &"high_card")
 	assert_true(state.players[&"one"].locked_context.category_id != &"no_context")
 	var public_reveal = _player_event(resolved.events, EventKinds.HAND_REVEALED, &"one", &"public")
-	assert_true(public_reveal.payload.manipulation_ability_ids.has("reshape"))
+	assert_true(public_reveal.payload.manipulation_ability_ids.has("suit_imprint"))
 	assert_false(public_reveal.payload.has("manipulation_targets"))
 	assert_false(public_reveal.payload.has("change_history"))
 	assert_eq(public_reveal.payload.base_value, 20)
@@ -221,14 +224,11 @@ func _hand_play_state(seed_value: int) -> MatchState:
 
 
 func _set_manipulation(state: MatchState, player_id: StringName, index: int, id: StringName) -> void:
-	state.players[player_id].ability_hand[index].definition = AbilityDefinition.new(
-		id, AbilityDefinition.Timing.HAND_MANIPULATION, [], &"manipulate_half",
-		0, &"", {}, {
-			"contexts": [GameTypes.Context.RISE, GameTypes.Context.FLOURISH, GameTypes.Context.FALL],
-			"ranks": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
-			"suits": [GameTypes.Suit.ONE, GameTypes.Suit.TWO, GameTypes.Suit.THREE],
-		}
-	)
+	for definition in AbilityCatalog.manipulation_definitions(1):
+		if definition.id == id:
+			state.players[player_id].ability_hand[index].definition = definition
+			return
+	assert(false, "unknown manipulation fixture: %s" % id)
 
 
 func _begin(id: StringName, player_id: StringName, copy_id: StringName) -> GameCommand:
@@ -252,6 +252,13 @@ func _card_without_context(hand: Array, context: int):
 func _card_with_context(hand: Array, context: int):
 	for card in hand:
 		if not card.eligible_half_indexes(context).is_empty(): return card
+	return null
+
+
+func _ordinary_card(hand: Array):
+	for card in hand:
+		if not card.first.is_joker() and not card.second.is_joker():
+			return card
 	return null
 
 

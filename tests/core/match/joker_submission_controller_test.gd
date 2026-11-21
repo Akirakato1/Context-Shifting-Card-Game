@@ -4,6 +4,7 @@ const GameTypes = preload("res://src/core/common/game_types.gd")
 const Rational = preload("res://src/core/common/rational.gd")
 const HalfCardState = preload("res://src/core/cards/half_card_state.gd")
 const FullCardState = preload("res://src/core/cards/full_card_state.gd")
+const AbilityCatalog = preload("res://src/core/abilities/ability_catalog.gd")
 const AbilityDefinition = preload("res://src/core/abilities/ability_definition.gd")
 const NormalHandDefinition = preload("res://src/core/scoring/normal_hand_definition.gd")
 const ContextHandDefinition = preload("res://src/core/scoring/context_hand_definition.gd")
@@ -185,40 +186,35 @@ func test_round_cleanup_clears_resolved_views() -> void:
 	assert_true(state.players[&"one"].submitted_card_views.is_empty())
 
 
-func test_joker_manipulation_rejects_without_mutating_pending_action_or_clock() -> void:
+func test_joker_manipulation_is_legal_and_skips_only_the_joker_half() -> void:
 	var state := _hand_play_state(77)
 	var joker := _joker_card(&"fixture-joker", state.active_context)
 	state.players[&"one"].hand[0] = joker
-	state.players[&"one"].ability_hand[0].definition = AbilityDefinition.new(
-		&"reshape", AbilityDefinition.Timing.HAND_MANIPULATION, [], &"manipulate_half",
-		0, &"", {}, {
-			"contexts": [GameTypes.Context.RISE, GameTypes.Context.FLOURISH, GameTypes.Context.FALL],
-			"ranks": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
-			"suits": [GameTypes.Suit.ONE, GameTypes.Suit.TWO, GameTypes.Suit.THREE],
-		}
-	)
+	for definition in AbilityCatalog.manipulation_definitions(1):
+		if definition.id == &"suit_imprint":
+			state.players[&"one"].ability_hand[0].definition = definition
+			break
 	var ability = state.players[&"one"].ability_hand[0]
 	var controller := MatchController.new(state)
 	assert_true(controller.submit(GameCommand.new(
 		&"begin", &"one", CommandKinds.STAGE_MANIPULATION, {"copy_id": ability.copy_id}
 	), 10).accepted)
-	var before := state.to_dict()
-
-	var rejected := controller.submit(GameCommand.new(
+	var committed := controller.submit(GameCommand.new(
 		&"commit-joker", &"one", CommandKinds.COMMIT_MANIPULATION, {
-			"card_id": joker.card_id,
-			"half_index": 0,
-			"context": GameTypes.Context.RISE,
-			"rank": 10,
-			"suit": GameTypes.Suit.ONE,
+			"choices": {
+				"cards": [str(joker.card_id)],
+				"suit": [GameTypes.Suit.THREE],
+			},
 		}
 	), 11)
 
-	assert_false(rejected.accepted)
-	assert_eq(rejected.error_code, &"joker_manipulation_not_allowed")
-	assert_eq(state.to_dict(), before)
-	assert_true(state.players[&"one"].ability_hand.has(ability))
-	assert_false(state.players[&"one"].pending_manipulation.is_empty())
+	assert_true(committed.accepted)
+	assert_true(joker.first.is_joker())
+	assert_eq(joker.first.effective_rank(), 0)
+	assert_eq(joker.first.effective_suit(), HalfCardState.NO_SUIT)
+	assert_eq(joker.second.effective_suit(), GameTypes.Suit.THREE)
+	assert_false(state.players[&"one"].ability_hand.has(ability))
+	assert_true(state.players[&"one"].pending_manipulation.is_empty())
 
 
 func test_explicit_lock_preserves_invalid_draft_but_timeout_defaults_it_to_pass() -> void:
