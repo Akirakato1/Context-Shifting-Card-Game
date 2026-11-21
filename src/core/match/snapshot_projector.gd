@@ -69,6 +69,9 @@ static func for_recipient(
 		and not state.players[recipient_id].pending
 	):
 		var recipient = state.players[recipient_id]
+		var completed_manipulations: Array = []
+		for ability_id in recipient.completed_manipulation_ids:
+			completed_manipulations.append(str(ability_id))
 		snapshot["private_player_id"] = str(recipient_id)
 		snapshot["private_hand"] = _private_hand(recipient.hand, state.active_context)
 		snapshot["private_abilities"] = _private_abilities(
@@ -76,6 +79,7 @@ static func for_recipient(
 		)
 		snapshot["private_staging"] = {
 			"pending_manipulation": recipient.pending_manipulation.duplicate(true),
+			"completed_manipulation_ids": completed_manipulations,
 			"staged_submission": recipient.staged_submission.duplicate(true),
 			"hand_locked": recipient.hand_locked,
 		}

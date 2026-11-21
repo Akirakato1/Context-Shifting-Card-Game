@@ -216,6 +216,32 @@ func test_phase_state_round_trip_and_public_projection_preserve_resync_informati
 	assert_true(public_one.revealed_submission.has("provisional_score"))
 
 
+func test_pending_completed_and_modified_manipulation_state_round_trips() -> void:
+	var state := _hand_play_state(111)
+	var player = state.players[&"one"]
+	var ability = player.ability_hand[0]
+	var card = player.hand[0]
+	var half = card.second if card.first.is_joker() else card.first
+	half.apply_overrides(GameTypes.Context.FALL, 10, GameTypes.Suit.THREE)
+	player.pending_manipulation = {"copy_id": ability.copy_id}
+	player.completed_manipulation_ids.assign([&"low_roll", &"mirror_rank"])
+	state.rng.pick_index(10)
+	var snapshot := state.to_dict()
+
+	var restored := MatchState.from_dict(snapshot)
+	var restored_player = restored.players[&"one"]
+	var restored_card = restored_player.hand[0]
+	var restored_half = restored_card.second if restored_card.first.is_joker() else restored_card.first
+
+	assert_eq(restored.to_dict(), snapshot)
+	assert_eq(str(restored_player.pending_manipulation.copy_id), str(ability.copy_id))
+	assert_eq(restored_player.completed_manipulation_ids, [&"low_roll", &"mirror_rank"])
+	assert_eq(restored_half.effective_context(), GameTypes.Context.FALL)
+	assert_eq(restored_half.effective_rank(), 10)
+	assert_eq(restored_half.effective_suit(), GameTypes.Suit.THREE)
+	assert_eq(restored.rng.state_token(), state.rng.state_token())
+
+
 func test_joker_draft_and_resolved_views_survive_canonical_round_trip() -> void:
 	var state := _hand_play_state(112)
 	var joker := FullCardState.new(

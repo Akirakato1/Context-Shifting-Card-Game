@@ -218,6 +218,41 @@ func test_resolved_joker_reveal_is_sanitized_for_every_network_role() -> void:
 		assert_false(encoded.contains("joker_choices"))
 
 
+func test_reconnect_owner_receives_modified_values_without_public_target_history() -> void:
+	var state := MatchState.create(_config(), 122)
+	state.phase = GameTypes.Phase.HAND_PLAY
+	var owner_player = state.players[&"one"]
+	var card = owner_player.hand[0]
+	var half = card.second if card.first.is_joker() else card.first
+	half.apply_overrides(GameTypes.Context.FALL, 10, GameTypes.Suit.THREE)
+	owner_player.pending_manipulation = {
+		"copy_id": owner_player.ability_hand[0].copy_id,
+	}
+	owner_player.completed_manipulation_ids.assign([&"low_roll"])
+	var controller := MatchController.new(state)
+	var transport := FakePeerTransport.new()
+	var host = _host(controller, transport)
+	host.register_peer("peer-one", &"one", GameTypes.RecipientRole.ACTIVE_PLAYER)
+	host.register_peer("peer-two", &"two", GameTypes.RecipientRole.ACTIVE_PLAYER)
+	host.register_peer("peer-watch", &"watcher", GameTypes.RecipientRole.SPECTATOR)
+	host.send_snapshot("peer-one")
+	host.send_snapshot("peer-two")
+	host.send_snapshot("peer-watch")
+
+	var owner_snapshot: Dictionary = _latest_snapshot(transport, "peer-one")
+	var opponent_snapshot: Dictionary = _latest_snapshot(transport, "peer-two")
+	var spectator_snapshot: Dictionary = _latest_snapshot(transport, "peer-watch")
+	var secret_card_id := str(card.card_id)
+	assert_eq(owner_snapshot.private_hand[0].first.effective_context if half == card.first else owner_snapshot.private_hand[0].second.effective_context, GameTypes.Context.FALL)
+	assert_eq(owner_snapshot.private_staging.completed_manipulation_ids, ["low_roll"])
+	assert_false(JSON.stringify(owner_snapshot).contains("choices"))
+	assert_false(JSON.stringify(owner_snapshot).contains("random_roll"))
+	assert_false(JSON.stringify(opponent_snapshot).contains(secret_card_id))
+	assert_false(JSON.stringify(spectator_snapshot).contains(secret_card_id))
+	assert_false(opponent_snapshot.has("completed_manipulation_ids"))
+	assert_false(spectator_snapshot.has("private_staging"))
+
+
 func _host(controller, transport: FakePeerTransport):
 	return HostNetworkSession.new(
 		controller, transport, "match-1", &"host", Callable(self, "_now")
@@ -282,6 +317,14 @@ func _decoded_for(transport: FakePeerTransport, peer_id: String) -> Array:
 			if decoded.ok:
 				result.append(decoded.envelope)
 	return result
+
+
+func _latest_snapshot(transport: FakePeerTransport, peer_id: String) -> Dictionary:
+	var messages := _decoded_for(transport, peer_id)
+	for index in range(messages.size() - 1, -1, -1):
+		if messages[index].kind == "snapshot":
+			return messages[index].payload.state
+	return {}
 
 
 func _event_kinds(transport: FakePeerTransport, peer_id: String) -> Array:

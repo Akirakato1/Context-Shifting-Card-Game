@@ -1,6 +1,7 @@
 extends "res://tests/test_case.gd"
 
 const RuntimeGameSession = preload("res://src/view/app/runtime_game_session.gd")
+const AbilityCatalog = preload("res://src/core/abilities/ability_catalog.gd")
 const FakePeerTransport = preload("res://tests/network/fake_peer_transport.gd")
 
 
@@ -102,6 +103,53 @@ func test_host_runtime_builds_authority_after_first_active_peer_and_projects_nam
 	assert_true(results[-1].result.accepted)
 	assert_eq(snapshots[-1].screen_id, "match")
 	runtime.close()
+
+
+func test_runtime_config_uses_twenty_eight_real_manipulation_cards() -> void:
+	var transport := RuntimeTransport.new()
+	var runtime = RuntimeGameSession.new(transport, Callable(self, "_now"))
+	assert_eq(runtime.start_host("ws://127.0.0.1:8080", "Mira"), OK)
+	transport.lobby_created.emit("ABC234")
+	transport.join_status.emit("approved", {
+		"peer_id": "peer-one", "role": "active", "display_name": "Noah",
+	})
+	transport.peer_connected.emit("peer-one")
+
+	var definitions: Array = runtime._controller.state.config.ability_definitions
+	var counts := {}
+	for definition in definitions:
+		counts[definition.id] = int(counts.get(definition.id, 0)) + 1
+	assert_eq(definitions.size(), 28)
+	assert_eq(counts.size(), 14)
+	for count in counts.values():
+		assert_eq(count, 2)
+	assert_false(definitions.any(func(definition):
+		return str(definition.id).begins_with("placeholder_ability_")
+	))
+	runtime.close()
+
+
+func test_ability_catalog_projects_name_rules_text_timing_and_schema() -> void:
+	var definitions: Array = []
+	for definition in AbilityCatalog.manipulation_definitions(1):
+		definitions.append({
+			"id": str(definition.id), "timing": definition.timing,
+			"tags": definition.tags, "effect_id": str(definition.effect_id),
+			"choice_schema": definition.choice_schema,
+			"display_name": definition.display_name,
+			"rules_text": definition.rules_text,
+		})
+	var runtime = RuntimeGameSession.new(RuntimeTransport.new(), Callable(self, "_now"))
+	var catalog: Dictionary = runtime._ability_catalog(definitions)
+
+	assert_eq(catalog.size(), 14)
+	assert_eq(catalog.context_exchange.label, "Context Exchange")
+	assert_true(catalog.context_exchange.rules_text.contains("Swap the contexts"))
+	assert_eq(
+		catalog.context_exchange.timing,
+		preload("res://src/core/abilities/ability_definition.gd").Timing.HAND_MANIPULATION
+	)
+	assert_eq(catalog.context_exchange.choice_schema.steps[0].kind, "full_card")
 
 
 func test_join_runtime_uses_assigned_peer_id_for_authoritative_commands() -> void:

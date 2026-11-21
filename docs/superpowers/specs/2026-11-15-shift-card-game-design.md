@@ -24,7 +24,7 @@ The central decision is how many cards to commit now versus preserve for later c
 ## Non-goals for the first version
 
 - Final card art, 3D models, animations, audio, music, and presentation polish.
-- Final normal-hand catalogue, multiplier balance, ability catalogue, or suit theme/names.
+- Final normal-hand catalogue, multiplier balance, the three remaining ability-category catalogues, or suit theme/names.
 - Dedicated authoritative servers, accounts, matchmaking, progression, or ranked play.
 - Host migration.
 - TURN relay fallback when a direct P2P route cannot be established.
@@ -447,7 +447,7 @@ When a draw cannot be completed, shuffle the used-ability pile into a new draw p
 
 If both the draw and used piles are empty after recycling, the draw is short: do not generate a substitute card. This applies to ordinary Start draws and late entrants. The eventual ability deck should be sized so this is exceptional.
 
-The final deck list and counts are future content.
+The fourteen-card Hand Manipulation catalogue is finalized at two initial copies per design. Its detailed definitions and selection rules are in the [card-manipulation ability specification](2026-11-21-card-manipulation-abilities-design.md). Copy counts remain subject to balance changes. The Field, hand-shape buff/nerf, and Opponent Sabotage catalogues remain future content.
 
 ### Four timing categories
 
@@ -576,7 +576,7 @@ These decisions do not block the rules architecture and will be supplied after p
 - Complete normal-hand catalogue and hierarchy for up to six submitted cards
 - Normal-hand multipliers
 - Context-hand hierarchy and multipliers
-- Ability-card catalogue, copy counts, detailed effects, and modifier ordering where card text requires it
+- Field, hand-shape buff/nerf, and Opponent Sabotage ability catalogues; final copy-count balance; and modifier ordering where future card text requires it
 - Exact phase timer, response-window, hard-limit, and reconnect-grace defaults
 - Final UI layout, animation timing, art, 3D models, audio, and music
 - Signaling/STUN hosting provider and TURN fallback decision after connectivity tests

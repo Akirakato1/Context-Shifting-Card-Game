@@ -9,6 +9,7 @@ signal connection_state_changed(state: Dictionary)
 
 const GameTypes = preload("res://src/core/common/game_types.gd")
 const Rational = preload("res://src/core/common/rational.gd")
+const AbilityCatalog = preload("res://src/core/abilities/ability_catalog.gd")
 const AbilityDefinition = preload("res://src/core/abilities/ability_definition.gd")
 const NormalHandDefinition = preload("res://src/core/scoring/normal_hand_definition.gd")
 const ContextHandDefinition = preload("res://src/core/scoring/context_hand_definition.gd")
@@ -543,7 +544,7 @@ func _build_config(active_ids: Array) -> MatchConfig:
 			GameTypes.Phase.END: int(_settings.end_timer_msec),
 		}, int(_settings.reaction_window_msec),
 		int(_settings.public_hard_limit_msec), int(_settings.reconnect_grace_msec),
-		_placeholder_abilities(), _placeholder_normal_hands(), _placeholder_context_hands()
+		_default_abilities(), _placeholder_normal_hands(), _placeholder_context_hands()
 	)
 
 
@@ -614,8 +615,10 @@ func _ability_catalog(definitions: Array) -> Dictionary:
 		if not definition is Dictionary:
 			continue
 		var id := str(definition.get("id", ""))
+		var display_name := str(definition.get("display_name", ""))
 		result[id] = {
-			"label": id.replace("_", " ").capitalize(),
+			"label": display_name if not display_name.is_empty() else id.replace("_", " ").capitalize(),
+			"rules_text": str(definition.get("rules_text", "")),
 			"timing": int(definition.get("timing", -1)),
 			"tags": definition.get("tags", []).duplicate(true),
 			"effect_id": str(definition.get("effect_id", "noop")),
@@ -624,15 +627,8 @@ func _ability_catalog(definitions: Array) -> Dictionary:
 	return result
 
 
-func _placeholder_abilities() -> Array[AbilityDefinition]:
-	var result: Array[AbilityDefinition] = []
-	for index in range(64):
-		var timing := index % 4
-		result.append(AbilityDefinition.new(
-			StringName("placeholder_ability_%02d" % (index + 1)), timing, [], &"noop",
-			1 if timing == AbilityDefinition.Timing.FIELD else 0
-		))
-	return result
+func _default_abilities() -> Array[AbilityDefinition]:
+	return AbilityCatalog.manipulation_definitions(2)
 
 
 func _placeholder_normal_hands() -> Array[NormalHandDefinition]:

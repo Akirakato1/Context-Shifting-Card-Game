@@ -17,6 +17,7 @@ const FORBIDDEN_PUBLIC_KEYS := [
 	"card_id", "copy_id", "ability_hand", "private_hand", "private_abilities",
 	"pending_manipulation", "staged_submission", "rng_state", "base_context",
 	"base_rank", "base_suit", "request", "discarded_ability_ids",
+	"completed_manipulation_ids",
 ]
 
 
@@ -82,6 +83,45 @@ func test_player_snapshot_contains_only_that_players_private_values() -> void:
 		assert_true(card.has("eligible_half_indexes"))
 	for ability in snapshot.private_abilities:
 		assert_false(ability.legal)
+
+
+func test_manipulation_targets_and_random_results_are_owner_private() -> void:
+	var state := _state(GameTypes.InformationVisibility.PUBLIC)
+	state.phase = GameTypes.Phase.HAND_PLAY
+	var owner_player = state.players[&"one"]
+	var card = owner_player.hand[0]
+	var secret_card_id := str(card.card_id)
+	var secret_copy_id := str(owner_player.ability_hand[0].copy_id)
+	if not card.first.is_joker():
+		card.first.apply_overrides(
+			GameTypes.Context.FALL, 10, GameTypes.Suit.THREE
+		)
+	owner_player.pending_manipulation = {"copy_id": secret_copy_id}
+	owner_player.completed_manipulation_ids.assign([&"low_roll"])
+
+	var owner := SnapshotProjector.for_recipient(
+		state, &"one", GameTypes.RecipientRole.ACTIVE_PLAYER
+	)
+	var opponent := SnapshotProjector.for_recipient(
+		state, &"two", GameTypes.RecipientRole.ACTIVE_PLAYER
+	)
+	var spectator := SnapshotProjector.for_recipient(
+		state, &"watcher", GameTypes.RecipientRole.SPECTATOR
+	)
+	var owner_text := JSON.stringify(owner)
+	var opponent_text := JSON.stringify(opponent)
+	var spectator_text := JSON.stringify(spectator)
+
+	assert_true(owner_text.contains(secret_card_id))
+	assert_true(owner_text.contains(secret_copy_id))
+	assert_eq(owner.private_staging.completed_manipulation_ids, ["low_roll"])
+	assert_false(owner_text.contains("choices"))
+	assert_false(owner_text.contains("target_card_id"))
+	assert_false(owner_text.contains("original_value"))
+	assert_false(opponent_text.contains(secret_card_id))
+	assert_false(opponent_text.contains(secret_copy_id))
+	assert_false(spectator_text.contains(secret_card_id))
+	_assert_no_forbidden_keys(spectator)
 
 
 func test_player_lists_follow_seat_order_before_spectators() -> void:
