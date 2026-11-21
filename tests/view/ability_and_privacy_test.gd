@@ -52,8 +52,6 @@ func test_targeting_overlay_collects_multistep_choices_dims_and_cancels_safely()
 	assert_eq(overlay.current_step_index(), 1)
 	assert_eq(overlay.get_node("Panel/Layout/Prompt").text, "Choose a mode")
 	overlay.select_value("raise")
-	assert_false(overlay.get_node("Panel/Layout/CommitButton").disabled)
-	overlay.get_node("Panel/Layout/CommitButton").pressed.emit()
 	assert_eq(commits, [{"cards": ["c1", "c2"], "mode": ["raise"]}])
 	assert_false(overlay.visible)
 
@@ -62,6 +60,134 @@ func test_targeting_overlay_collects_multistep_choices_dims_and_cancels_safely()
 	assert_eq(closes[-1], &"cancelled")
 	assert_true(commits.size() == 1)
 	await _unmount(overlay)
+
+
+func test_fixed_targeting_auto_commits_after_final_required_choice() -> void:
+	var overlay = await _mount(TARGETING_OVERLAY_PATH)
+	if overlay == null:
+		return
+	var commits: Array[Dictionary] = []
+	overlay.commit_requested.connect(func(choices: Dictionary): commits.append(choices))
+	var hand := _private_cards(2)
+	overlay.begin({"steps": [{
+		"key": "cards", "kind": "full_card", "count": 1,
+		"prompt": "Select 1 full card",
+	}]}, hand)
+	overlay.select_value("c1")
+	assert_eq(commits, [{"cards": ["c1"]}])
+	assert_false(overlay.visible)
+
+	overlay.begin({"steps": [
+		{"key": "cards", "kind": "full_card", "count": 1},
+		{"key": "suit", "kind": "suit", "count": 1, "eligible": [0, 1, 2]},
+	]}, hand)
+	overlay.select_value("c2")
+	assert_true(overlay.visible)
+	assert_eq(overlay.current_step_index(), 1)
+	overlay.select_value(2)
+	assert_eq(commits[-1], {"cards": ["c2"], "suit": [2]})
+	assert_false(overlay.visible)
+	await _unmount(overlay)
+
+
+func test_variable_targeting_toggles_one_to_max_and_requires_activate() -> void:
+	var overlay = await _mount(TARGETING_OVERLAY_PATH)
+	if overlay == null:
+		return
+	var commits: Array[Dictionary] = []
+	overlay.commit_requested.connect(func(choices: Dictionary): commits.append(choices))
+	var hand := _private_cards(7)
+	overlay.begin({"steps": [{
+		"key": "cards", "kind": "full_card", "min_count": 1, "max_count": 6,
+	}]}, hand)
+	overlay.select_value("c1")
+	assert_true(overlay.visible, "minimum count must not auto-commit a variable workflow")
+	assert_false(overlay.get_node("Panel/Layout/CommitButton").disabled)
+	overlay.select_value("c1")
+	assert_true(overlay.get_node("Panel/Layout/CommitButton").disabled)
+	for index in range(1, 7):
+		overlay.select_value("c%d" % index)
+	overlay.select_value("c7")
+	assert_eq(overlay.selected_values().size(), 6)
+	overlay.get_node("Panel/Layout/CommitButton").pressed.emit()
+	assert_eq(commits[-1].cards.size(), 6)
+
+	overlay.begin({"steps": [{
+		"key": "halves", "kind": "half_card", "min_count": 1, "max_count": 12,
+	}]}, hand)
+	for card_index in range(1, 8):
+		for half_index in range(2):
+			overlay.select_value({"card_id": "c%d" % card_index, "half_index": half_index})
+	assert_eq(overlay.selected_values().size(), 12)
+	await _unmount(overlay)
+
+
+func test_targeting_cancel_before_activation_does_not_commit() -> void:
+	var overlay = await _mount(TARGETING_OVERLAY_PATH)
+	if overlay == null:
+		return
+	var commits: Array[Dictionary] = []
+	overlay.commit_requested.connect(func(choices: Dictionary): commits.append(choices))
+	overlay.begin({"steps": [{
+		"key": "cards", "kind": "full_card", "min_count": 1, "max_count": 6,
+	}]}, _private_cards(2))
+	overlay.select_value("c1")
+	overlay.get_node("Panel/Layout/CancelButton").pressed.emit()
+	assert_true(commits.is_empty())
+	assert_false(overlay.visible)
+	await _unmount(overlay)
+
+
+func test_ability_drawer_displays_name_and_rules_text() -> void:
+	var panel = await _mount(ABILITY_PANEL_PATH)
+	if panel == null:
+		return
+	panel.render(
+		[{"copy_id": "mirror-copy", "ability_id": "mirror_rank"}], 3,
+		{"mirror_rank": {
+			"label": "Mirror Rank", "rules_text": "Mirror both ranks from 1 through 10.",
+			"timing": 0, "choice_schema": {},
+		}}, false
+	)
+	var button: Button = panel.get_node("Drawer/Layout/Cards").get_child(0)
+	assert_true(button.text.contains("Mirror Rank"))
+	assert_true(button.text.contains("Mirror both ranks"))
+	await _unmount(panel)
+
+
+func test_rejected_manipulation_commit_restores_targeting_for_retry_or_cancel() -> void:
+	var match_screen = await _mount(MATCH_SCREEN_PATH)
+	if match_screen == null:
+		return
+	var intents: Array[Dictionary] = []
+	match_screen.intent_requested.connect(func(kind: StringName, payload: Dictionary):
+		intents.append({"kind": kind, "payload": payload})
+	)
+	var model := _active_model(3)
+	model.private_abilities = [{"copy_id": "mirror-copy", "ability_id": "mirror_rank"}]
+	model.ability_catalog = {
+		"mirror_rank": {
+			"label": "Mirror Rank", "rules_text": "Mirror both ranks.", "timing": 0,
+			"choice_schema": {"steps": [{
+				"key": "cards", "kind": "full_card", "count": 1,
+			}]},
+		},
+	}
+	match_screen.render(model)
+	match_screen.get_node("AbilityPanel").activate_ability(&"mirror-copy")
+	match_screen.get_node("TargetingOverlay").select_value("c1")
+	assert_eq(intents[-1], {
+		"kind": &"commit_manipulation", "payload": {"choices": {"cards": ["c1"]}},
+	})
+	match_screen.handle_command_result(
+		&"commit_manipulation", false, &"card_not_in_hand", 3
+	)
+	var overlay = match_screen.get_node("TargetingOverlay")
+	assert_true(overlay.visible)
+	assert_eq(overlay.selected_values(), ["c1"])
+	overlay.get_node("Panel/Layout/CancelButton").pressed.emit()
+	assert_eq(intents[-1], {"kind": &"cancel_manipulation", "payload": {}})
+	await _unmount(match_screen)
 
 
 func test_match_ability_targeting_marks_eligible_cards_and_commits_manipulation() -> void:
@@ -73,7 +199,7 @@ func test_match_ability_targeting_marks_eligible_cards_and_commits_manipulation(
 		intents.append({"kind": kind, "payload": payload})
 	)
 	var model := _active_model(3)
-	model["private_abilities"] = [{"copy_id": "manip-copy", "ability_id": "reshape"}]
+	model["private_abilities"] = [{"copy_id": "manip-copy", "ability_id": "suit_imprint"}]
 	model["ability_catalog"] = _catalog()
 	match_screen.render(model)
 	var panel = match_screen.get_node("AbilityPanel")
@@ -82,13 +208,11 @@ func test_match_ability_targeting_marks_eligible_cards_and_commits_manipulation(
 	assert_true(match_screen.get_node("TargetingOverlay").visible)
 	assert_true(match_screen.get_node("PhaseControls").card_widget(&"c1").targeting_eligible)
 	match_screen.get_node("TargetingOverlay").select_value("c1")
-	match_screen.get_node("TargetingOverlay").select_value(0)
-	match_screen.get_node("TargetingOverlay").select_value(0)
-	match_screen.get_node("TargetingOverlay").select_value(8)
 	match_screen.get_node("TargetingOverlay").select_value(1)
-	match_screen.get_node("TargetingOverlay/Panel/Layout/CommitButton").pressed.emit()
 	assert_eq(intents[-1].kind, &"commit_manipulation")
-	assert_eq(intents[-1].payload, {"card_id": "c1", "half_index": 0, "context": 0, "rank": 8, "suit": 1})
+	assert_eq(intents[-1].payload, {
+		"choices": {"cards": ["c1"], "suit": [1]},
+	})
 	assert_false(match_screen.get_node("TargetingOverlay").visible)
 	panel.activate_ability(&"manip-copy")
 	match_screen.get_node("TargetingOverlay/Panel/Layout/CancelButton").pressed.emit()
@@ -211,7 +335,7 @@ func test_public_ability_preserves_every_completed_choice_in_command_payload() -
 
 func _abilities() -> Array:
 	return [
-		{"copy_id": "manip-copy", "ability_id": "reshape"},
+		{"copy_id": "manip-copy", "ability_id": "suit_imprint"},
 		{"copy_id": "field-copy", "ability_id": "reverse_clock"},
 		{"copy_id": "buff-copy", "ability_id": "pair_boost"},
 		{"copy_id": "sabotage-copy", "ability_id": "pair_breaker"},
@@ -220,14 +344,11 @@ func _abilities() -> Array:
 
 func _catalog() -> Dictionary:
 	return {
-		"reshape": {
-			"label": "Reshape", "timing": 0,
+		"suit_imprint": {
+			"label": "Suit Imprint", "rules_text": "Change both ordinary halves to the chosen suit.", "timing": 0,
 			"choice_schema": {"steps": [
-				{"key": "card_id", "kind": "card", "count": 1, "eligible": ["c1", "c2"], "prompt": "Choose a card"},
-				{"key": "half_index", "kind": "enum", "count": 1, "eligible": [0, 1], "prompt": "Choose a half"},
-				{"key": "context", "kind": "enum", "count": 1, "eligible": [0, 1, 2], "prompt": "Choose context"},
-				{"key": "rank", "kind": "enum", "count": 1, "eligible": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], "prompt": "Choose rank"},
-				{"key": "suit", "kind": "enum", "count": 1, "eligible": [0, 1, 2], "prompt": "Choose suit"},
+				{"key": "cards", "kind": "full_card", "count": 1, "prompt": "Choose a card"},
+				{"key": "suit", "kind": "suit", "count": 1, "eligible": [0, 1, 2], "prompt": "Choose suit"},
 			]},
 		},
 		"reverse_clock": {"label": "Reverse Clock", "timing": 1, "choice_schema": {}},
@@ -259,6 +380,17 @@ func _active_model(phase: int) -> Dictionary:
 
 func _half(context: int, rank: int, suit: int) -> Dictionary:
 	return {"effective_context": context, "effective_rank": rank, "effective_suit": suit, "kind": 0}
+
+
+func _private_cards(count: int) -> Array:
+	var result: Array = []
+	for index in range(1, count + 1):
+		result.append({
+			"card_id": "c%d" % index,
+			"first": _half(0, index, 0),
+			"second": _half(1, index, 1),
+		})
+	return result
 
 
 func _control_tree_text(root: Node) -> String:

@@ -15,13 +15,21 @@ var _current_step := 0
 @onready var _commit: Button = $Panel/Layout/CommitButton
 
 
-func begin(workflow: Dictionary) -> void:
-	_steps = workflow.get("steps", []).duplicate(true)
+func begin(workflow: Dictionary, private_hand: Array = []) -> void:
+	_steps = _resolved_steps(workflow.get("steps", []), private_hand)
 	_choices.clear()
 	_current_step = 0
 	visible = not _steps.is_empty()
 	if visible:
 		_render_step()
+
+
+func reopen() -> void:
+	if _steps.is_empty():
+		return
+	_current_step = 0
+	visible = true
+	_render_step()
 
 
 func select_value(value: Variant) -> void:
@@ -32,26 +40,41 @@ func select_value(value: Variant) -> void:
 	if value not in eligible:
 		return
 	var key := str(step.get("key", "step_%d" % _current_step))
-	var selected: Array = _choices.get(key, [])
-	var required := maxi(int(step.get("count", 1)), 1)
-	if required == 1:
-		selected = [value]
-	elif value not in selected:
-		selected.append(value)
+	var selected: Array = _choices.get(key, []).duplicate(true)
+	if _is_variable(step):
+		if value in selected:
+			selected.erase(value)
+		elif selected.size() < int(step.get("max_count", 0)):
+			selected.append(value)
+	else:
+		var required := int(step.get("count", 1))
+		if required == 1:
+			selected = [value]
+		elif value not in selected and selected.size() < required:
+			selected.append(value)
 	_choices[key] = selected
-	selection_changed.emit(StringName(step.get("kind", "value")), eligible.duplicate(), selected.duplicate())
-	if selected.size() >= required and _current_step < _steps.size() - 1:
-		_current_step += 1
-		_render_step()
+	selection_changed.emit(
+		StringName(step.get("kind", "value")), eligible.duplicate(true),
+		selected.duplicate(true)
+	)
+	if not _is_variable(step) and selected.size() == int(step.get("count", 1)):
+		if _current_step < _steps.size() - 1:
+			_current_step += 1
+			_render_step()
+		else:
+			_commit_choices()
 	else:
 		_update_completion()
+		_update_remaining(step, selected.size())
 
 
 func selected_values() -> Array:
 	if _steps.is_empty() or _current_step >= _steps.size():
 		return []
 	var step: Dictionary = _steps[_current_step]
-	return _choices.get(str(step.get("key", "step_%d" % _current_step)), []).duplicate()
+	return _choices.get(
+		str(step.get("key", "step_%d" % _current_step)), []
+	).duplicate(true)
 
 
 func current_step_index() -> int:
@@ -73,34 +96,58 @@ func _render_step() -> void:
 	_prompt.text = str(step.get("prompt", "Choose a target"))
 	var key := str(step.get("key", "step_%d" % _current_step))
 	var selected: Array = _choices.get(key, [])
-	var required := maxi(int(step.get("count", 1)), 1)
-	_remaining.text = "%d remaining" % maxi(required - selected.size(), 0)
+	_update_remaining(step, selected.size())
 	var kind := str(step.get("kind", "value"))
 	var eligible: Array = step.get("eligible", [])
-	if kind != "card":
+	if kind not in ["card", "full_card", "half_card"]:
 		for value in eligible:
 			var button := Button.new()
 			button.text = str(value).replace("_", " ").capitalize()
 			button.pressed.connect(func(): select_value(value))
 			_options.add_child(button)
-	selection_changed.emit(StringName(kind), eligible.duplicate(), selected.duplicate())
+	selection_changed.emit(
+		StringName(kind), eligible.duplicate(true), selected.duplicate(true)
+	)
 	_update_completion()
+
+
+func _update_remaining(step: Dictionary, selected_count: int) -> void:
+	if _is_variable(step):
+		_remaining.text = "%d selected  ·  choose %d–%d" % [
+			selected_count, int(step.min_count), int(step.max_count),
+		]
+	else:
+		_remaining.text = "%d remaining" % maxi(
+			int(step.get("count", 1)) - selected_count, 0
+		)
 
 
 func _update_completion() -> void:
 	var complete := not _steps.is_empty()
+	var has_variable := false
 	for index in _steps.size():
 		var step: Dictionary = _steps[index]
 		var key := str(step.get("key", "step_%d" % index))
-		if _choices.get(key, []).size() < maxi(int(step.get("count", 1)), 1):
+		var selected_count: int = _choices.get(key, []).size()
+		if _is_variable(step):
+			has_variable = true
+			if (
+				selected_count < int(step.get("min_count", 0))
+				or selected_count > int(step.get("max_count", 0))
+			):
+				complete = false
+		elif selected_count != int(step.get("count", 1)):
 			complete = false
-			break
+	_commit.text = "ACTIVATE" if has_variable else "COMMIT"
 	_commit.disabled = not complete
 
 
 func _on_commit_pressed() -> void:
-	if _commit.disabled:
-		return
+	if not _commit.disabled:
+		_commit_choices()
+
+
+func _commit_choices() -> void:
 	var result := _choices.duplicate(true)
 	visible = false
 	commit_requested.emit(result)
@@ -109,3 +156,35 @@ func _on_commit_pressed() -> void:
 
 func _on_cancel_pressed() -> void:
 	cancel()
+
+
+func _resolved_steps(raw_steps: Variant, private_hand: Array) -> Array:
+	if not raw_steps is Array:
+		return []
+	var card_ids: Array = []
+	var half_targets: Array = []
+	for card in private_hand:
+		if not card is Dictionary:
+			continue
+		var card_id := str(card.get("card_id", ""))
+		if card_id.is_empty():
+			continue
+		card_ids.append(card_id)
+		for half_index in range(2):
+			half_targets.append({"card_id": card_id, "half_index": half_index})
+	var result: Array = []
+	for raw_step in raw_steps:
+		if not raw_step is Dictionary:
+			continue
+		var step: Dictionary = raw_step.duplicate(true)
+		var kind := str(step.get("kind", "value"))
+		if kind == "full_card" or (kind == "card" and not step.has("eligible")):
+			step["eligible"] = card_ids.duplicate()
+		elif kind == "half_card":
+			step["eligible"] = half_targets.duplicate(true)
+		result.append(step)
+	return result
+
+
+func _is_variable(step: Dictionary) -> bool:
+	return not step.has("count") and step.has("min_count") and step.has("max_count")

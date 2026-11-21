@@ -4,6 +4,7 @@ extends PanelContainer
 signal primary_clicked(card_id: StringName)
 signal orientation_requested(card_id: StringName)
 signal half_choice_requested(card_id: StringName, half_index: int)
+signal half_target_requested(card_id: StringName, half_index: int)
 signal joker_choice_changed(card_id: StringName, half_index: int, context: int, suit: int)
 signal reorder_requested(card_id: StringName, delta: int)
 
@@ -17,6 +18,9 @@ var interaction_disabled := false
 var orientation_flipped := false
 var targeting_eligible := false
 var targeting_selected := false
+var targeting_kind: StringName = &""
+var targeting_half_eligible: Array[bool] = [false, false]
+var targeting_half_selected: Array[bool] = [false, false]
 var _card: Dictionary = {}
 var _staged := false
 
@@ -61,6 +65,13 @@ func render(
 	_staged = bool(view_state.get("staged", false))
 	targeting_eligible = bool(view_state.get("targeting_eligible", false))
 	targeting_selected = bool(view_state.get("targeting_selected", false))
+	targeting_kind = StringName(view_state.get("targeting_kind", ""))
+	targeting_half_eligible.assign(view_state.get(
+		"targeting_half_eligible", [false, false]
+	))
+	targeting_half_selected.assign(view_state.get(
+		"targeting_half_selected", [false, false]
+	))
 	_order_controls.visible = bool(view_state.get("reorder_enabled", false)) and not hidden
 	_move_left.disabled = interaction_disabled
 	_move_right.disabled = interaction_disabled
@@ -90,6 +101,7 @@ func render(
 	_apply_joker_choices(first, second, view_state)
 	_apply_orientation()
 	_apply_active_style()
+	_apply_half_targeting_style()
 	if targeting_selected:
 		modulate = Color("ffd45a")
 	elif targeting_eligible:
@@ -103,6 +115,8 @@ func _gui_input(event: InputEvent) -> void:
 		return
 	if event is InputEventMouseButton and event.pressed:
 		if event.button_index == MOUSE_BUTTON_LEFT:
+			if targeting_kind == &"half_card":
+				return
 			primary_clicked.emit(StringName(card_id))
 			accept_event()
 		elif event.button_index == MOUSE_BUTTON_RIGHT:
@@ -152,6 +166,19 @@ func _apply_active_style() -> void:
 	var active := Color("ffd166")
 	_first.modulate = active if active_half_index == 0 else normal
 	_second.modulate = active if active_half_index == 1 else normal
+
+
+func _apply_half_targeting_style() -> void:
+	if targeting_kind != &"half_card":
+		return
+	for index in range(2):
+		var label: Label = _first if index == 0 else _second
+		if targeting_half_selected[index]:
+			label.modulate = Color("ffd45a")
+		elif targeting_half_eligible[index]:
+			label.modulate = Color("77e8ff")
+		else:
+			label.modulate = Color("46505d")
 
 
 func _apply_joker_choices(first: Dictionary, second: Dictionary, view_state: Dictionary) -> void:
@@ -230,7 +257,12 @@ func _handle_half_gui_input(event: InputEvent, half_index: int) -> void:
 	if interaction_disabled or face_down:
 		return
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-		if _staged:
+		if targeting_kind == &"half_card":
+			if targeting_half_eligible[half_index]:
+				half_target_requested.emit(StringName(card_id), half_index)
+		elif targeting_kind in [&"full_card", &"card"]:
+			primary_clicked.emit(StringName(card_id))
+		elif _staged:
 			half_choice_requested.emit(StringName(card_id), half_index)
 		else:
 			primary_clicked.emit(StringName(card_id))

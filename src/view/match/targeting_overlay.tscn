@@ -82,7 +82,7 @@ text = "CANCEL"
 [node name="CommitButton" type="Button" parent="Panel/Layout"]
 layout_mode = 2
 disabled = true
-text = "COMMIT"
+text = "ACTIVATE"
 
 [connection signal="pressed" from="Panel/Layout/CancelButton" to="." method="_on_cancel_pressed"]
 [connection signal="pressed" from="Panel/Layout/CommitButton" to="." method="_on_commit_pressed"]

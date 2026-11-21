@@ -173,6 +173,73 @@ func test_same_phase_snapshot_reconciles_only_when_authoritative_staging_changes
 	await _unmount(controls)
 
 
+func test_full_card_targeting_includes_hand_row_and_submission_shelf() -> void:
+	var controls = await _mount_controls()
+	if controls == null:
+		return
+	var targets: Array[StringName] = []
+	controls.card_target_requested.connect(func(card_id: StringName): targets.append(card_id))
+	controls.render(_model(3, _hand(), {}))
+	controls.click_card(&"c1")
+	controls.set_targeting(&"full_card", ["c1", "c2"])
+
+	assert_true(controls.has_staged_card(&"c1"))
+	assert_true(controls.card_widget(&"c1").targeting_eligible)
+	assert_true(controls.card_widget(&"c2").targeting_eligible)
+	controls.click_card(&"c1")
+	controls.click_card(&"c2")
+	assert_eq(targets, [&"c1", &"c2"])
+	await _unmount(controls)
+
+
+func test_half_targeting_selects_individual_halves_without_changing_staged_half_choice() -> void:
+	var controls = await _mount_controls()
+	if controls == null:
+		return
+	var targets: Array[Dictionary] = []
+	controls.half_target_requested.connect(func(card_id: StringName, half_index: int):
+		targets.append({"card_id": str(card_id), "half_index": half_index})
+	)
+	controls.render(_model(3, _hand(), {}))
+	controls.click_card(&"c2")
+	var staged_before: Dictionary = controls.staged_selection(&"c2")
+	controls.set_targeting(&"half_card", [
+		{"card_id": "c2", "half_index": 0},
+		{"card_id": "c2", "half_index": 1},
+	])
+	var click := InputEventMouseButton.new()
+	click.button_index = MOUSE_BUTTON_LEFT
+	click.pressed = true
+	controls.card_widget(&"c2")._handle_half_gui_input(click, 0)
+	controls.card_widget(&"c2")._handle_half_gui_input(click, 1)
+
+	assert_eq(targets, [
+		{"card_id": "c2", "half_index": 0},
+		{"card_id": "c2", "half_index": 1},
+	])
+	assert_eq(controls.staged_selection(&"c2"), staged_before)
+	await _unmount(controls)
+
+
+func test_targeting_marks_selected_halves_and_dims_non_targets() -> void:
+	var controls = await _mount_controls()
+	if controls == null:
+		return
+	controls.render(_model(3, _hand(), {}))
+	controls.set_targeting(&"half_card", [
+		{"card_id": "c1", "half_index": 0},
+		{"card_id": "c1", "half_index": 1},
+	], [{"card_id": "c1", "half_index": 1}])
+	var target_widget = controls.card_widget(&"c1")
+	var dimmed_widget = controls.card_widget(&"c2")
+	assert_eq(target_widget.targeting_half_eligible, [true, true])
+	assert_eq(target_widget.targeting_half_selected, [false, true])
+	assert_false(target_widget.interaction_disabled)
+	assert_true(dimmed_widget.interaction_disabled)
+	assert_ne(target_widget.get_node("Face/Second").modulate, target_widget.get_node("Face/First").modulate)
+	await _unmount(controls)
+
+
 func test_end_discard_requires_exact_excess_and_timeout_notice_is_authoritative() -> void:
 	var controls = await _mount_controls()
 	if controls == null:

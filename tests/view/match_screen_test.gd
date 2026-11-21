@@ -114,6 +114,40 @@ func test_context_score_progress_fields_and_nil_round_render_clearly() -> void:
 	await _unmount(table)
 
 
+func test_commit_payload_contains_only_structured_choices() -> void:
+	var table = await _mount_match()
+	if table == null:
+		return
+	var intents: Array[Dictionary] = []
+	table.intent_requested.connect(func(kind: StringName, payload: Dictionary):
+		intents.append({"kind": kind, "payload": payload})
+	)
+	var model := _active_player_model()
+	model.private_abilities = [{"copy_id": "mirror-copy", "ability_id": "mirror_rank"}]
+	model.ability_catalog = {
+		"mirror_rank": {
+			"label": "Mirror Rank", "rules_text": "Mirror both ranks.", "timing": 0,
+			"choice_schema": {"steps": [{
+				"key": "cards", "kind": "full_card", "count": 1,
+			}]},
+		},
+	}
+	model.private_staging = {
+		"pending_manipulation": {}, "completed_manipulation_ids": [],
+		"staged_submission": [], "hand_locked": false,
+	}
+	table.render(model)
+	table.get_node("AbilityPanel").activate_ability(&"mirror-copy")
+	table.get_node("TargetingOverlay").select_value("c1")
+
+	assert_eq(intents[-1], {
+		"kind": &"commit_manipulation",
+		"payload": {"choices": {"cards": ["c1"]}},
+	})
+	assert_eq(intents[-1].payload.keys(), ["choices"])
+	await _unmount(table)
+
+
 func _active_player_model() -> Dictionary:
 	return {
 		"round_number": 4,

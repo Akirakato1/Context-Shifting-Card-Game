@@ -3,6 +3,7 @@ extends VBoxContainer
 
 signal intent_requested(kind: StringName, payload: Dictionary)
 signal card_target_requested(card_id: StringName)
+signal half_target_requested(card_id: StringName, half_index: int)
 
 const CARD_SCENE := preload("res://src/view/match/card_widget.tscn")
 const PHASE_START := 1
@@ -28,8 +29,9 @@ var _last_start_request: Dictionary = {}
 var _confirmed_start_request: Dictionary = {}
 var _input_locked := false
 var _targeting := false
-var _target_eligible: Array[StringName] = []
-var _target_selected: Array[StringName] = []
+var _target_kind: StringName = &""
+var _target_eligible: Array = []
+var _target_selected: Array = []
 var _authoritative_staging_signature := ""
 
 @onready var _status: Label = $Status
@@ -100,7 +102,7 @@ func render(model: Dictionary) -> void:
 
 func click_card(card_id: StringName) -> void:
 	if _targeting:
-		if card_id in _target_eligible:
+		if _target_kind in [&"card", &"full_card"] and str(card_id) in _target_eligible:
 			card_target_requested.emit(card_id)
 		return
 	if _input_locked or _phase != PHASE_HAND_PLAY or _pending.has(&"stage_hand") or _pending.has(&"lock_hand"):
@@ -120,6 +122,11 @@ func click_card(card_id: StringName) -> void:
 
 
 func choose_half(card_id: StringName, half_index: int) -> void:
+	if _targeting:
+		var target := {"card_id": str(card_id), "half_index": half_index}
+		if _target_kind == &"half_card" and target in _target_eligible:
+			half_target_requested.emit(card_id, half_index)
+		return
 	if not _staged.has(card_id) or half_index < 0 or half_index > 1:
 		return
 	if not _half_index_is_eligible(_hand_cards[card_id], half_index):
@@ -201,20 +208,18 @@ func inputs_locked() -> bool:
 	return _input_locked
 
 
-func set_targeting(eligible: Array, selected: Array = []) -> void:
+func set_targeting(kind: StringName, eligible: Array, selected: Array = []) -> void:
 	_targeting = true
-	_target_eligible.clear()
-	_target_selected.clear()
-	for value in eligible:
-		_target_eligible.append(StringName(value))
-	for value in selected:
-		_target_selected.append(StringName(value))
+	_target_kind = kind
+	_target_eligible = eligible.duplicate(true)
+	_target_selected = selected.duplicate(true)
 	if _phase == PHASE_HAND_PLAY:
 		_render_hand_play()
 
 
 func clear_targeting() -> void:
 	_targeting = false
+	_target_kind = &""
 	_target_eligible.clear()
 	_target_selected.clear()
 	if _phase == PHASE_HAND_PLAY:
@@ -338,26 +343,48 @@ func _make_card_widget(
 	var widget = CARD_SCENE.instantiate()
 	parent.add_child(widget)
 	var selection: Dictionary = _staged.get(card_id, {})
+	var full_card_value := str(card_id)
+	var full_card_eligible := (
+		_targeting and _target_kind in [&"card", &"full_card"]
+		and full_card_value in _target_eligible
+	)
+	var full_card_selected := full_card_eligible and full_card_value in _target_selected
+	var half_eligible: Array[bool] = [false, false]
+	var half_selected: Array[bool] = [false, false]
+	if _targeting and _target_kind == &"half_card":
+		for half_index in range(2):
+			var half_target := {"card_id": full_card_value, "half_index": half_index}
+			half_eligible[half_index] = half_target in _target_eligible
+			half_selected[half_index] = half_target in _target_selected
+	var has_target := full_card_eligible or half_eligible[0] or half_eligible[1]
 	widget.render(_hand_cards[card_id], active_context, false, {
 		"staged": staged,
 		"selected_half_index": selection.get("half_index", _default_half_index_for_card(card_id)),
 		"joker_choices": selection.get("joker_choices", []),
 		"orientation_flipped": bool(_orientations.get(card_id, false)),
 		"interaction_disabled": (
-			_input_locked or locked or (_targeting and card_id not in _target_eligible)
+			_input_locked or locked or (_targeting and not has_target)
 			or (not _targeting and not staged and not _card_is_eligible(_hand_cards[card_id]))
 		),
-		"targeting_eligible": _targeting and card_id in _target_eligible,
-		"targeting_selected": _targeting and card_id in _target_selected,
+		"targeting_kind": _target_kind,
+		"targeting_eligible": full_card_eligible,
+		"targeting_selected": full_card_selected,
+		"targeting_half_eligible": half_eligible,
+		"targeting_half_selected": half_selected,
 		"reorder_enabled": not _targeting and not locked,
 	})
 	widget.primary_clicked.connect(click_card)
 	widget.orientation_requested.connect(right_click_card)
 	widget.half_choice_requested.connect(choose_half)
+	widget.half_target_requested.connect(_on_half_target_requested)
 	widget.joker_choice_changed.connect(set_joker_choice)
 	widget.reorder_requested.connect(move_card)
 	_card_widgets[card_id] = widget
 	return widget
+
+
+func _on_half_target_requested(card_id: StringName, half_index: int) -> void:
+	choose_half(card_id, half_index)
 
 
 func _clear_card_nodes() -> void:

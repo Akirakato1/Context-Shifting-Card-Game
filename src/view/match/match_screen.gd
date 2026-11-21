@@ -43,6 +43,7 @@ func _ready() -> void:
 	if not _phase_controls.intent_requested.is_connected(_on_phase_intent_requested):
 		_phase_controls.intent_requested.connect(_on_phase_intent_requested)
 	_phase_controls.card_target_requested.connect(_targeting_overlay.select_value)
+	_phase_controls.half_target_requested.connect(_on_half_target_requested)
 	_ability_panel.ability_activated.connect(_on_ability_activated)
 	_targeting_overlay.commit_requested.connect(_on_targeting_commit_requested)
 	_targeting_overlay.closed.connect(_on_targeting_closed)
@@ -72,8 +73,24 @@ func handle_command_result(
 	authoritative_phase: int
 ) -> void:
 	_phase_controls.handle_command_result(kind, accepted, error_code, authoritative_phase)
-	if kind == &"stage_manipulation" and not accepted and _targeting_overlay.visible:
-		_targeting_overlay.cancel(&"rejected")
+	if kind == &"stage_manipulation" and not accepted:
+		if _targeting_overlay.visible:
+			_targeting_overlay.cancel(&"rejected")
+		else:
+			_phase_controls.clear_targeting()
+			_clear_active_ability()
+	elif kind == &"commit_manipulation":
+		if accepted:
+			_phase_controls.clear_targeting()
+			_clear_active_ability()
+		elif (
+			authoritative_phase == int(_model.get("phase", -1))
+			and _active_ability_still_legal()
+		):
+			_targeting_overlay.reopen()
+		else:
+			_phase_controls.clear_targeting()
+			_clear_active_ability()
 
 
 func _render_header() -> void:
@@ -196,8 +213,12 @@ func _render_abilities() -> void:
 			_model.get("ability_catalog", {}), bool(_model.get("frozen", false))
 		)
 	_render_ability_history()
-	if _targeting_overlay.visible and not _active_ability_still_legal():
-		_targeting_overlay.cancel(&"interrupted")
+	if not _active_ability.is_empty() and not _active_ability_still_legal():
+		if _targeting_overlay.visible:
+			_targeting_overlay.cancel(&"interrupted")
+		else:
+			_phase_controls.clear_targeting()
+			_clear_active_ability()
 
 
 func _render_ability_history() -> void:
@@ -258,24 +279,18 @@ func _on_ability_activated(copy_id: StringName, ability: Dictionary) -> void:
 	var workflow: Dictionary = ability.get("choice_schema", {})
 	if timing == 0:
 		intent_requested.emit(&"stage_manipulation", {"copy_id": str(copy_id)})
-		_targeting_overlay.begin(workflow)
+		_targeting_overlay.begin(workflow, _model.get("private_hand", []))
 	elif workflow.get("steps", []).is_empty():
 		intent_requested.emit(&"play_public_ability", {"copy_id": str(copy_id), "target_player_id": ""})
 		_clear_active_ability()
 	else:
-		_targeting_overlay.begin(workflow)
+		_targeting_overlay.begin(workflow, _model.get("private_hand", []))
 
 
 func _on_targeting_commit_requested(choices: Dictionary) -> void:
 	var timing := int(_active_ability.get("timing", -1))
 	if timing == 0:
-		intent_requested.emit(&"commit_manipulation", {
-			"card_id": str(_single_choice(choices, "card_id", "")),
-			"half_index": int(_single_choice(choices, "half_index", 0)),
-			"context": int(_single_choice(choices, "context", 0)),
-			"rank": int(_single_choice(choices, "rank", 1)),
-			"suit": int(_single_choice(choices, "suit", 0)),
-		})
+		intent_requested.emit(&"commit_manipulation", {"choices": choices.duplicate(true)})
 	else:
 		intent_requested.emit(&"play_public_ability", {
 			"copy_id": str(_active_copy_id),
@@ -285,8 +300,8 @@ func _on_targeting_commit_requested(choices: Dictionary) -> void:
 
 
 func _on_targeting_selection_changed(kind: StringName, eligible: Array, selected: Array) -> void:
-	if kind == &"card":
-		_phase_controls.set_targeting(eligible, selected)
+	if kind in [&"card", &"full_card", &"half_card"]:
+		_phase_controls.set_targeting(kind, eligible, selected)
 	else:
 		_phase_controls.clear_targeting()
 
@@ -295,7 +310,12 @@ func _on_targeting_closed(reason: StringName) -> void:
 	_phase_controls.clear_targeting()
 	if reason == &"cancelled" and int(_active_ability.get("timing", -1)) == 0:
 		intent_requested.emit(&"cancel_manipulation", {})
-	_clear_active_ability()
+	if reason != &"committed":
+		_clear_active_ability()
+
+
+func _on_half_target_requested(card_id: StringName, half_index: int) -> void:
+	_targeting_overlay.select_value({"card_id": str(card_id), "half_index": half_index})
 
 
 func _on_connection_action_pressed() -> void:

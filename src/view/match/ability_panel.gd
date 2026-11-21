@@ -37,9 +37,10 @@ func render(abilities: Array, phase: int, catalog: Dictionary, input_locked: boo
 		if legal:
 			_legal_ids.append(copy_id)
 		var button := Button.new()
-		button.text = "%s\n%s" % [
+		button.text = "%s\n%s\n%s" % [
 			str(model.get("label", ability_id.replace("_", " ").capitalize())),
 			_timing_name(int(model.get("timing", -1))),
+			str(model.get("rules_text", "")),
 		]
 		button.disabled = not legal or _input_locked
 		button.gui_input.connect(func(event: InputEvent): _on_ability_gui_input(event, button))

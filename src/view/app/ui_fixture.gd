@@ -47,18 +47,20 @@ func _fixture_model() -> Dictionary:
 		"phase_deadline_msec": 30000, "now_msec": 12400, "reaction_deadline_msec": -1,
 		"private_player_id": "p1", "private_hand": hand,
 		"private_abilities": [
-			{"copy_id": "a1", "ability_id": "reshape"},
+			{"copy_id": "a1", "ability_id": "mirror_rank"},
 			{"copy_id": "a2", "ability_id": "pair_boost"},
 			{"copy_id": "a3", "ability_id": "reverse_clock"},
 		],
 		"ability_catalog": {
-			"reshape": {"label": "Reshape", "timing": 0, "choice_schema": {"steps": [
-				{"key": "card_id", "kind": "card", "count": 1, "eligible": ["c1", "c2", "c4"], "prompt": "Choose a card to reshape"},
+			"mirror_rank": {
+				"label": "Mirror Rank", "rules_text": "Select 1 full card. Mirror both ranks: 1↔10 through 5↔6.",
+				"timing": 0, "choice_schema": {"steps": [
+				{"key": "cards", "kind": "full_card", "count": 1, "prompt": "Select 1 full card"},
 			]}},
-			"pair_boost": {"label": "Pair Boost", "timing": 2, "choice_schema": {}},
-			"reverse_clock": {"label": "Reverse Clock", "timing": 1, "choice_schema": {}},
+			"pair_boost": {"label": "Pair Boost", "rules_text": "Fixture buff.", "timing": 2, "choice_schema": {}},
+			"reverse_clock": {"label": "Reverse Clock", "rules_text": "Fixture field.", "timing": 1, "choice_schema": {}},
 		},
-		"private_staging": {"pending_manipulation": {}, "staged_submission": [], "hand_locked": false},
+		"private_staging": {"pending_manipulation": {}, "completed_manipulation_ids": [], "staged_submission": [], "hand_locked": false},
 		"players": [
 			_player("p1", "Mira", 0, 36, 2, 6, false),
 			_player("p2", "North Star", 1, 24, 1, 6, true),
