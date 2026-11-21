@@ -22,7 +22,7 @@ func test_joker_staging_lock_and_reveal_use_sanitized_resolved_faces() -> void:
 	var controller := MatchController.new(state)
 	var choices := [{
 		"half_index": 0,
-		"context": GameTypes.Context.C,
+		"context": GameTypes.Context.FALL,
 		"suit": GameTypes.Suit.THREE,
 	}]
 
@@ -43,11 +43,11 @@ func test_joker_staging_lock_and_reveal_use_sanitized_resolved_faces() -> void:
 	assert_eq(player.submitted_faces[0].suit, GameTypes.Suit.THREE)
 	assert_eq(player.submitted_card_views.size(), 1)
 	var resolved_joker: Dictionary = player.submitted_card_views[0]["halves"][0]
-	assert_eq(resolved_joker["context"], GameTypes.Context.C)
+	assert_eq(resolved_joker["context"], GameTypes.Context.FALL)
 	assert_eq(resolved_joker["rank"], 0)
 	assert_eq(resolved_joker["suit"], GameTypes.Suit.THREE)
 	assert_eq(resolved_joker["joker"], true)
-	assert_eq(joker.first.base_context, GameTypes.Context.B)
+	assert_eq(joker.first.base_context, GameTypes.Context.FLOURISH)
 	assert_eq(joker.first.base_rank, 0)
 	assert_eq(joker.first.base_suit, HalfCardState.NO_SUIT)
 
@@ -66,7 +66,7 @@ func test_invalid_joker_replacement_preserves_previous_draft_and_missing_default
 	var controller := MatchController.new(state)
 	var valid := [_selection(joker.card_id, 0, [{
 		"half_index": 0,
-		"context": GameTypes.Context.A,
+		"context": GameTypes.Context.RISE,
 		"suit": GameTypes.Suit.ONE,
 	}])]
 	assert_true(controller.submit(_stage(&"valid", &"one", valid), 1).accepted)
@@ -81,7 +81,7 @@ func test_invalid_joker_replacement_preserves_previous_draft_and_missing_default
 	var invalid := controller.submit(_stage(
 		&"invalid", &"one", [_selection(joker.card_id, 0, [{
 			"half_index": 0,
-			"context": GameTypes.Context.A,
+			"context": GameTypes.Context.RISE,
 			"suit": 99,
 		}])]
 	), 3)
@@ -93,14 +93,14 @@ func test_double_joker_lock_resolves_independent_choices() -> void:
 	var state := _hand_play_state(73)
 	var card := FullCardState.new(
 		&"double-joker",
-		_joker_half(&"joker-a", GameTypes.Context.A),
-		_joker_half(&"joker-b", GameTypes.Context.B),
+		_joker_half(&"joker-a", GameTypes.Context.RISE),
+		_joker_half(&"joker-b", GameTypes.Context.FLOURISH),
 	)
 	state.players[&"one"].hand[0] = card
 	var controller := MatchController.new(state)
 	var choices := [
-		{"half_index": 0, "context": GameTypes.Context.A, "suit": GameTypes.Suit.ONE},
-		{"half_index": 1, "context": GameTypes.Context.C, "suit": GameTypes.Suit.TWO},
+		{"half_index": 0, "context": GameTypes.Context.RISE, "suit": GameTypes.Suit.ONE},
+		{"half_index": 1, "context": GameTypes.Context.FALL, "suit": GameTypes.Suit.TWO},
 	]
 	controller.submit(_stage(
 		&"stage-one", &"one", [_selection(card.card_id, 1, choices)]
@@ -111,10 +111,10 @@ func test_double_joker_lock_resolves_independent_choices() -> void:
 
 	var player = state.players[&"one"]
 	assert_eq(player.submitted_faces[0].suit, GameTypes.Suit.TWO)
-	assert_eq(player.locked_context.counts[GameTypes.Context.A], 1)
-	assert_eq(player.locked_context.counts[GameTypes.Context.C], 1)
-	assert_eq(player.submitted_card_views[0]["halves"][0]["context"], GameTypes.Context.A)
-	assert_eq(player.submitted_card_views[0]["halves"][1]["context"], GameTypes.Context.C)
+	assert_eq(player.locked_context.counts[GameTypes.Context.RISE], 1)
+	assert_eq(player.locked_context.counts[GameTypes.Context.FALL], 1)
+	assert_eq(player.submitted_card_views[0]["halves"][0]["context"], GameTypes.Context.RISE)
+	assert_eq(player.submitted_card_views[0]["halves"][1]["context"], GameTypes.Context.FALL)
 
 
 func test_replacing_or_passing_clears_staged_joker_choices() -> void:
@@ -127,7 +127,7 @@ func test_replacing_or_passing_clears_staged_joker_choices() -> void:
 	controller.submit(_stage(
 		&"joker", &"one", [_selection(joker.card_id, 0, [{
 			"half_index": 0,
-			"context": GameTypes.Context.B,
+			"context": GameTypes.Context.FLOURISH,
 			"suit": GameTypes.Suit.TWO,
 		}])]
 	), 1)
@@ -170,7 +170,7 @@ func test_round_cleanup_clears_resolved_views() -> void:
 	controller.submit(_stage(
 		&"stage-one", &"one", [_selection(joker.card_id, 0, [{
 			"half_index": 0,
-			"context": GameTypes.Context.A,
+			"context": GameTypes.Context.RISE,
 			"suit": GameTypes.Suit.ONE,
 		}])]
 	), 1)
@@ -192,7 +192,7 @@ func test_joker_manipulation_rejects_without_mutating_pending_action_or_clock() 
 	state.players[&"one"].ability_hand[0].definition = AbilityDefinition.new(
 		&"reshape", AbilityDefinition.Timing.HAND_MANIPULATION, [], &"manipulate_half",
 		0, &"", {}, {
-			"contexts": [GameTypes.Context.A, GameTypes.Context.B, GameTypes.Context.C],
+			"contexts": [GameTypes.Context.RISE, GameTypes.Context.FLOURISH, GameTypes.Context.FALL],
 			"ranks": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
 			"suits": [GameTypes.Suit.ONE, GameTypes.Suit.TWO, GameTypes.Suit.THREE],
 		}
@@ -208,7 +208,7 @@ func test_joker_manipulation_rejects_without_mutating_pending_action_or_clock() 
 		&"commit-joker", &"one", CommandKinds.COMMIT_MANIPULATION, {
 			"card_id": joker.card_id,
 			"half_index": 0,
-			"context": GameTypes.Context.A,
+			"context": GameTypes.Context.RISE,
 			"rank": 10,
 			"suit": GameTypes.Suit.ONE,
 		}
@@ -234,7 +234,7 @@ func test_explicit_lock_preserves_invalid_draft_but_timeout_defaults_it_to_pass(
 	), 1).accepted)
 	var staged_before: Array = state.players[&"one"].staged_submission.duplicate(true)
 	ordinary.first.apply_overrides(
-		GameTypes.Context.B, ordinary.first.effective_rank(), ordinary.first.effective_suit()
+		GameTypes.Context.FLOURISH, ordinary.first.effective_rank(), ordinary.first.effective_suit()
 	)
 
 	var rejected := controller.submit(_lock(&"explicit-lock", &"one"), 2)
@@ -253,14 +253,14 @@ func test_double_joker_choices_are_stored_in_half_index_order() -> void:
 	var state := _hand_play_state(79)
 	var card := FullCardState.new(
 		&"double-joker",
-		_joker_half(&"joker-a", GameTypes.Context.A),
-		_joker_half(&"joker-b", GameTypes.Context.B),
+		_joker_half(&"joker-a", GameTypes.Context.RISE),
+		_joker_half(&"joker-b", GameTypes.Context.FLOURISH),
 	)
 	state.players[&"one"].hand[0] = card
 	var controller := MatchController.new(state)
 	var reversed_choices := [
-		{"half_index": 1, "context": GameTypes.Context.C, "suit": GameTypes.Suit.THREE},
-		{"half_index": 0, "context": GameTypes.Context.A, "suit": GameTypes.Suit.ONE},
+		{"half_index": 1, "context": GameTypes.Context.FALL, "suit": GameTypes.Suit.THREE},
+		{"half_index": 0, "context": GameTypes.Context.RISE, "suit": GameTypes.Suit.ONE},
 	]
 	assert_true(controller.submit(_stage(
 		&"stage", &"one", [_selection(card.card_id, 1, reversed_choices)]
@@ -284,7 +284,7 @@ func _hand_play_state(seed_value: int) -> MatchState:
 	var context_definitions: Array[ContextHandDefinition] = [
 		ContextHandDefinition.new(
 			&"abc", 20,
-			{GameTypes.Context.A: 1, GameTypes.Context.B: 1, GameTypes.Context.C: 1},
+			{GameTypes.Context.RISE: 1, GameTypes.Context.FLOURISH: 1, GameTypes.Context.FALL: 1},
 			Rational.new(2, 1)
 		),
 	]
@@ -306,7 +306,7 @@ func _hand_play_state(seed_value: int) -> MatchState:
 func _joker_card(id: StringName, normal_context: int) -> FullCardState:
 	return FullCardState.new(
 		id,
-		_joker_half(StringName("%s-joker" % id), GameTypes.Context.B),
+		_joker_half(StringName("%s-joker" % id), GameTypes.Context.FLOURISH),
 		HalfCardState.new(
 			StringName("%s-normal" % id), normal_context, 5, GameTypes.Suit.ONE
 		),

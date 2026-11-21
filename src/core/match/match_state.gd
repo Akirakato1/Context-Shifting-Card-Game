@@ -22,7 +22,7 @@ var ability_deck: AbilityDeckState
 var players: Dictionary = {}
 var seat_order: Array[StringName] = []
 var round_number := 1
-var active_context := GameTypes.Context.A
+var active_context := GameTypes.Context.RISE
 var context_direction := GameTypes.ContextDirection.FORWARD
 var phase := GameTypes.Phase.START
 var winner_id: StringName = &""
@@ -461,7 +461,7 @@ func _deserialize_rational(data: Dictionary) -> Rational:
 
 func _build_piles() -> Dictionary:
 	var result := {}
-	for context in range(GameTypes.Context.A, GameTypes.Context.C + 1):
+	for context in range(GameTypes.Context.RISE, GameTypes.Context.FALL + 1):
 		var cards: Array[HalfCardState] = []
 		for rank in range(1, 11):
 			for suit in range(GameTypes.Suit.ONE, GameTypes.Suit.THREE + 1):

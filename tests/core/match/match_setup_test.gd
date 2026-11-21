@@ -54,18 +54,22 @@ func test_setup_uses_shared_piles_and_deals_opening_hands_then_start_abilities()
 	var state := MatchState.create(_config([&"one", &"two"], [&"watcher"]), 4242)
 
 	assert_eq(state.round_number, 1)
-	assert_eq(state.active_context, GameTypes.Context.A)
+	assert_eq(state.active_context, GameTypes.Context.RISE)
 	assert_eq(state.phase, GameTypes.Phase.START)
 	assert_eq(state.seat_order, [&"one", &"two"])
 	assert_eq(state.players.size(), 3)
 	assert_eq(state.players[&"watcher"].hand.size(), 0)
 	for player_id in state.seat_order:
 		assert_eq(state.players[player_id].hand.size(), 6)
-		assert_eq(_pair_shapes(state.players[player_id].hand), {&"ab": 2, &"ac": 2, &"bc": 2})
+		assert_eq(_pair_shapes(state.players[player_id].hand), {
+			&"rise_flourish": 2,
+			&"rise_fall": 2,
+			&"flourish_fall": 2,
+		})
 		assert_eq(state.players[player_id].ability_hand.size(), 2)
-	assert_eq(state.piles[GameTypes.Context.A].draw_count(), 83)
-	assert_eq(state.piles[GameTypes.Context.B].draw_count(), 83)
-	assert_eq(state.piles[GameTypes.Context.C].draw_count(), 83)
+	assert_eq(state.piles[GameTypes.Context.RISE].draw_count(), 83)
+	assert_eq(state.piles[GameTypes.Context.FLOURISH].draw_count(), 83)
+	assert_eq(state.piles[GameTypes.Context.FALL].draw_count(), 83)
 
 	state.deal_start_abilities()
 	assert_eq(state.players[&"one"].ability_hand.size(), 3)
@@ -156,10 +160,15 @@ func _config(active_ids: Array, spectator_ids: Array) -> MatchConfig:
 
 
 func _pair_shapes(hand: Array) -> Dictionary:
-	var counts := {&"ab": 0, &"ac": 0, &"bc": 0}
+	var counts := {
+		&"rise_flourish": 0,
+		&"rise_fall": 0,
+		&"flourish_fall": 0,
+	}
+	var names := {0: "rise", 1: "flourish", 2: "fall"}
 	for card in hand:
 		var contexts := [card.first.base_context, card.second.base_context]
 		contexts.sort()
-		var shape := StringName("%s%s" % [char(97 + contexts[0]), char(97 + contexts[1])])
+		var shape := StringName("%s_%s" % [names[contexts[0]], names[contexts[1]]])
 		counts[shape] += 1
 	return counts

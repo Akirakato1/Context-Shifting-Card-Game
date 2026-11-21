@@ -10,16 +10,16 @@ const MatchState = preload("res://src/core/match/match_state.gd")
 const MatchController = preload("res://src/core/match/match_controller.gd")
 
 
-func test_round_one_stays_a_and_round_two_advances_to_b() -> void:
+func test_round_one_stays_rise_and_round_two_advances_to_flourish() -> void:
 	var first := MatchState.create(_config(GameTypes.InformationVisibility.PUBLIC), 10)
 	MatchController.new(first)
-	assert_eq(first.active_context, GameTypes.Context.A)
+	assert_eq(first.active_context, GameTypes.Context.RISE)
 
 	var second := MatchState.create(_config(GameTypes.InformationVisibility.PUBLIC), 11)
 	second.round_number = 2
 	second.phase = GameTypes.Phase.START
 	MatchController.new(second)
-	assert_eq(second.active_context, GameTypes.Context.B)
+	assert_eq(second.active_context, GameTypes.Context.FLOURISH)
 
 
 func test_timeout_completes_partial_requests_replenishes_then_draws_abilities() -> void:
@@ -32,7 +32,7 @@ func test_timeout_completes_partial_requests_replenishes_then_draws_abilities() 
 
 	var result := controller.submit(GameCommand.new(
 		&"request-one", &"one", CommandKinds.SET_REPLENISHMENT_REQUEST,
-		{"request": {GameTypes.Context.A: 1}}
+		{"request": {GameTypes.Context.RISE: 1}}
 	), 1200)
 	var events := controller.tick(6001)
 
@@ -44,13 +44,13 @@ func test_timeout_completes_partial_requests_replenishes_then_draws_abilities() 
 	assert_eq(state.players[&"two"].ability_hand.size(), 3)
 	var new_card = _new_card(state.players[&"one"].hand, original_ids)
 	assert_true(
-		new_card.first.base_context == GameTypes.Context.A
-		or new_card.second.base_context == GameTypes.Context.A
+		new_card.first.base_context == GameTypes.Context.RISE
+		or new_card.second.base_context == GameTypes.Context.RISE
 	)
 	var reveal = _first_event(events, EventKinds.REPLENISHMENT_REQUESTS_REVEALED)
 	assert_true(reveal != null)
 	assert_eq(_request_total(reveal.payload.requests.one), 2)
-	assert_eq(reveal.payload.requests.one[GameTypes.Context.A], 1)
+	assert_eq(reveal.payload.requests.one[GameTypes.Context.RISE], 1)
 	assert_true(
 		_event_index(events, EventKinds.HAND_REPLENISHED)
 		< _event_index(events, EventKinds.ABILITY_DRAWN)

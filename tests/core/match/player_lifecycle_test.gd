@@ -42,7 +42,11 @@ func test_late_active_join_waits_for_next_start_and_does_not_affect_current_read
 	assert_eq(state.players[&"four"].match_score, 0)
 	assert_eq(state.players[&"four"].round_wins, 0)
 	assert_eq(state.players[&"four"].hand.size(), 6)
-	assert_eq(_pair_shapes(state.players[&"four"].hand), {&"ab": 2, &"ac": 2, &"bc": 2})
+	assert_eq(_pair_shapes(state.players[&"four"].hand), {
+		&"rise_flourish": 2,
+		&"rise_fall": 2,
+		&"flourish_fall": 2,
+	})
 	assert_eq(state.players[&"four"].ability_hand.size(), 3)
 
 
@@ -167,9 +171,14 @@ func _hand_ids(hand: Array) -> Array:
 
 
 func _pair_shapes(hand: Array) -> Dictionary:
-	var counts := {&"ab": 0, &"ac": 0, &"bc": 0}
+	var counts := {
+		&"rise_flourish": 0,
+		&"rise_fall": 0,
+		&"flourish_fall": 0,
+	}
+	var names := {0: "rise", 1: "flourish", 2: "fall"}
 	for card in hand:
 		var contexts := [card.first.base_context, card.second.base_context]
 		contexts.sort()
-		counts[StringName("%s%s" % [char(97 + contexts[0]), char(97 + contexts[1])])] += 1
+		counts[StringName("%s_%s" % [names[contexts[0]], names[contexts[1]]])] += 1
 	return counts

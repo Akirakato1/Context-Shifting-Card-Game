@@ -146,11 +146,11 @@ func test_owner_resync_keeps_joker_choices_private() -> void:
 	var joker := FullCardState.new(
 		&"resync-joker-card",
 		HalfCardState.new(
-			&"resync-joker-half", GameTypes.Context.B, 0, HalfCardState.NO_SUIT,
+			&"resync-joker-half", GameTypes.Context.FLOURISH, 0, HalfCardState.NO_SUIT,
 			GameTypes.HalfKind.JOKER
 		),
 		HalfCardState.new(
-			&"resync-normal-half", GameTypes.Context.A, 5, GameTypes.Suit.ONE
+			&"resync-normal-half", GameTypes.Context.RISE, 5, GameTypes.Suit.ONE
 		),
 	)
 	fixture.state.players[&"one"].hand[0] = joker
@@ -159,7 +159,7 @@ func test_owner_resync_keeps_joker_choices_private() -> void:
 		"half_index": 0,
 		"joker_choices": [{
 			"half_index": 0,
-			"context": GameTypes.Context.C,
+			"context": GameTypes.Context.FALL,
 			"suit": GameTypes.Suit.THREE,
 		}],
 	}])
@@ -172,7 +172,7 @@ func test_owner_resync_keeps_joker_choices_private() -> void:
 	var spectator: Dictionary = _last_kind(fixture.transport, "peer-watch", "snapshot").payload.state
 	assert_eq(
 		owner.private_staging.staged_submission[0].joker_choices[0].context,
-		GameTypes.Context.C
+		GameTypes.Context.FALL
 	)
 	assert_false(JSON.stringify(opponent.private_staging).contains(str(joker.card_id)))
 	assert_false(spectator.has("private_staging"))

@@ -69,17 +69,17 @@ func test_deck_exposes_setup_draw_and_end_hand_limit_data() -> void:
 
 
 func test_effective_card_change_persists_until_the_full_card_leaves_hand() -> void:
-	var first := HalfCardState.new(&"first", GameTypes.Context.A, 1, GameTypes.Suit.ONE)
-	var second := HalfCardState.new(&"second", GameTypes.Context.B, 2, GameTypes.Suit.TWO)
+	var first := HalfCardState.new(&"first", GameTypes.Context.RISE, 1, GameTypes.Suit.ONE)
+	var second := HalfCardState.new(&"second", GameTypes.Context.FLOURISH, 2, GameTypes.Suit.TWO)
 	var card := FullCardState.new(&"full", first, second)
 
-	first.apply_overrides(GameTypes.Context.C, 10, GameTypes.Suit.THREE)
+	first.apply_overrides(GameTypes.Context.FALL, 10, GameTypes.Suit.THREE)
 	# Advancing rounds performs no reset; the persistent hand object keeps its effective values.
-	assert_eq(first.effective_context(), GameTypes.Context.C)
+	assert_eq(first.effective_context(), GameTypes.Context.FALL)
 	assert_eq(first.effective_rank(), 10)
 
 	card.leave_hand()
-	assert_eq(first.effective_context(), GameTypes.Context.A)
+	assert_eq(first.effective_context(), GameTypes.Context.RISE)
 	assert_eq(first.effective_rank(), 1)
 
 

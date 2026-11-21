@@ -12,12 +12,12 @@ const MatchState = preload("res://src/core/match/match_state.gd")
 
 func test_joker_has_origin_identity_without_effective_override() -> void:
 	var joker := HalfCardState.new(
-		&"joker-a", GameTypes.Context.A, 0, HalfCardState.NO_SUIT,
+		&"joker-a", GameTypes.Context.RISE, 0, HalfCardState.NO_SUIT,
 		GameTypes.HalfKind.JOKER
 	)
 
 	assert_true(joker.is_joker())
-	assert_eq(joker.base_context, GameTypes.Context.A)
+	assert_eq(joker.base_context, GameTypes.Context.RISE)
 	assert_eq(joker.base_rank, 0)
 	assert_eq(joker.base_suit, HalfCardState.NO_SUIT)
 	assert_eq(joker.effective_rank(), 0)
@@ -26,19 +26,19 @@ func test_joker_has_origin_identity_without_effective_override() -> void:
 
 func test_joker_is_eligible_in_every_context() -> void:
 	var joker := HalfCardState.new(
-		&"joker-b", GameTypes.Context.B, 0, HalfCardState.NO_SUIT,
+		&"joker-b", GameTypes.Context.FLOURISH, 0, HalfCardState.NO_SUIT,
 		GameTypes.HalfKind.JOKER
 	)
 	var normal := HalfCardState.new(
-		&"normal-b", GameTypes.Context.B, 4, GameTypes.Suit.TWO
+		&"normal-b", GameTypes.Context.FLOURISH, 4, GameTypes.Suit.TWO
 	)
 	var card := FullCardState.new(&"card-joker", joker, normal)
 
 	assert_eq(card.half_at(0), joker)
 	assert_eq(card.half_at(1), normal)
-	assert_eq(card.eligible_half_indexes(GameTypes.Context.A), PackedInt32Array([0]))
-	assert_eq(card.eligible_half_indexes(GameTypes.Context.B), PackedInt32Array([0, 1]))
-	assert_eq(card.eligible_half_indexes(GameTypes.Context.C), PackedInt32Array([0]))
+	assert_eq(card.eligible_half_indexes(GameTypes.Context.RISE), PackedInt32Array([0]))
+	assert_eq(card.eligible_half_indexes(GameTypes.Context.FLOURISH), PackedInt32Array([0, 1]))
+	assert_eq(card.eligible_half_indexes(GameTypes.Context.FALL), PackedInt32Array([0]))
 
 
 func test_match_builds_ninety_one_halves_with_one_joker_per_pile() -> void:
@@ -52,13 +52,13 @@ func test_match_builds_ninety_one_halves_with_one_joker_per_pile() -> void:
 
 func test_joker_recycles_only_through_its_origin_pile() -> void:
 	var joker := HalfCardState.new(
-		&"joker-a", GameTypes.Context.A, 0, HalfCardState.NO_SUIT,
+		&"joker-a", GameTypes.Context.RISE, 0, HalfCardState.NO_SUIT,
 		GameTypes.HalfKind.JOKER
 	)
 	var normal := HalfCardState.new(
-		&"normal-a", GameTypes.Context.A, 7, GameTypes.Suit.TWO
+		&"normal-a", GameTypes.Context.RISE, 7, GameTypes.Suit.TWO
 	)
-	var pile := ContextPile.new(GameTypes.Context.A, [normal, joker])
+	var pile := ContextPile.new(GameTypes.Context.RISE, [normal, joker])
 	var rng := RandomSource.new(991)
 	var exhausted := pile.draw(2, rng)
 	assert_true(exhausted.has(joker))
@@ -67,13 +67,13 @@ func test_joker_recycles_only_through_its_origin_pile() -> void:
 	pile.discard(joker)
 	var recycled := pile.draw(1, rng)
 	assert_eq(recycled, [joker])
-	assert_eq(recycled[0].base_context, GameTypes.Context.A)
+	assert_eq(recycled[0].base_context, GameTypes.Context.RISE)
 	assert_true(recycled[0].is_joker())
 
 
 func _assert_complete_joker_distribution(state: MatchState) -> void:
 	var halves: Array = []
-	for context in range(GameTypes.Context.A, GameTypes.Context.C + 1):
+	for context in range(GameTypes.Context.RISE, GameTypes.Context.FALL + 1):
 		halves.append_array(state.piles[context].snapshot_draw_cards())
 		halves.append_array(state.piles[context].snapshot_used_cards())
 	for player_id in state.seat_order:
@@ -81,7 +81,7 @@ func _assert_complete_joker_distribution(state: MatchState) -> void:
 			halves.append(card.first)
 			halves.append(card.second)
 
-	for context in range(GameTypes.Context.A, GameTypes.Context.C + 1):
+	for context in range(GameTypes.Context.RISE, GameTypes.Context.FALL + 1):
 		var origin_count := 0
 		var joker_count := 0
 		for half in halves:

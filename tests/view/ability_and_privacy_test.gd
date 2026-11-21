@@ -119,7 +119,7 @@ func test_spectator_tree_contains_no_private_values_and_private_piles_stay_hidde
 	var rendered_tree := _control_tree_text(match_screen)
 	for secret in ["private-card-copy-991", "private-ability-copy-882", "base_identity_773", "removed_card_c5"]:
 		assert_false(rendered_tree.contains(secret))
-	assert_eq(match_screen.get_node("Center/Piles/PileA/Count").text, "Hidden")
+	assert_eq(match_screen.get_node("Center/Piles/PileRise/Count").text, "Hidden")
 	assert_false(match_screen.get_node("AbilityPanel").visible)
 	assert_true(rendered_tree.contains("Sabotage"))
 	assert_true(rendered_tree.contains("p2 → p1"))

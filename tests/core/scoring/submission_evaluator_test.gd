@@ -11,8 +11,8 @@ const SubmissionEvaluator = preload("res://src/core/scoring/submission_evaluator
 
 
 func test_selected_joker_is_valid_in_every_active_context_and_uses_submission_choice() -> void:
-	for active_context in range(GameTypes.Context.A, GameTypes.Context.C + 1):
-		var card := _joker_card(StringName("joker-%d" % active_context), GameTypes.Context.B)
+	for active_context in range(GameTypes.Context.RISE, GameTypes.Context.FALL + 1):
+		var card := _joker_card(StringName("joker-%d" % active_context), GameTypes.Context.FLOURISH)
 		var choices := [{
 			"half_index": 0,
 			"context": (active_context + 1) % 3,
@@ -37,47 +37,47 @@ func test_selected_joker_is_valid_in_every_active_context_and_uses_submission_ch
 func test_double_joker_choices_resolve_independently_and_both_count_for_context() -> void:
 	var card := FullCardState.new(
 		&"double-joker",
-		_joker_half(&"first-joker", GameTypes.Context.A),
-		_joker_half(&"second-joker", GameTypes.Context.B),
+		_joker_half(&"first-joker", GameTypes.Context.RISE),
+		_joker_half(&"second-joker", GameTypes.Context.FLOURISH),
 	)
 	var choices := [
-		{"half_index": 0, "context": GameTypes.Context.A, "suit": GameTypes.Suit.ONE},
-		{"half_index": 1, "context": GameTypes.Context.C, "suit": GameTypes.Suit.TWO},
+		{"half_index": 0, "context": GameTypes.Context.RISE, "suit": GameTypes.Suit.ONE},
+		{"half_index": 1, "context": GameTypes.Context.FALL, "suit": GameTypes.Suit.TWO},
 	]
 
 	var result := SubmissionEvaluator.evaluate(
-		[card], [_selection(card.card_id, 1, choices)], GameTypes.Context.B,
+		[card], [_selection(card.card_id, 1, choices)], GameTypes.Context.FLOURISH,
 		_normal_definitions(), _context_definitions(), []
 	)
 
 	assert_true(result.is_valid)
 	assert_eq(result.selected_faces[0].rank, 0)
 	assert_eq(result.selected_faces[0].suit, GameTypes.Suit.TWO)
-	assert_eq(result.context_result.counts[GameTypes.Context.A], 1)
-	assert_eq(result.context_result.counts[GameTypes.Context.B], 0)
-	assert_eq(result.context_result.counts[GameTypes.Context.C], 1)
+	assert_eq(result.context_result.counts[GameTypes.Context.RISE], 1)
+	assert_eq(result.context_result.counts[GameTypes.Context.FLOURISH], 0)
+	assert_eq(result.context_result.counts[GameTypes.Context.FALL], 1)
 	assert_eq(result.resolved_cards[0]["halves"][0]["joker"], true)
 	assert_eq(result.resolved_cards[0]["halves"][1]["joker"], true)
 
 
 func test_mixed_overridden_and_joker_submission_scores_without_mutating_inputs() -> void:
 	var ordinary := _normal_card(
-		&"ordinary", GameTypes.Context.C, 3, GameTypes.Suit.ONE,
-		GameTypes.Context.B, 4, GameTypes.Suit.TWO
+		&"ordinary", GameTypes.Context.FALL, 3, GameTypes.Suit.ONE,
+		GameTypes.Context.FLOURISH, 4, GameTypes.Suit.TWO
 	)
-	ordinary.first.apply_overrides(GameTypes.Context.A, 8, GameTypes.Suit.THREE)
-	var joker := _joker_card(&"joker", GameTypes.Context.A)
+	ordinary.first.apply_overrides(GameTypes.Context.RISE, 8, GameTypes.Suit.THREE)
+	var joker := _joker_card(&"joker", GameTypes.Context.RISE)
 	var hand: Array[FullCardState] = [ordinary, joker]
 	var selections := [
 		_selection(ordinary.card_id, 0, []),
 		_selection(joker.card_id, 0, [{
-			"half_index": 0, "context": GameTypes.Context.C, "suit": GameTypes.Suit.TWO,
+			"half_index": 0, "context": GameTypes.Context.FALL, "suit": GameTypes.Suit.TWO,
 		}]),
 	]
 	var selections_before: Array = selections.duplicate(true)
 
 	var result := SubmissionEvaluator.evaluate(
-		hand, selections, GameTypes.Context.A,
+		hand, selections, GameTypes.Context.RISE,
 		_normal_definitions(), _context_definitions(), []
 	)
 
@@ -85,14 +85,14 @@ func test_mixed_overridden_and_joker_submission_scores_without_mutating_inputs()
 	assert_eq(result.submitted_cards.size(), 2)
 	assert_eq(result.normal_result.category_id, &"high_card")
 	assert_eq(result.normal_result.matched_faces[0].rank, 8)
-	assert_eq(result.context_result.category_id, &"abc_1")
-	assert_eq(result.context_result.counts[GameTypes.Context.A], 2)
-	assert_eq(result.context_result.counts[GameTypes.Context.B], 1)
-	assert_eq(result.context_result.counts[GameTypes.Context.C], 1)
+	assert_eq(result.context_result.category_id, &"all_contexts_1")
+	assert_eq(result.context_result.counts[GameTypes.Context.RISE], 2)
+	assert_eq(result.context_result.counts[GameTypes.Context.FLOURISH], 1)
+	assert_eq(result.context_result.counts[GameTypes.Context.FALL], 1)
 	assert_eq(result.score_breakdown.base_value, 8)
-	assert_eq(ordinary.first.base_context, GameTypes.Context.C)
-	assert_eq(ordinary.first.effective_context(), GameTypes.Context.A)
-	assert_eq(joker.first.base_context, GameTypes.Context.C)
+	assert_eq(ordinary.first.base_context, GameTypes.Context.FALL)
+	assert_eq(ordinary.first.effective_context(), GameTypes.Context.RISE)
+	assert_eq(joker.first.base_context, GameTypes.Context.FALL)
 	assert_eq(joker.first.base_rank, 0)
 	assert_eq(joker.first.base_suit, HalfCardState.NO_SUIT)
 	assert_eq(selections, selections_before)
@@ -100,7 +100,7 @@ func test_mixed_overridden_and_joker_submission_scores_without_mutating_inputs()
 
 func test_empty_submission_is_a_valid_zero_score_pass() -> void:
 	var result := SubmissionEvaluator.evaluate(
-		[], [], GameTypes.Context.A, _normal_definitions(), _context_definitions(), []
+		[], [], GameTypes.Context.RISE, _normal_definitions(), _context_definitions(), []
 	)
 
 	assert_true(result.is_valid)
@@ -110,19 +110,19 @@ func test_empty_submission_is_a_valid_zero_score_pass() -> void:
 
 
 func test_joker_choice_validation_returns_stable_errors_without_mutation() -> void:
-	var card := _joker_card(&"joker", GameTypes.Context.B)
+	var card := _joker_card(&"joker", GameTypes.Context.FLOURISH)
 	var hand: Array[FullCardState] = [card]
 	var valid_choice := {
-		"half_index": 0, "context": GameTypes.Context.A, "suit": GameTypes.Suit.ONE,
+		"half_index": 0, "context": GameTypes.Context.RISE, "suit": GameTypes.Suit.ONE,
 	}
 	var cases := [
 		{"expected": &"joker_choice_required", "choices": []},
 		{"expected": &"duplicate_joker_choice", "choices": [valid_choice, valid_choice.duplicate()]},
 		{"expected": &"joker_choice_for_normal_half", "choices": [valid_choice, {
-			"half_index": 1, "context": GameTypes.Context.B, "suit": GameTypes.Suit.TWO,
+			"half_index": 1, "context": GameTypes.Context.FLOURISH, "suit": GameTypes.Suit.TWO,
 		}]},
 		{"expected": &"invalid_joker_half_index", "choices": [{
-			"half_index": 2, "context": GameTypes.Context.A, "suit": GameTypes.Suit.ONE,
+			"half_index": 2, "context": GameTypes.Context.RISE, "suit": GameTypes.Suit.ONE,
 		}]},
 		{"expected": &"invalid_joker_context", "choices": [{
 			"half_index": 0, "context": "a", "suit": GameTypes.Suit.ONE,
@@ -131,10 +131,10 @@ func test_joker_choice_validation_returns_stable_errors_without_mutation() -> vo
 			"half_index": 0, "context": 3, "suit": GameTypes.Suit.ONE,
 		}]},
 		{"expected": &"invalid_joker_suit", "choices": [{
-			"half_index": 0, "context": GameTypes.Context.A, "suit": "one",
+			"half_index": 0, "context": GameTypes.Context.RISE, "suit": "one",
 		}]},
 		{"expected": &"invalid_joker_suit", "choices": [{
-			"half_index": 0, "context": GameTypes.Context.A, "suit": 3,
+			"half_index": 0, "context": GameTypes.Context.RISE, "suit": 3,
 		}]},
 	]
 
@@ -142,7 +142,7 @@ func test_joker_choice_validation_returns_stable_errors_without_mutation() -> vo
 		var selections := [_selection(card.card_id, 0, case["choices"])]
 		var selections_before: Array = selections.duplicate(true)
 		var result := SubmissionEvaluator.evaluate(
-			hand, selections, GameTypes.Context.A,
+			hand, selections, GameTypes.Context.RISE,
 			_normal_definitions(), _context_definitions(), []
 		)
 		assert_false(result.is_valid)
@@ -154,16 +154,16 @@ func test_joker_choice_validation_returns_stable_errors_without_mutation() -> vo
 
 func test_submission_validation_rejects_invalid_cards_and_selected_halves() -> void:
 	var eligible := _normal_card(
-		&"eligible", GameTypes.Context.A, 2, GameTypes.Suit.ONE,
-		GameTypes.Context.B, 3, GameTypes.Suit.TWO
+		&"eligible", GameTypes.Context.RISE, 2, GameTypes.Suit.ONE,
+		GameTypes.Context.FLOURISH, 3, GameTypes.Suit.TWO
 	)
 	var absent := _normal_card(
-		&"absent", GameTypes.Context.A, 4, GameTypes.Suit.ONE,
-		GameTypes.Context.C, 5, GameTypes.Suit.THREE
+		&"absent", GameTypes.Context.RISE, 4, GameTypes.Suit.ONE,
+		GameTypes.Context.FALL, 5, GameTypes.Suit.THREE
 	)
 	var ineligible := _normal_card(
-		&"ineligible", GameTypes.Context.B, 6, GameTypes.Suit.ONE,
-		GameTypes.Context.C, 7, GameTypes.Suit.THREE
+		&"ineligible", GameTypes.Context.FLOURISH, 6, GameTypes.Suit.ONE,
+		GameTypes.Context.FALL, 7, GameTypes.Suit.THREE
 	)
 	var hand: Array[FullCardState] = [eligible, ineligible]
 	var cases := [
@@ -178,7 +178,7 @@ func test_submission_validation_rejects_invalid_cards_and_selected_halves() -> v
 
 	for case in cases:
 		var result := SubmissionEvaluator.evaluate(
-			hand, case["selections"], GameTypes.Context.A,
+			hand, case["selections"], GameTypes.Context.RISE,
 			_normal_definitions(), _context_definitions(), []
 		)
 		assert_false(result.is_valid)
@@ -188,13 +188,13 @@ func test_submission_validation_rejects_invalid_cards_and_selected_halves() -> v
 	var seven_selections: Array = []
 	for index in range(7):
 		var card := _normal_card(
-			StringName("card-%d" % index), GameTypes.Context.A, index + 1, GameTypes.Suit.ONE,
-			GameTypes.Context.B, index + 1, GameTypes.Suit.TWO
+			StringName("card-%d" % index), GameTypes.Context.RISE, index + 1, GameTypes.Suit.ONE,
+			GameTypes.Context.FLOURISH, index + 1, GameTypes.Suit.TWO
 		)
 		seven_cards.append(card)
 		seven_selections.append(_selection(card.card_id, 0, []))
 	var oversized := SubmissionEvaluator.evaluate(
-		seven_cards, seven_selections, GameTypes.Context.A,
+		seven_cards, seven_selections, GameTypes.Context.RISE,
 		_normal_definitions(), _context_definitions(), []
 	)
 	assert_false(oversized.is_valid)
@@ -208,7 +208,7 @@ func _selection(card_id: StringName, half_index: int, joker_choices: Array) -> D
 func _joker_card(id: StringName, normal_context: int) -> FullCardState:
 	return FullCardState.new(
 		id,
-		_joker_half(StringName("%s-joker" % id), GameTypes.Context.C),
+		_joker_half(StringName("%s-joker" % id), GameTypes.Context.FALL),
 		HalfCardState.new(
 			StringName("%s-normal" % id), normal_context, 5, GameTypes.Suit.ONE
 		),
@@ -251,8 +251,8 @@ func _normal_definitions() -> Array[NormalHandDefinition]:
 func _context_definitions() -> Array[ContextHandDefinition]:
 	return [
 		ContextHandDefinition.new(
-			&"abc_1", 10,
-			{GameTypes.Context.A: 1, GameTypes.Context.B: 1, GameTypes.Context.C: 1},
+			&"all_contexts_1", 10,
+			{GameTypes.Context.RISE: 1, GameTypes.Context.FLOURISH: 1, GameTypes.Context.FALL: 1},
 			Rational.new(2, 1)
 		),
 	]

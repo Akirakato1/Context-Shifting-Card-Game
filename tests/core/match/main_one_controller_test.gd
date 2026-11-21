@@ -111,19 +111,19 @@ func test_fields_coexist_conflicts_replace_and_clock_effects_are_immediate() -> 
 	controller = MatchController.new(clock)
 	controller.tick(0)
 	controller.submit(_play(
-		&"jump", &"one", clock.players[&"one"].ability_hand[0].copy_id, &"", {"context": GameTypes.Context.C}
+		&"jump", &"one", clock.players[&"one"].ability_hand[0].copy_id, &"", {"context": GameTypes.Context.FALL}
 	), 10)
-	assert_eq(clock.active_context, GameTypes.Context.C)
+	assert_eq(clock.active_context, GameTypes.Context.FALL)
 	controller.submit(_play(
 		&"reverse", &"one", clock.players[&"one"].ability_hand[0].copy_id
 	), 11)
-	assert_eq(clock.active_context, GameTypes.Context.C)
+	assert_eq(clock.active_context, GameTypes.Context.FALL)
 	assert_eq(clock.context_direction, GameTypes.ContextDirection.REVERSE)
 	clock.phase = GameTypes.Phase.START
 	clock.round_number = 2
 	clock.start_prepared_round = 0
 	MatchController.new(clock)
-	assert_eq(clock.active_context, GameTypes.Context.B)
+	assert_eq(clock.active_context, GameTypes.Context.FLOURISH)
 
 
 func test_sabotage_resolves_sequentially_and_projects_private_details() -> void:
@@ -187,7 +187,7 @@ func _ability(id: StringName, timing: int, effect_id: StringName) -> AbilityDefi
 
 
 func _field(id: StringName, effect_id: StringName, conflict: StringName) -> AbilityDefinition:
-	var parameters := {"context": GameTypes.Context.C} if effect_id == &"context_jump" else {}
+	var parameters := {"context": GameTypes.Context.FALL} if effect_id == &"context_jump" else {}
 	return AbilityDefinition.new(
 		id, AbilityDefinition.Timing.FIELD, [], effect_id, 2, conflict, parameters
 	)

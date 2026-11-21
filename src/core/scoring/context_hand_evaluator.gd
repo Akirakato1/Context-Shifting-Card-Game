@@ -24,9 +24,9 @@ static func evaluate_contexts(
 	definitions: Array[ContextHandDefinition]
 ) -> ScoringTypes.ContextHandResult:
 	var counts := {
-		GameTypes.Context.A: 0,
-		GameTypes.Context.B: 0,
-		GameTypes.Context.C: 0,
+		GameTypes.Context.RISE: 0,
+		GameTypes.Context.FLOURISH: 0,
+		GameTypes.Context.FALL: 0,
 	}
 	for context in contexts:
 		assert(counts.has(context), "unknown resolved context")

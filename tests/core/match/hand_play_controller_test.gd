@@ -111,7 +111,7 @@ func test_zero_to_six_cards_are_legal_when_every_card_is_eligible() -> void:
 			if card.half_at(half_index).is_joker():
 				joker_choices.append({
 					"half_index": half_index,
-					"context": GameTypes.Context.A,
+					"context": GameTypes.Context.RISE,
 					"suit": GameTypes.Suit.ONE,
 				})
 		all_cards.append({
@@ -199,10 +199,10 @@ func _hand_play_state(seed_value: int) -> MatchState:
 	]
 	var context_definitions: Array[ContextHandDefinition] = [
 		ContextHandDefinition.new(
-			&"any_pair", 10, {GameTypes.Context.A: 1, GameTypes.Context.B: 1}, Rational.new(2, 1)
+			&"any_pair", 10, {GameTypes.Context.RISE: 1, GameTypes.Context.FLOURISH: 1}, Rational.new(2, 1)
 		),
 		ContextHandDefinition.new(
-			&"abc", 20, {GameTypes.Context.A: 1, GameTypes.Context.B: 1, GameTypes.Context.C: 1}, Rational.new(2, 1)
+			&"abc", 20, {GameTypes.Context.RISE: 1, GameTypes.Context.FLOURISH: 1, GameTypes.Context.FALL: 1}, Rational.new(2, 1)
 		),
 	]
 	var config := MatchConfig.new(
@@ -224,7 +224,7 @@ func _set_manipulation(state: MatchState, player_id: StringName, index: int, id:
 	state.players[player_id].ability_hand[index].definition = AbilityDefinition.new(
 		id, AbilityDefinition.Timing.HAND_MANIPULATION, [], &"manipulate_half",
 		0, &"", {}, {
-			"contexts": [GameTypes.Context.A, GameTypes.Context.B, GameTypes.Context.C],
+			"contexts": [GameTypes.Context.RISE, GameTypes.Context.FLOURISH, GameTypes.Context.FALL],
 			"ranks": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
 			"suits": [GameTypes.Suit.ONE, GameTypes.Suit.TWO, GameTypes.Suit.THREE],
 		}

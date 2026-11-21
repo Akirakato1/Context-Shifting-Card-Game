@@ -25,7 +25,7 @@ class ContextJumpHandler extends RefCounted:
 		var effect: Dictionary = context.effect
 		if not effect.has("context") or not effect.context is int:
 			return &"invalid_effect_payload"
-		if effect.context < GameTypes.Context.A or effect.context > GameTypes.Context.C:
+		if effect.context < GameTypes.Context.RISE or effect.context > GameTypes.Context.FALL:
 			return &"invalid_context"
 		return &""
 

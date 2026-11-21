@@ -94,10 +94,10 @@ func _status_text(player: Dictionary) -> String:
 
 
 func _request_text(request: Dictionary) -> String:
-	return "DRAW  A%d · B%d · C%d" % [
-		int(request.get("A", request.get("0", 0))),
-		int(request.get("B", request.get("1", 0))),
-		int(request.get("C", request.get("2", 0))),
+	return "DRAW  Rise %d · Flourish %d · Fall %d" % [
+		int(request.get("0", request.get(0, 0))),
+		int(request.get("1", request.get(1, 0))),
+		int(request.get("2", request.get(2, 0))),
 	]
 
 
@@ -131,4 +131,6 @@ func _category_name(id: String) -> String:
 func _context_name(id: String) -> String:
 	if id == "no_context_pattern":
 		return "No Context Pattern ×1"
-	return id.replace("_", " ").to_upper().replace("ABC 1", "ABC ×1")
+	if id.begins_with("all_contexts_"):
+		return "All Contexts ×%s" % id.trim_prefix("all_contexts_")
+	return id.replace("_", " ").capitalize()

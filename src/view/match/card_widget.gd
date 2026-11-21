@@ -7,7 +7,7 @@ signal half_choice_requested(card_id: StringName, half_index: int)
 signal joker_choice_changed(card_id: StringName, half_index: int, context: int, suit: int)
 signal reorder_requested(card_id: StringName, delta: int)
 
-const CONTEXT_NAMES := ["A", "B", "C"]
+const GameTypes = preload("res://src/core/common/game_types.gd")
 const SUIT_NAMES := ["ONE", "TWO", "THREE"]
 
 var card_id := ""
@@ -36,8 +36,13 @@ var _staged := false
 
 
 func _ready() -> void:
-	_populate_choices(_first_context, CONTEXT_NAMES)
-	_populate_choices(_second_context, CONTEXT_NAMES)
+	var context_names := [
+		GameTypes.context_name(GameTypes.Context.RISE),
+		GameTypes.context_name(GameTypes.Context.FLOURISH),
+		GameTypes.context_name(GameTypes.Context.FALL),
+	]
+	_populate_choices(_first_context, context_names)
+	_populate_choices(_second_context, context_names)
 	_populate_choices(_first_suit, SUIT_NAMES)
 	_populate_choices(_second_suit, SUIT_NAMES)
 
@@ -123,7 +128,7 @@ func _half_text(half: Dictionary) -> String:
 	var context := int(half.get("effective_context", half.get("base_context", 0)))
 	var rank := int(half.get("effective_rank", half.get("rank", half.get("base_rank", 0))))
 	var suit := int(half.get("effective_suit", half.get("suit", half.get("base_suit", 0))))
-	return "%s  %d  %s" % [_safe_name(CONTEXT_NAMES, context, "?"), rank, _safe_name(SUIT_NAMES, suit, "?")]
+	return "%s  %d  %s" % [GameTypes.context_name(context), rank, _safe_name(SUIT_NAMES, suit, "?")]
 
 
 func _half_matches_context(half: Dictionary, active_context: int) -> bool:

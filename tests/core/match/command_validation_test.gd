@@ -65,7 +65,7 @@ func test_out_of_phase_command_is_rejected_without_state_change() -> void:
 
 	var result := controller.submit(GameCommand.new(
 		&"late-request", &"one", CommandKinds.SET_REPLENISHMENT_REQUEST,
-		{"request": {GameTypes.Context.A: 2}}
+		{"request": {GameTypes.Context.RISE: 2}}
 	), 100)
 
 	assert_false(result.accepted)

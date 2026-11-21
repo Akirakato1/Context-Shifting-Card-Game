@@ -13,24 +13,27 @@ func test_start_request_enforces_caps_exact_total_and_duplicate_ready_lock() -> 
 		intents.append({"kind": kind, "payload": payload})
 	)
 	controls.render(_model(1, [], {"required_half_count": 6}))
-	var a: SpinBox = controls.get_node("StartControls/RequestGrid/A")
-	var b: SpinBox = controls.get_node("StartControls/RequestGrid/B")
-	var c: SpinBox = controls.get_node("StartControls/RequestGrid/C")
-	assert_eq(a.max_value, 5.0)
-	a.value = 2
-	b.value = 1
+	var rise: SpinBox = controls.get_node("StartControls/RequestGrid/Rise")
+	var flourish: SpinBox = controls.get_node("StartControls/RequestGrid/Flourish")
+	var fall: SpinBox = controls.get_node("StartControls/RequestGrid/Fall")
+	assert_eq(rise.max_value, 5.0)
+	assert_eq(rise.suffix, " Rise")
+	assert_eq(flourish.suffix, " Flourish")
+	assert_eq(fall.suffix, " Fall")
+	rise.value = 2
+	flourish.value = 1
 	assert_eq(controls.get_node("StartControls/Total").text, "3 / 6 selected")
 	assert_false(controls.get_node("StartControls/ConfirmButton").disabled)
 	controls.get_node("StartControls/ConfirmButton").pressed.emit()
 	assert_eq(intents, [{"kind": &"set_replenishment_request", "payload": {"request": {0: 2, 1: 1, 2: 0}}}])
 	controls.handle_command_result(&"set_replenishment_request", true, &"", 1)
 	assert_true(controls.get_node("StartControls/ReadyButton").disabled)
-	a.value = 5
-	b.value = 1
-	c.value = 1
+	rise.value = 5
+	flourish.value = 1
+	fall.value = 1
 	assert_eq(controls.get_node("StartControls/Total").text, "7 / 6 selected")
 	assert_true(controls.get_node("StartControls/ConfirmButton").disabled)
-	c.value = 0
+	fall.value = 0
 	assert_false(controls.get_node("StartControls/ConfirmButton").disabled)
 	controls.get_node("StartControls/ConfirmButton").pressed.emit()
 	controls.get_node("StartControls/ConfirmButton").pressed.emit()
@@ -50,7 +53,7 @@ func test_hand_builder_stages_eligible_cards_requires_half_choice_and_defaults_j
 	controls.render(_model(3, _hand(), {
 		"submission_preview": {
 			"valid": true, "base_value": 7, "normal_category": "High Card",
-			"normal_multiplier": "×1", "context_category": "A ×2",
+			"normal_multiplier": "×1", "context_category": "Rise ×2",
 			"context_multiplier": "×2", "projected_score": 14,
 		},
 	}))
@@ -65,6 +68,12 @@ func test_hand_builder_stages_eligible_cards_requires_half_choice_and_defaults_j
 	var joker_choices: Array = controls.staged_selection(&"c4").joker_choices
 	assert_eq(joker_choices, [{"half_index": 0, "context": 0, "suit": 0}])
 	assert_true(controls.card_widget(&"c4").joker_prompts_visible())
+	var joker_context: OptionButton = controls.card_widget(&"c4").get_node("Face/FirstChoices/Context")
+	assert_eq([
+		joker_context.get_item_text(0),
+		joker_context.get_item_text(1),
+		joker_context.get_item_text(2),
+	], ["Rise", "Flourish", "Fall"])
 	assert_true(controls.get_node("HandPlayControls/Preview/Heading").text.contains("PREVIEW"))
 	assert_true(controls.get_node("HandPlayControls/Preview/Authority").text.contains("host validates"))
 	controls.set_joker_choice(&"c4", 0, 2, 1)

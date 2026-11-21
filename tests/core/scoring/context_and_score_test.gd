@@ -27,20 +27,20 @@ func test_rational_arithmetic_comparison_zero_floor_and_ceiling_are_exact() -> v
 
 func test_inclusive_context_thresholds_lock_only_the_highest_priority_match() -> void:
 	var cards: Array[FullCardState] = [
-		_card(&"one", GameTypes.Context.A, GameTypes.Context.B),
-		_card(&"two", GameTypes.Context.A, GameTypes.Context.B),
-		_card(&"three", GameTypes.Context.A, GameTypes.Context.C),
-		_card(&"four", GameTypes.Context.A, GameTypes.Context.B),
+		_card(&"one", GameTypes.Context.RISE, GameTypes.Context.FLOURISH),
+		_card(&"two", GameTypes.Context.RISE, GameTypes.Context.FLOURISH),
+		_card(&"three", GameTypes.Context.RISE, GameTypes.Context.FALL),
+		_card(&"four", GameTypes.Context.RISE, GameTypes.Context.FLOURISH),
 	]
 	var definitions: Array[ContextHandDefinition] = [
 		ContextHandDefinition.new(
-			&"abc_1", 10,
-			{GameTypes.Context.A: 1, GameTypes.Context.B: 1, GameTypes.Context.C: 1},
+			&"all_contexts_1", 10,
+			{GameTypes.Context.RISE: 1, GameTypes.Context.FLOURISH: 1, GameTypes.Context.FALL: 1},
 			Rational.new(3, 2)
 		),
 		ContextHandDefinition.new(
 			&"ab_3", 20,
-			{GameTypes.Context.A: 3, GameTypes.Context.B: 3},
+			{GameTypes.Context.RISE: 3, GameTypes.Context.FLOURISH: 3},
 			Rational.new(2, 1)
 		),
 	]
@@ -50,21 +50,21 @@ func test_inclusive_context_thresholds_lock_only_the_highest_priority_match() ->
 	assert_eq(result.category_id, &"ab_3")
 	assert_eq(result.priority, 20)
 	assert_true(result.multiplier.equals(Rational.new(2, 1)))
-	assert_eq(result.counts[GameTypes.Context.A], 4)
-	assert_eq(result.counts[GameTypes.Context.B], 3)
-	assert_eq(result.counts[GameTypes.Context.C], 1)
+	assert_eq(result.counts[GameTypes.Context.RISE], 4)
+	assert_eq(result.counts[GameTypes.Context.FLOURISH], 3)
+	assert_eq(result.counts[GameTypes.Context.FALL], 1)
 
 
 func test_context_evaluator_returns_neutral_fallback_when_no_threshold_matches() -> void:
 	var definitions: Array[ContextHandDefinition] = [
 		ContextHandDefinition.new(
 			&"ab_3", 20,
-			{GameTypes.Context.A: 3, GameTypes.Context.B: 3},
+			{GameTypes.Context.RISE: 3, GameTypes.Context.FLOURISH: 3},
 			Rational.new(2, 1)
 		),
 	]
 	var cards: Array[FullCardState] = [
-		_card(&"single", GameTypes.Context.A, GameTypes.Context.B),
+		_card(&"single", GameTypes.Context.RISE, GameTypes.Context.FLOURISH),
 	]
 
 	var result := ContextHandEvaluator.evaluate(cards, definitions)
@@ -77,25 +77,25 @@ func test_context_evaluator_returns_neutral_fallback_when_no_threshold_matches()
 func test_context_evaluator_accepts_resolved_contexts_without_card_mutation() -> void:
 	var definitions: Array[ContextHandDefinition] = [
 		ContextHandDefinition.new(
-			&"abc_1", 10,
-			{GameTypes.Context.A: 1, GameTypes.Context.B: 1, GameTypes.Context.C: 1},
+			&"all_contexts_1", 10,
+			{GameTypes.Context.RISE: 1, GameTypes.Context.FLOURISH: 1, GameTypes.Context.FALL: 1},
 			Rational.new(2, 1)
 		),
 	]
 	var result := ContextHandEvaluator.evaluate_contexts(
 		PackedInt32Array([
-			GameTypes.Context.A,
-			GameTypes.Context.B,
-			GameTypes.Context.C,
-			GameTypes.Context.C,
+			GameTypes.Context.RISE,
+			GameTypes.Context.FLOURISH,
+			GameTypes.Context.FALL,
+			GameTypes.Context.FALL,
 		]),
 		definitions
 	)
 
-	assert_eq(result.category_id, &"abc_1")
-	assert_eq(result.counts[GameTypes.Context.A], 1)
-	assert_eq(result.counts[GameTypes.Context.B], 1)
-	assert_eq(result.counts[GameTypes.Context.C], 2)
+	assert_eq(result.category_id, &"all_contexts_1")
+	assert_eq(result.counts[GameTypes.Context.RISE], 1)
+	assert_eq(result.counts[GameTypes.Context.FLOURISH], 1)
+	assert_eq(result.counts[GameTypes.Context.FALL], 2)
 
 
 func test_score_uses_all_faces_ordered_modifiers_and_one_final_ceiling() -> void:
@@ -108,7 +108,7 @@ func test_score_uses_all_faces_ordered_modifiers_and_one_final_ceiling() -> void
 		true, &"high_card", 10, Rational.new(3, 2), [faces[2]], faces, PackedInt32Array([9])
 	)
 	var context := ScoringTypes.ContextHandResult.new(
-		&"abc_1", 10, Rational.new(4, 3), {},
+		&"all_contexts_1", 10, Rational.new(4, 3), {},
 	)
 	var modifiers: Array[ScoringTypes.ScoreModifier] = [
 		ScoringTypes.ScoreModifier.new(&"add", Rational.new(1, 2), &"bonus"),

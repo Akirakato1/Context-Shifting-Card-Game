@@ -25,8 +25,8 @@ static func evaluate(
 	if selections.size() > MAX_SUBMITTED_CARDS:
 		return _invalid(&"submission_size_out_of_range")
 	if (
-		active_context < GameTypes.Context.A
-		or active_context > GameTypes.Context.C
+		active_context < GameTypes.Context.RISE
+		or active_context > GameTypes.Context.FALL
 	):
 		return _invalid(&"invalid_active_context")
 
@@ -153,8 +153,8 @@ static func _validate_joker_choices(card: FullCardState, choices: Array) -> Dict
 		var context_value: Variant = choice["context"]
 		if (
 			not context_value is int
-			or context_value < GameTypes.Context.A
-			or context_value > GameTypes.Context.C
+			or context_value < GameTypes.Context.RISE
+			or context_value > GameTypes.Context.FALL
 		):
 			return _choice_error(&"invalid_joker_context")
 		var suit_value: Variant = choice["suit"]

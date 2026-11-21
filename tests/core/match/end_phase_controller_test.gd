@@ -126,7 +126,7 @@ func test_end_awards_both_victory_modes_and_unlocks_then_resets_rematch() -> voi
 	var occupants := wins_state.players.keys()
 	wins_controller.reset_for_rematch(99)
 	assert_eq(wins_controller.state.players.keys(), occupants)
-	assert_eq(wins_controller.state.active_context, GameTypes.Context.A)
+	assert_eq(wins_controller.state.active_context, GameTypes.Context.RISE)
 	assert_eq(wins_controller.state.ability_deck.active_fields().size(), 0)
 	assert_eq(wins_controller.state.players[&"one"].match_score, 0)
 	assert_eq(wins_controller.state.players[&"one"].round_wins, 0)

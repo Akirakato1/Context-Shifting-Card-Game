@@ -652,7 +652,7 @@ func _placeholder_context_hands() -> Array[ContextHandDefinition]:
 	var result: Array[ContextHandDefinition] = []
 	for count in range(1, 5):
 		result.append(ContextHandDefinition.new(
-			StringName("abc_%d" % count), count,
+			StringName("all_contexts_%d" % count), count,
 			{0: count, 1: count, 2: count}, Rational.new(1, 1)
 		))
 	for context in range(3):

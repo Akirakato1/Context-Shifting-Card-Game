@@ -173,7 +173,7 @@ func test_resolved_joker_reveal_is_sanitized_for_every_network_role() -> void:
 	var joker := FullCardState.new(
 		&"network-joker-card",
 		HalfCardState.new(
-			&"network-joker-half", GameTypes.Context.B, 0, HalfCardState.NO_SUIT,
+			&"network-joker-half", GameTypes.Context.FLOURISH, 0, HalfCardState.NO_SUIT,
 			GameTypes.HalfKind.JOKER
 		),
 		HalfCardState.new(
@@ -193,7 +193,7 @@ func test_resolved_joker_reveal_is_sanitized_for_every_network_role() -> void:
 			"half_index": 0,
 			"joker_choices": [{
 				"half_index": 0,
-				"context": GameTypes.Context.C,
+				"context": GameTypes.Context.FALL,
 				"suit": GameTypes.Suit.THREE,
 			}],
 		}]}
@@ -209,7 +209,7 @@ func test_resolved_joker_reveal_is_sanitized_for_every_network_role() -> void:
 
 	for peer_id in ["peer-one", "peer-two", "peer-watch"]:
 		var reveal := _network_event(transport, peer_id, "hand_revealed", "one")
-		assert_eq(reveal.payload.cards[0].halves[0].context, GameTypes.Context.C)
+		assert_eq(reveal.payload.cards[0].halves[0].context, GameTypes.Context.FALL)
 		assert_eq(reveal.payload.cards[0].halves[0].rank, 0)
 		assert_eq(reveal.payload.cards[0].halves[0].suit, GameTypes.Suit.THREE)
 		var encoded := JSON.stringify(reveal.payload.cards)

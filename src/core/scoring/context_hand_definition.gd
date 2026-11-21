@@ -19,8 +19,8 @@ func _init(
 	for context in context_minimums:
 		assert(
 			context is int
-			and context >= GameTypes.Context.A
-			and context <= GameTypes.Context.C,
+			and context >= GameTypes.Context.RISE
+			and context <= GameTypes.Context.FALL,
 			"unknown context minimum"
 		)
 		assert(context_minimums[context] is int and context_minimums[context] >= 0)

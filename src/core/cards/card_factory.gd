@@ -18,7 +18,7 @@ static func build_opening_hand(
 	if not _has_all_piles(piles):
 		return []
 	var by_context := {}
-	for context in range(GameTypes.Context.A, GameTypes.Context.C + 1):
+	for context in range(GameTypes.Context.RISE, GameTypes.Context.FALL + 1):
 		var pile: ContextPile = piles[context]
 		var drawn: Array[HalfCardState] = pile.draw(4, rng)
 		if drawn.size() != 4:
@@ -27,9 +27,9 @@ static func build_opening_hand(
 
 	var cards: Array[FullCardState] = []
 	for index in range(2):
-		cards.append(_pair(by_context[GameTypes.Context.A][index], by_context[GameTypes.Context.B][index], _card_id(card_id_provider, cards.size())))
-		cards.append(_pair(by_context[GameTypes.Context.A][index + 2], by_context[GameTypes.Context.C][index], _card_id(card_id_provider, cards.size())))
-		cards.append(_pair(by_context[GameTypes.Context.B][index + 2], by_context[GameTypes.Context.C][index + 2], _card_id(card_id_provider, cards.size())))
+		cards.append(_pair(by_context[GameTypes.Context.RISE][index], by_context[GameTypes.Context.FLOURISH][index], _card_id(card_id_provider, cards.size())))
+		cards.append(_pair(by_context[GameTypes.Context.RISE][index + 2], by_context[GameTypes.Context.FALL][index], _card_id(card_id_provider, cards.size())))
+		cards.append(_pair(by_context[GameTypes.Context.FLOURISH][index + 2], by_context[GameTypes.Context.FALL][index + 2], _card_id(card_id_provider, cards.size())))
 	var shuffled_cards: Array[FullCardState] = []
 	shuffled_cards.assign(rng.shuffle(cards))
 	return shuffled_cards
@@ -48,7 +48,7 @@ static func draw_replenishment(
 		return []
 
 	var halves: Array[HalfCardState] = []
-	for context in range(GameTypes.Context.A, GameTypes.Context.C + 1):
+	for context in range(GameTypes.Context.RISE, GameTypes.Context.FALL + 1):
 		var count: int = request.get(context, 0)
 		var pile: ContextPile = piles[context]
 		var drawn: Array[HalfCardState] = pile.draw(count, rng)
@@ -81,9 +81,9 @@ static func complete_request(
 		return _request_error(validation_error)
 
 	var completed := {
-		GameTypes.Context.A: 0,
-		GameTypes.Context.B: 0,
-		GameTypes.Context.C: 0,
+		GameTypes.Context.RISE: 0,
+		GameTypes.Context.FLOURISH: 0,
+		GameTypes.Context.FALL: 0,
 	}
 	for context in partial:
 		completed[context] = partial[context]
@@ -95,11 +95,11 @@ static func complete_request(
 
 	while total < needed_halves:
 		var candidates: Array[int] = []
-		for context in range(GameTypes.Context.A, GameTypes.Context.C + 1):
+		for context in range(GameTypes.Context.RISE, GameTypes.Context.FALL + 1):
 			if not partial.has(context) and completed[context] < CONTEXT_DRAW_CAP:
 				candidates.append(context)
 		if candidates.is_empty():
-			for context in range(GameTypes.Context.A, GameTypes.Context.C + 1):
+			for context in range(GameTypes.Context.RISE, GameTypes.Context.FALL + 1):
 				if completed[context] < CONTEXT_DRAW_CAP:
 					candidates.append(context)
 		if candidates.is_empty():
@@ -128,7 +128,7 @@ static func _card_id(provider: Callable, local_index: int) -> StringName:
 
 
 static func _has_all_piles(piles: Dictionary) -> bool:
-	for context in range(GameTypes.Context.A, GameTypes.Context.C + 1):
+	for context in range(GameTypes.Context.RISE, GameTypes.Context.FALL + 1):
 		if not piles.has(context) or not piles[context] is ContextPile:
 			return false
 	return true
@@ -136,7 +136,7 @@ static func _has_all_piles(piles: Dictionary) -> bool:
 
 static func _validate_request_values(request: Dictionary) -> StringName:
 	for context in request:
-		if not context is int or context < GameTypes.Context.A or context > GameTypes.Context.C:
+		if not context is int or context < GameTypes.Context.RISE or context > GameTypes.Context.FALL:
 			return &"unknown_context"
 		var count: Variant = request[context]
 		if not count is int:

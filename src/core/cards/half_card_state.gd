@@ -38,7 +38,7 @@ static func is_valid_base(
 	suit: int,
 	half_kind: int = GameTypes.HalfKind.NORMAL
 ) -> bool:
-	if context < GameTypes.Context.A or context > GameTypes.Context.C:
+	if context < GameTypes.Context.RISE or context > GameTypes.Context.FALL:
 		return false
 	match half_kind:
 		GameTypes.HalfKind.NORMAL:

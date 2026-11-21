@@ -12,7 +12,7 @@ var _contained_ids: Dictionary = {}
 
 
 func _init(pile_context: int, draw_cards: Array) -> void:
-	assert(pile_context >= GameTypes.Context.A and pile_context <= GameTypes.Context.C)
+	assert(pile_context >= GameTypes.Context.RISE and pile_context <= GameTypes.Context.FALL)
 	context = pile_context
 	for value in draw_cards:
 		var card: HalfCardState = value

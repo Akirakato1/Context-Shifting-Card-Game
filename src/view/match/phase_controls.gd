@@ -35,9 +35,9 @@ var _authoritative_staging_signature := ""
 @onready var _status: Label = $Status
 @onready var _timeout_notice: Label = $TimeoutNotice
 @onready var _start: VBoxContainer = $StartControls
-@onready var _start_a: SpinBox = $StartControls/RequestGrid/A
-@onready var _start_b: SpinBox = $StartControls/RequestGrid/B
-@onready var _start_c: SpinBox = $StartControls/RequestGrid/C
+@onready var _start_rise: SpinBox = $StartControls/RequestGrid/Rise
+@onready var _start_flourish: SpinBox = $StartControls/RequestGrid/Flourish
+@onready var _start_fall: SpinBox = $StartControls/RequestGrid/Fall
 @onready var _start_total: Label = $StartControls/Total
 @onready var _start_confirm: Button = $StartControls/ConfirmButton
 @onready var _start_ready: Button = $StartControls/ReadyButton
@@ -71,9 +71,9 @@ func render(model: Dictionary) -> void:
 		if next_phase == PHASE_START:
 			_last_start_request.clear()
 			_confirmed_start_request.clear()
-			_start_a.value = 0
-			_start_b.value = 0
-			_start_c.value = 0
+			_start_rise.value = 0
+			_start_flourish.value = 0
+			_start_fall.value = 0
 	_phase = next_phase
 	_model = model.duplicate(true)
 	_rendering = true
@@ -412,7 +412,7 @@ func _render_end() -> void:
 func _update_start_total() -> void:
 	if not is_node_ready():
 		return
-	var total := int(_start_a.value + _start_b.value + _start_c.value)
+	var total := int(_start_rise.value + _start_flourish.value + _start_fall.value)
 	_start_total.text = "%d / %d selected" % [total, _required_halves]
 	_start_confirm.disabled = _input_locked or (
 		total <= 0 or total > _required_halves or _required_halves == 0
@@ -449,7 +449,9 @@ func _on_start_confirm_pressed() -> void:
 	if _start_confirm.disabled:
 		return
 	_last_start_request = {
-		0: int(_start_a.value), 1: int(_start_b.value), 2: int(_start_c.value),
+		0: int(_start_rise.value),
+		1: int(_start_flourish.value),
+		2: int(_start_fall.value),
 	}
 	_emit_intent(&"set_replenishment_request", {"request": _last_start_request.duplicate(true)})
 
@@ -539,7 +541,11 @@ func _default_joker_choices(card: Dictionary) -> Array:
 
 
 func _current_start_request() -> Dictionary:
-	return {0: int(_start_a.value), 1: int(_start_b.value), 2: int(_start_c.value)}
+	return {
+		0: int(_start_rise.value),
+		1: int(_start_flourish.value),
+		2: int(_start_fall.value),
+	}
 
 
 func _start_ready_allowed() -> bool:

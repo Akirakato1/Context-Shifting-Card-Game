@@ -8,6 +8,11 @@ func test_table_renders_four_fixed_seats_local_hand_and_hidden_opponents() -> vo
 	if table == null:
 		return
 	table.render(_active_player_model())
+	assert_eq(table.get_node("Center/ContextClock/Direction").text, "Rise  →  Flourish  →  Fall")
+	assert_eq(table.get_node("Center/ContextClock/Active").text, "ACTIVE  Flourish")
+	assert_eq(table.get_node("Center/Piles/PileRise/Name").text, "Rise")
+	assert_eq(table.get_node("Center/Piles/PileFlourish/Name").text, "Flourish")
+	assert_eq(table.get_node("Center/Piles/PileFall/Name").text, "Fall")
 	assert_eq(table.get_node("TableLayer/TopSeat").seat_position, &"top")
 	assert_eq(table.get_node("TableLayer/LeftSeat").seat_position, &"left")
 	assert_eq(table.get_node("TableLayer/RightSeat").seat_position, &"right")
@@ -29,20 +34,20 @@ func test_local_and_revealed_cards_render_effective_faces_and_active_half() -> v
 	model.players[1]["revealed_submission"] = {
 		"cards": [_revealed_card("r1", 2, 9, 1, 0, 4, 2, 1)],
 		"normal_category": "pair",
-		"context_category": "abc_1",
+		"context_category": "all_contexts_1",
 		"base_value": 18,
 		"provisional_score": 27,
 		"finalized_score": 31,
 	}
 	table.render(model)
 	var local_card = table.get_node("TableLayer/BottomSeat").card_at(0)
-	assert_eq(local_card.first_face_text(), "A  7  ONE")
-	assert_eq(local_card.second_face_text(), "B  4  THREE")
+	assert_eq(local_card.first_face_text(), "Rise  7  ONE")
+	assert_eq(local_card.second_face_text(), "Flourish  4  THREE")
 	assert_eq(local_card.active_half_index, 1)
 	var revealed = table.get_node("TableLayer/TopSeat").card_at(0)
-	assert_eq(revealed.first_face_text(), "C  9  TWO")
-	assert_eq(revealed.second_face_text(), "A  4  THREE")
-	assert_eq(table.get_node("TableLayer/TopSeat/ScoreSummary").text, "Pair  ×  ABC ×1   ·   31 pts")
+	assert_eq(revealed.first_face_text(), "Fall  9  TWO")
+	assert_eq(revealed.second_face_text(), "Rise  4  THREE")
+	assert_eq(table.get_node("TableLayer/TopSeat/ScoreSummary").text, "Pair  ×  All Contexts ×1   ·   31 pts")
 	await _unmount(table)
 
 
@@ -51,17 +56,17 @@ func test_public_information_shows_piles_requests_and_spectator_has_no_local_han
 	if table == null:
 		return
 	var public_model := _active_player_model()
-	public_model["replacement_requests"] = {"p2": {"A": 2, "B": 1, "C": 3}}
+	public_model["replacement_requests"] = {"p2": {"0": 2, "1": 1, "2": 3}}
 	table.render(public_model)
-	assert_eq(table.get_node("Center/Piles/PileA/Count").text, "68 left")
+	assert_eq(table.get_node("Center/Piles/PileRise/Count").text, "68 left")
 	assert_true(table.get_node("TableLayer/TopSeat/Request").visible)
-	assert_eq(table.get_node("TableLayer/TopSeat/Request").text, "DRAW  A2 · B1 · C3")
+	assert_eq(table.get_node("TableLayer/TopSeat/Request").text, "DRAW  Rise 2 · Flourish 1 · Fall 3")
 
 	var private_model := _active_player_model()
 	private_model.erase("pile_counts")
 	private_model.erase("replacement_requests")
 	table.render(private_model)
-	assert_eq(table.get_node("Center/Piles/PileA/Count").text, "Hidden")
+	assert_eq(table.get_node("Center/Piles/PileRise/Count").text, "Hidden")
 	assert_false(table.get_node("TableLayer/TopSeat/Request").visible)
 
 	var spectator_model := _active_player_model()
@@ -95,8 +100,8 @@ func test_context_score_progress_fields_and_nil_round_render_clearly() -> void:
 	assert_eq(table.get_node("Header/Phase").text, "HAND PLAY")
 	assert_eq(table.get_node("Header/Round").text, "ROUND 4")
 	assert_eq(table.get_node("Header/Timer").text, "12.4s")
-	assert_eq(table.get_node("Center/ContextClock/Direction").text, "C  ←  B  ←  A")
-	assert_eq(table.get_node("Center/ContextClock/Active").text, "ACTIVE  B")
+	assert_eq(table.get_node("Center/ContextClock/Direction").text, "Fall  ←  Flourish  ←  Rise")
+	assert_eq(table.get_node("Center/ContextClock/Active").text, "ACTIVE  Flourish")
 	assert_eq(table.get_node("TableLayer/BottomSeat/ScoreSummary").text, "Three of a Kind  ×  No Context Pattern ×1   ·   42 provisional")
 	assert_eq(table.get_node("Header/Progress").text, "SCORE RACE  ·  36 / 100")
 	assert_eq(table.get_node("Center/Fields/FieldRows").get_child_count(), 1)

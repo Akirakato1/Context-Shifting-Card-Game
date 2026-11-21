@@ -114,7 +114,7 @@ func test_joker_draft_is_owner_only_and_resolved_view_is_public() -> void:
 	var joker := FullCardState.new(
 		&"private-joker-card",
 		HalfCardState.new(
-			&"private-joker-half", GameTypes.Context.B, 0, HalfCardState.NO_SUIT,
+			&"private-joker-half", GameTypes.Context.FLOURISH, 0, HalfCardState.NO_SUIT,
 			GameTypes.HalfKind.JOKER
 		),
 		HalfCardState.new(
@@ -125,7 +125,7 @@ func test_joker_draft_is_owner_only_and_resolved_view_is_public() -> void:
 	var controller := MatchController.new(state)
 	var choices := [{
 		"half_index": 0,
-		"context": GameTypes.Context.C,
+		"context": GameTypes.Context.FALL,
 		"suit": GameTypes.Suit.THREE,
 	}]
 	assert_true(controller.submit(GameCommand.new(
@@ -172,7 +172,7 @@ func test_joker_draft_is_owner_only_and_resolved_view_is_public() -> void:
 		revealed_views.append(_player_view(projected.players, &"one").revealed_submission.cards)
 	assert_eq(revealed_views[0], revealed_views[1])
 	assert_eq(revealed_views[1], revealed_views[2])
-	assert_eq(revealed_views[0][0].halves[0].context, GameTypes.Context.C)
+	assert_eq(revealed_views[0][0].halves[0].context, GameTypes.Context.FALL)
 	assert_eq(revealed_views[0][0].halves[0].rank, 0)
 	assert_eq(revealed_views[0][0].halves[0].suit, GameTypes.Suit.THREE)
 	var public_text := JSON.stringify(revealed_views[0])

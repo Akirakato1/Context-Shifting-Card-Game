@@ -1162,7 +1162,7 @@ func _remove_held_ability(player_id: StringName, ability: AbilityState) -> void:
 func _validate_partial_request(request: Dictionary, needed_halves: int) -> StringName:
 	var total := 0
 	for context in request:
-		if not context is int or context < GameTypes.Context.A or context > GameTypes.Context.C:
+		if not context is int or context < GameTypes.Context.RISE or context > GameTypes.Context.FALL:
 			return &"unknown_context"
 		if not request[context] is int:
 			return &"invalid_context_count"

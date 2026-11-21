@@ -4,7 +4,7 @@ extends Control
 signal intent_requested(kind: StringName, payload: Dictionary)
 signal connection_action_requested(action: StringName)
 
-const CONTEXT_NAMES := ["A", "B", "C"]
+const GameTypes = preload("res://src/core/common/game_types.gd")
 const PHASE_NAMES := ["SETUP", "START", "MAIN 1", "HAND PLAY", "MAIN 2", "END", "COMPLETE"]
 
 var _model: Dictionary = {}
@@ -108,7 +108,11 @@ func _update_timer(remaining_msec: int) -> void:
 func _render_context_and_piles() -> void:
 	var active_context := int(_model.get("active_context", 0))
 	var direction := int(_model.get("context_direction", 1))
-	_clock_direction.text = "A  →  B  →  C" if direction >= 0 else "C  ←  B  ←  A"
+	_clock_direction.text = (
+		"Rise  →  Flourish  →  Fall"
+		if direction >= 0
+		else "Fall  ←  Flourish  ←  Rise"
+	)
 	_clock_active.text = "ACTIVE  %s" % _context_name(active_context)
 	var counts: Dictionary = _model.get("pile_counts", {})
 	for context in 3:
@@ -353,4 +357,4 @@ func _lobby_setting(key: String, fallback: Variant) -> Variant:
 
 
 func _context_name(index: int) -> String:
-	return CONTEXT_NAMES[index] if index >= 0 and index < CONTEXT_NAMES.size() else "?"
+	return GameTypes.context_name(index)

@@ -80,13 +80,13 @@ func test_manipulation_choice_schema_and_malformed_values_reject_without_mutatio
 	state.players[&"one"].ability_hand[0].definition = AbilityDefinition.new(
 		&"set-ten", AbilityDefinition.Timing.HAND_MANIPULATION, [], &"manipulate_half",
 		0, &"", {}, {
-			"contexts": [GameTypes.Context.A], "ranks": [10],
+			"contexts": [GameTypes.Context.RISE], "ranks": [10],
 			"suits": [GameTypes.Suit.ONE],
 		}
 	)
 	var ability = state.players[&"one"].ability_hand[0]
 	var card = state.players[&"one"].hand[0]
-	card.first.apply_overrides(GameTypes.Context.A, card.first.effective_rank(), GameTypes.Suit.ONE)
+	card.first.apply_overrides(GameTypes.Context.RISE, card.first.effective_rank(), GameTypes.Suit.ONE)
 	var controller := MatchController.new(state)
 	assert_true(controller.submit(GameCommand.new(
 		&"begin", &"one", CommandKinds.STAGE_MANIPULATION, {"copy_id": ability.copy_id}
@@ -94,7 +94,7 @@ func test_manipulation_choice_schema_and_malformed_values_reject_without_mutatio
 	var before := state.to_dict()
 	var malformed := controller.submit(GameCommand.new(
 		&"bad-type", &"one", CommandKinds.COMMIT_MANIPULATION, {
-			"card_id": card.card_id, "half_index": 0, "context": GameTypes.Context.A,
+			"card_id": card.card_id, "half_index": 0, "context": GameTypes.Context.RISE,
 			"rank": "ten", "suit": GameTypes.Suit.ONE,
 		}
 	), 2)
@@ -102,7 +102,7 @@ func test_manipulation_choice_schema_and_malformed_values_reject_without_mutatio
 	assert_eq(state.to_dict(), before)
 	var disallowed := controller.submit(GameCommand.new(
 		&"bad-choice", &"one", CommandKinds.COMMIT_MANIPULATION, {
-			"card_id": card.card_id, "half_index": 0, "context": GameTypes.Context.A,
+			"card_id": card.card_id, "half_index": 0, "context": GameTypes.Context.RISE,
 			"rank": 9, "suit": GameTypes.Suit.ONE,
 		}
 	), 3)
@@ -223,7 +223,7 @@ func test_joker_draft_and_resolved_views_survive_canonical_round_trip() -> void:
 	var joker := FullCardState.new(
 		&"roundtrip-joker",
 		HalfCardState.new(
-			&"roundtrip-joker-half", GameTypes.Context.B, 0, HalfCardState.NO_SUIT,
+			&"roundtrip-joker-half", GameTypes.Context.FLOURISH, 0, HalfCardState.NO_SUIT,
 			GameTypes.HalfKind.JOKER
 		),
 		HalfCardState.new(
@@ -238,7 +238,7 @@ func test_joker_draft_and_resolved_views_survive_canonical_round_trip() -> void:
 			"half_index": 0,
 			"joker_choices": [{
 				"half_index": 0,
-				"context": GameTypes.Context.C,
+				"context": GameTypes.Context.FALL,
 				"suit": GameTypes.Suit.THREE,
 			}],
 		}]}
@@ -253,7 +253,7 @@ func test_joker_draft_and_resolved_views_survive_canonical_round_trip() -> void:
 	assert_eq(restored_draft.to_dict(), draft_snapshot)
 	assert_eq(
 		restored_draft.players[&"one"].staged_submission[0]["joker_choices"][0]["context"],
-		GameTypes.Context.C
+		GameTypes.Context.FALL
 	)
 
 	controller.submit(_lock(&"lock-original-one", &"one"), 2)
@@ -297,7 +297,7 @@ func test_controller_replay_and_partial_start_requests_survive_state_round_trip(
 	var controller := MatchController.new(state)
 	var command := GameCommand.new(
 		&"request", &"one", CommandKinds.SET_REPLENISHMENT_REQUEST,
-		{"request": {GameTypes.Context.A: 1}}
+		{"request": {GameTypes.Context.RISE: 1}}
 	)
 	assert_true(controller.submit(command, 1).accepted)
 	var restored := MatchState.from_dict(state.to_dict())
@@ -315,7 +315,7 @@ func test_replenishment_context_counts_private_cards_and_context_advance_are_eve
 	var controller := MatchController.new(state)
 	controller.submit(GameCommand.new(
 		&"request", &"one", CommandKinds.SET_REPLENISHMENT_REQUEST,
-		{"request": {GameTypes.Context.A: 1}}
+		{"request": {GameTypes.Context.RISE: 1}}
 	), 1)
 	controller.submit(_ready(&"one-ready", &"one"), 2)
 	var completed := controller.submit(_ready(&"two-ready", &"two"), 2)
@@ -473,7 +473,7 @@ func _default_context_definitions() -> Array:
 	const Rational = preload("res://src/core/common/rational.gd")
 	const ContextHandDefinition = preload("res://src/core/scoring/context_hand_definition.gd")
 	return [ContextHandDefinition.new(
-		&"one-a", 1, {GameTypes.Context.A: 1}, Rational.new(1, 1)
+		&"one-a", 1, {GameTypes.Context.RISE: 1}, Rational.new(1, 1)
 	)]
 
 
@@ -485,7 +485,7 @@ func _eligible_card(state: MatchState, player_id: StringName):
 
 
 func _stage(id: StringName, player_id: StringName, card) -> GameCommand:
-	var half_index: int = card.eligible_half_indexes(GameTypes.Context.A)[0]
+	var half_index: int = card.eligible_half_indexes(GameTypes.Context.RISE)[0]
 	return GameCommand.new(id, player_id, CommandKinds.STAGE_HAND, {
 		"cards": [{"card_id": card.card_id, "half_index": half_index}],
 	})

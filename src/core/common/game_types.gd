@@ -2,10 +2,22 @@ class_name GameTypes
 extends RefCounted
 
 enum Context {
-	A,
-	B,
-	C,
+	RISE = 0,
+	FLOURISH = 1,
+	FALL = 2,
 }
+
+
+static func context_name(context: int) -> String:
+	match context:
+		Context.RISE:
+			return "Rise"
+		Context.FLOURISH:
+			return "Flourish"
+		Context.FALL:
+			return "Fall"
+		_:
+			return "Unknown"
 
 enum Suit {
 	ONE,
