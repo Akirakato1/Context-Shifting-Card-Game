@@ -481,4 +481,3 @@ git commit -m "fix: harden manipulation ability integration"
 ```
 
 If no correction was needed, do not create an empty commit.
-

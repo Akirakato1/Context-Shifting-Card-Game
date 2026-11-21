@@ -1,7 +1,7 @@
 # Card-Manipulation Abilities Design
 
-**Status:** Draft for approval  
-**Date:** 2026-11-21  
+**Status:** Approved
+**Date:** 2026-11-21
 **Scope:** The first finalized ability category: Hand Manipulation
 
 ## Intent
