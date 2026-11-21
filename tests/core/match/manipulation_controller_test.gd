@@ -120,6 +120,26 @@ func test_cancel_and_timeout_keep_uncommitted_ability() -> void:
 	assert_true(timed_state.players[&"one"].pending_manipulation.is_empty())
 
 
+func test_commit_after_hand_play_deadline_rejects_without_mutation() -> void:
+	var state := _state(221)
+	var controller := MatchController.new(state)
+	var ability = _set_ability(state, &"one", &"mirror_rank")
+	var card: FullCardState = _ordinary_card(state.players[&"one"].hand)
+	assert_true(controller.submit(_begin(&"begin-deadline", ability.copy_id), 10).accepted)
+	var before := state.to_dict()
+	var rng_before := state.rng.state_token()
+
+	var rejected := controller.submit(_commit(&"commit-after-deadline", {
+		"cards": [str(card.card_id)],
+	}), state.phase_deadline_msec + 1)
+
+	assert_false(rejected.accepted)
+	assert_eq(rejected.error_code, &"phase_deadline_passed")
+	assert_eq(state.to_dict(), before)
+	assert_eq(state.rng.state_token(), rng_before)
+	assert_true(state.players[&"one"].ability_hand.has(ability))
+
+
 func test_locked_or_out_of_phase_manipulation_rejects() -> void:
 	var locked_state := _state(215)
 	var locked_controller := MatchController.new(locked_state)
