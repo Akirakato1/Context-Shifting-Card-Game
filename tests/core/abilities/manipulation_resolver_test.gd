@@ -97,6 +97,109 @@ func test_deterministic_operations_skip_jokers_and_valid_noop_still_resolves() -
 	assert_eq(normal.effective_context(), GameTypes.Context.FALL)
 
 
+func test_context_roulette_rolls_each_selected_ordinary_half_independently() -> void:
+	var selected := _card(&"selected")
+	var untouched := _card(&"untouched")
+	var choices := {"halves": [
+		{"card_id": str(selected.card_id), "half_index": 0},
+		{"card_id": str(selected.card_id), "half_index": 1},
+	]}
+	var expected_rng := RandomSource.new(301)
+	var expected_first := expected_rng.pick_index(3)
+	var expected_second := expected_rng.pick_index(3)
+	var untouched_context := untouched.first.effective_context()
+
+	ManipulationResolver.apply(
+		_definition(&"context_roulette"), [selected, untouched], choices,
+		RandomSource.new(301), GameTypes.ContextDirection.FORWARD
+	)
+
+	assert_eq(selected.first.effective_context(), expected_first)
+	assert_eq(selected.second.effective_context(), expected_second)
+	assert_eq(untouched.first.effective_context(), untouched_context)
+	assert_eq(selected.first.effective_rank(), 2)
+	assert_eq(selected.second.effective_suit(), GameTypes.Suit.TWO)
+
+
+func test_rank_rolls_use_exact_low_high_even_and_odd_sets() -> void:
+	var allowed_by_id := {
+		&"low_roll": [1, 2, 3, 4, 5],
+		&"high_roll": [6, 7, 8, 9, 10],
+		&"even_roll": [2, 4, 6, 8, 10],
+		&"odd_roll": [1, 3, 5, 7, 9],
+	}
+	var seed_value := 310
+	for id in allowed_by_id:
+		var card := _card(StringName("rank-%s" % id))
+		ManipulationResolver.apply(
+			_definition(id), [card], {"cards": [str(card.card_id)]},
+			RandomSource.new(seed_value), GameTypes.ContextDirection.FORWARD
+		)
+		assert_true(card.first.effective_rank() in allowed_by_id[id])
+		assert_true(card.second.effective_rank() in allowed_by_id[id])
+		assert_eq(card.first.effective_context(), GameTypes.Context.RISE)
+		assert_eq(card.second.effective_suit(), GameTypes.Suit.TWO)
+		seed_value += 1
+
+
+func test_random_roll_may_equal_the_current_value() -> void:
+	var card := _card(&"same-value")
+	var allowed: Array = _definition(&"low_roll").effect_parameters.ranks
+	var probe := RandomSource.new(321)
+	var rolled_rank: int = allowed[probe.pick_index(allowed.size())]
+	card.first.apply_overrides(
+		card.first.effective_context(), rolled_rank, card.first.effective_suit()
+	)
+
+	ManipulationResolver.apply(
+		_definition(&"low_roll"), [card], {"cards": [str(card.card_id)]},
+		RandomSource.new(321), GameTypes.ContextDirection.FORWARD
+	)
+
+	assert_eq(card.first.effective_rank(), rolled_rank)
+
+
+func test_ride_and_against_cycle_follow_normal_and_reversed_direction() -> void:
+	for direction in [GameTypes.ContextDirection.FORWARD, GameTypes.ContextDirection.REVERSE]:
+		for fixture in [
+			{"id": &"ride_the_cycle", "delta": 1},
+			{"id": &"against_the_cycle", "delta": -1},
+		]:
+			var card := _card(StringName("cycle-%s-%d" % [fixture.id, direction]))
+			var first_before := card.first.effective_context()
+			var second_before := card.second.effective_context()
+			ManipulationResolver.apply(
+				_definition(fixture.id), [card], {"cards": [str(card.card_id)]},
+				RandomSource.new(330), direction
+			)
+			assert_eq(
+				card.first.effective_context(),
+				posmod(first_before + direction * fixture.delta, 3)
+			)
+			assert_eq(
+				card.second.effective_context(),
+				posmod(second_before + direction * fixture.delta, 3)
+			)
+
+
+func test_mirror_rank_maps_all_five_pairs_on_both_halves() -> void:
+	for low_rank in range(1, 6):
+		var high_rank := 11 - low_rank
+		var card := _card(StringName("mirror-%d" % low_rank))
+		card.first.apply_overrides(
+			card.first.effective_context(), low_rank, card.first.effective_suit()
+		)
+		card.second.apply_overrides(
+			card.second.effective_context(), high_rank, card.second.effective_suit()
+		)
+		ManipulationResolver.apply(
+			_definition(&"mirror_rank"), [card], {"cards": [str(card.card_id)]},
+			RandomSource.new(340), GameTypes.ContextDirection.FORWARD
+		)
+		assert_eq(card.first.effective_rank(), high_rank)
+		assert_eq(card.second.effective_rank(), low_rank)
+
+
 func _definition(id: StringName) -> AbilityDefinition:
 	for definition in AbilityCatalog.manipulation_definitions(1):
 		if definition.id == id:

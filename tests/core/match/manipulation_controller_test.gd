@@ -3,7 +3,10 @@ extends "res://tests/test_case.gd"
 const AbilityCatalog = preload("res://src/core/abilities/ability_catalog.gd")
 const AbilityDefinition = preload("res://src/core/abilities/ability_definition.gd")
 const ManipulationResolver = preload("res://src/core/abilities/manipulation_resolver.gd")
+const FullCardState = preload("res://src/core/cards/full_card_state.gd")
+const HalfCardState = preload("res://src/core/cards/half_card_state.gd")
 const GameTypes = preload("res://src/core/common/game_types.gd")
+const RandomSource = preload("res://src/core/common/random_source.gd")
 const CommandKinds = preload("res://src/core/commands/command_kinds.gd")
 const GameCommand = preload("res://src/core/commands/game_command.gd")
 const MatchConfig = preload("res://src/core/match/match_config.gd")
@@ -137,6 +140,77 @@ func test_locked_or_out_of_phase_manipulation_rejects() -> void:
 	)
 
 
+func test_random_effect_skips_joker_but_changes_ordinary_partner_and_consumes() -> void:
+	var state := _state(217)
+	var card := _mixed_joker_card(&"mixed-random")
+	state.players[&"one"].hand[0] = card
+	var ability = _set_ability(state, &"one", &"low_roll")
+	var probe := RandomSource.new(0)
+	probe.restore_state_token(state.rng.state_token())
+	var allowed: Array = ability.definition.effect_parameters.ranks
+	var expected_rank: int = allowed[probe.pick_index(allowed.size())]
+	var expected_rng_token := probe.state_token()
+	var controller := MatchController.new(state)
+	assert_true(controller.submit(_begin(&"begin-random", ability.copy_id), 10).accepted)
+
+	var committed := controller.submit(_commit(&"commit-random", {
+		"cards": [str(card.card_id)],
+	}), 11)
+
+	assert_true(committed.accepted)
+	assert_true(card.first.is_joker())
+	assert_eq(card.first.effective_rank(), 0)
+	assert_eq(card.second.effective_rank(), expected_rank)
+	assert_ne(card.second.effective_rank(), card.second.base_rank)
+	assert_eq(state.rng.state_token(), expected_rng_token)
+	assert_false(state.players[&"one"].ability_hand.has(ability))
+
+
+func test_cycle_direction_is_read_once_and_changes_persist_without_retroactivity() -> void:
+	var state := _state(218)
+	state.context_direction = GameTypes.ContextDirection.REVERSE
+	var card: FullCardState = _ordinary_card(state.players[&"one"].hand)
+	var first_before: int = card.first.effective_context()
+	var second_before: int = card.second.effective_context()
+	var ability = _set_ability(state, &"one", &"ride_the_cycle")
+	var controller := MatchController.new(state)
+	controller.submit(_begin(&"begin-cycle", ability.copy_id), 10)
+	assert_true(controller.submit(_commit(&"commit-cycle", {
+		"cards": [str(card.card_id)],
+	}), 11).accepted)
+	var first_after: int = card.first.effective_context()
+	var second_after: int = card.second.effective_context()
+
+	assert_eq(first_after, posmod(first_before - 1, 3))
+	assert_eq(second_after, posmod(second_before - 1, 3))
+	state.context_direction = GameTypes.ContextDirection.FORWARD
+	assert_eq(card.first.effective_context(), first_after)
+	assert_eq(card.second.effective_context(), second_after)
+
+
+func test_cycle_and_mirror_allow_complete_joker_noop_and_consume() -> void:
+	for fixture in [
+		{"seed": 219, "id": &"ride_the_cycle"},
+		{"seed": 220, "id": &"mirror_rank"},
+	]:
+		var state := _state(fixture.seed)
+		var card := _double_joker_card(StringName("double-%s" % fixture.id))
+		state.players[&"one"].hand[0] = card
+		var ability = _set_ability(state, &"one", fixture.id)
+		var controller := MatchController.new(state)
+		controller.submit(_begin(StringName("begin-%s" % fixture.id), ability.copy_id), 10)
+		var committed := controller.submit(_commit(
+			StringName("commit-%s" % fixture.id), {"cards": [str(card.card_id)]}
+		), 11)
+
+		assert_true(committed.accepted)
+		assert_true(card.first.is_joker())
+		assert_true(card.second.is_joker())
+		assert_eq(card.first.effective_rank(), 0)
+		assert_eq(card.second.effective_rank(), 0)
+		assert_false(state.players[&"one"].ability_hand.has(ability))
+
+
 func _state(seed_value: int) -> MatchState:
 	var config := MatchConfig.new(
 		[&"one", &"two"], [], GameTypes.VictoryMode.SCORE_RACE, 100,
@@ -173,6 +247,34 @@ func _ordinary_card(hand: Array):
 		if not card.first.is_joker() and not card.second.is_joker():
 			return card
 	return null
+
+
+func _mixed_joker_card(id: StringName) -> FullCardState:
+	return FullCardState.new(
+		id,
+		HalfCardState.new(
+			StringName("%s-joker" % id), GameTypes.Context.RISE, 0,
+			HalfCardState.NO_SUIT, GameTypes.HalfKind.JOKER
+		),
+		HalfCardState.new(
+			StringName("%s-normal" % id), GameTypes.Context.FLOURISH, 8,
+			GameTypes.Suit.TWO
+		)
+	)
+
+
+func _double_joker_card(id: StringName) -> FullCardState:
+	return FullCardState.new(
+		id,
+		HalfCardState.new(
+			StringName("%s-first" % id), GameTypes.Context.RISE, 0,
+			HalfCardState.NO_SUIT, GameTypes.HalfKind.JOKER
+		),
+		HalfCardState.new(
+			StringName("%s-second" % id), GameTypes.Context.FLOURISH, 0,
+			HalfCardState.NO_SUIT, GameTypes.HalfKind.JOKER
+		)
+	)
 
 
 func _begin(id: StringName, copy_id: StringName) -> GameCommand:

@@ -52,8 +52,8 @@ static func apply(
 	definition: AbilityDefinition,
 	hand: Array,
 	choices: Dictionary,
-	_rng: RandomSource,
-	_context_direction: int
+	rng: RandomSource,
+	context_direction: int
 ) -> void:
 	var cards_by_id := _cards_by_id(hand)
 	var operation := StringName(definition.effect_parameters.get("operation", &""))
@@ -95,6 +95,46 @@ static func apply(
 				if not half.is_joker():
 					half.apply_overrides(
 						context, half.effective_rank(), half.effective_suit()
+					)
+		&"random_context":
+			for selected_half in choices.halves:
+				var card := _selected_card(cards_by_id, selected_half.card_id)
+				var half = card.half_at(selected_half.half_index)
+				if not half.is_joker():
+					half.apply_overrides(
+						rng.pick_index(3), half.effective_rank(), half.effective_suit()
+					)
+		&"random_rank":
+			var ranks: Array = definition.effect_parameters.ranks
+			for card_id in choices.cards:
+				var card := _selected_card(cards_by_id, card_id)
+				for half in [card.first, card.second]:
+					if not half.is_joker():
+						var rank: int = ranks[rng.pick_index(ranks.size())]
+						half.apply_overrides(
+							half.effective_context(), rank, half.effective_suit()
+						)
+		&"shift_context":
+			var relative_direction: int = definition.effect_parameters.relative_direction
+			for card_id in choices.cards:
+				var card := _selected_card(cards_by_id, card_id)
+				for half in [card.first, card.second]:
+					if not half.is_joker():
+						var shifted_context := posmod(
+							half.effective_context()
+							+ context_direction * relative_direction,
+							3
+						)
+						half.apply_overrides(
+							shifted_context, half.effective_rank(), half.effective_suit()
+						)
+		&"mirror_rank":
+			var card := _selected_card(cards_by_id, choices.cards[0])
+			for half in [card.first, card.second]:
+				if not half.is_joker():
+					half.apply_overrides(
+						half.effective_context(), 11 - half.effective_rank(),
+						half.effective_suit()
 					)
 
 
