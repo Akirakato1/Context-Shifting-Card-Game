@@ -67,14 +67,14 @@ The baseline is a landscape 16:9 window.
 - Three opponent seat zones occupy the left, top, and right edges.
 - An opponent zone shows name, score/progress, connection/readiness state, hidden hand count, ability count, and its reveal area.
 - Opponent hands use card backs and may curve or fan toward their seat edge.
-- The three context piles sit near the center, colored with temporary A/B/C colors and showing only public information permitted by the lobby visibility setting.
+- The Rise, Flourish, and Fall piles sit near the center, using distinct temporary treatments and showing only public information permitted by the lobby visibility setting.
 - Active field effects, the current phase, phase timer, round, active context, and direction remain visible without opening another panel.
 
 ### Local cockpit
 
 - The local six-card hand runs across the bottom center.
 - A submission shelf sits directly above the hand and can hold zero to six full cards.
-- A context-clock control occupies the lower-left region and shows A/B/C plus current direction.
+- A context-clock control occupies the lower-left region and shows Rise/Flourish/Fall plus current direction.
 - The lower-right region contains the collapsed Ability button and sorting controls.
 - Sort controls offer context, rank, and suit arrangements. Sorting affects only local display order.
 - The Ability button expands a vertical drawer upward. The drawer can be collapsed without cancelling already committed effects.
@@ -135,7 +135,7 @@ The host validates the complete staged payload and remains authoritative. Lockin
 
 ### Identity and piles
 
-- Each of the A, B, and C piles gains exactly one Joker half-card, increasing each pile from 90 to 91 half-cards.
+- Each of the Rise, Flourish, and Fall piles gains exactly one Joker half-card, increasing each pile from 90 to 91 half-cards.
 - A Joker retains an origin pile context solely for ownership, discard, recycling, serialization, and card counting.
 - Its immutable rank is `0`.
 - It has no immutable gameplay suit or context choice.
@@ -145,7 +145,7 @@ The host validates the complete staged payload and remains authoritative. Lockin
 
 - A Joker half is eligible during every active context.
 - Every Joker half on a full card moved into the submission shelf receives a submission-local context and suit assignment.
-- Defaults are context A and suit ONE, the first entries in the current placeholder enumerations.
+- Defaults are context Rise and suit ONE, the first entries in the current enumerations.
 - Context and suit prompts appear directly on the Joker half while it is staged.
 - The player may change either choice before locking.
 - Assignments reset immediately when the full card leaves the submission shelf, when the draft is replaced or cancelled, or after resolution.
@@ -251,9 +251,9 @@ Scene scripts emit intent signals and render supplied data. They do not mutate `
 
 - 91 half-cards per context pile with one unique Joker per pile.
 - Joker recycling preserves origin-pile ownership.
-- Joker eligibility in A, B, and C.
+- Joker eligibility in Rise, Flourish, and Fall.
 - independent context/suit assignment for one or two Joker halves on a full card;
-- default A/ONE assignment on staging;
+- default Rise/ONE assignment on staging;
 - reset on unstage, draft replacement, resolution, and leaving hand;
 - private snapshot round-trip without opponent leakage;
 - rank-zero/suit-choice participation in normal and context evaluation;

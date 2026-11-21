@@ -24,7 +24,7 @@ The central decision is how many cards to commit now versus preserve for later c
 ## Non-goals for the first version
 
 - Final card art, 3D models, animations, audio, music, and presentation polish.
-- Final normal-hand catalogue, multiplier balance, ability catalogue, or theme names for A/B/C.
+- Final normal-hand catalogue, multiplier balance, ability catalogue, or suit theme/names.
 - Dedicated authoritative servers, accounts, matchmaking, progression, or ranked play.
 - Host migration.
 - TURN relay fallback when a direct P2P route cannot be established.
@@ -146,7 +146,13 @@ Human and future bot agents submit the same `GameCommand` forms. A bot may see o
 
 ### Context half-card piles
 
-There are three placeholder contexts: A, B, and C.
+There are three finalized development contexts in fixed protocol order:
+
+- Rise / `興` (`0`)
+- Flourish / `盛` (`1`)
+- Fall / `衰` (`2`)
+
+The English names are used in code and player-facing placeholder UI. The traditional Chinese characters are art-direction concepts rather than code identifiers.
 
 Each context begins with 90 half-cards:
 
@@ -176,13 +182,15 @@ A modification persists across rounds while its full card remains in the player'
 
 Two half-cards form one full card. Full-card hand size is capped at six.
 
-At initial setup, each player draws four A, four B, and four C halves. These are randomly paired within the constraint:
+At initial setup, each player draws four Rise, four Flourish, and four Fall halves. These are randomly paired within the constraint:
 
 ```text
-AB, AB, AC, AC, BC, BC
+Rise-Flourish, Rise-Flourish,
+Rise-Fall, Rise-Fall,
+Flourish-Fall, Flourish-Fall
 ```
 
-Later replenishment has no pairing constraint. Requested halves are drawn privately, uniformly shuffled, and paired randomly. AA, BB, CC, and mixed-context pairs are legal.
+Later replenishment has no pairing constraint. Requested halves are drawn privately, uniformly shuffled, and paired randomly. Same-context and mixed-context pairs are legal.
 
 If both halves match the active context, the player chooses which half supplies the rank and suit for normal evaluation. The full card still counts as one submitted card, while both effective contexts count for context-hand evaluation.
 
@@ -191,7 +199,7 @@ If both halves match the active context, the player chooses which half supplies 
 - Minimum active players: 2
 - Maximum active players in the first View: 4
 - Maximum spectators: 4
-- Round 1 active context: A
+- Round 1 active context: Rise
 - Every initial player receives the standard six-card opening hand.
 - Every initial player receives two ability cards during setup and the normal one-card ability draw during Round 1 Start, entering Main 1 with three abilities.
 
@@ -216,9 +224,9 @@ One setting applies consistently to strategic request/discard information.
 
 **Public** (default):
 
-- At Start resolution, reveal every player's requested A/B/C replenishment quantities.
+- At Start resolution, reveal every player's requested Rise/Flourish/Fall replenishment quantities.
 - Reveal the identities of ability cards discarded to the End hand limit.
-- Show exact A/B/C draw-pile and used-pile counts.
+- Show exact Rise/Flourish/Fall draw-pile and used-pile counts.
 
 **Private:**
 
@@ -251,8 +259,8 @@ If two or more active players share the highest finalized score, the round is ni
 
 ## Context clock
 
-- Round 1 begins at A.
-- Default order is A -> B -> C -> A.
+- Round 1 begins at Rise.
+- Default order is Rise -> Flourish -> Fall -> Rise.
 - From Round 2 onward, Start advances the context before replenishment.
 - The model stores current context and direction separately.
 - Field effects may change current context, jump the clock, or reverse future advancement.
@@ -266,7 +274,7 @@ Every active player participates in the same global sequence. There is no first-
 
 Resolve in this order:
 
-1. Advance and reveal the active context (except Round 1, which begins at A).
+1. Advance and reveal the active context (except Round 1, which begins at Rise).
 2. Activate any pending mid-match players.
 3. Determine every active player's missing full-card count.
 4. Collect required half-card replenishment requests.
@@ -396,11 +404,11 @@ Count both effective context halves of every submitted full card. Context shapes
 Planned pattern families:
 
 - `No Context Pattern x1`: neutral fallback when no threshold below qualifies
-- `ABC x 1..4`: at least `N` of every context
-- `A`, `B`, or `C x 5..12`: at least `N` of one context
-- `AB`, `AC`, or `BC x 3..6`: at least `N` of both named contexts
+- `Rise + Flourish + Fall x 1..4`: at least `N` of every context
+- `Rise`, `Flourish`, or `Fall x 5..12`: at least `N` of one context
+- `Rise + Flourish`, `Rise + Fall`, or `Flourish + Fall x 3..6`: at least `N` of both named contexts
 
-For totals A4/B3/C1, both `ABC x1` and `AB x3` qualify. Lock only the highest-ranked qualifying context category. Lower contained categories do not also score. If no listed threshold qualifies, lock `No Context Pattern x1`; this category supplies no bonus and may be targeted only by effects that explicitly name it. The remaining context hierarchy and multipliers remain balance data.
+For totals Rise 4 / Flourish 3 / Fall 1, both `Rise + Flourish + Fall x1` and `Rise + Flourish x3` qualify. Lock only the highest-ranked qualifying context category. Lower contained categories do not also score. If no listed threshold qualifies, lock `No Context Pattern x1`; this category supplies no bonus and may be targeted only by effects that explicitly name it. The remaining context hierarchy and multipliers remain balance data.
 
 ### Formula and rounding
 
@@ -484,7 +492,7 @@ The lobby remains joinable while seats are open. A new active player:
 - Occupies an empty seat but remains pending for the current round.
 - Observes as a spectator until the next Start.
 - Enters at that Start with zero match progress.
-- Draws the default four A/four B/four C opening halves from current shared piles and receives the constrained six-card opening hand.
+- Draws the default four Rise/four Flourish/four Fall opening halves from current shared piles and receives the constrained six-card opening hand.
 - Draws two setup abilities from the current shared deck plus the normal Start ability, entering with three.
 
 ### Spectators
@@ -564,7 +572,7 @@ The eventual implementation plan should include automated coverage for at least:
 
 These decisions do not block the rules architecture and will be supplied after playtesting/design work:
 
-- Theme and final names for contexts A/B/C and suits
+- Final suit theme and names
 - Complete normal-hand catalogue and hierarchy for up to six submitted cards
 - Normal-hand multipliers
 - Context-hand hierarchy and multipliers

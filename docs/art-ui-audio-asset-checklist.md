@@ -1,6 +1,6 @@
 # Art, UI, animation, and audio asset checklist
 
-This checklist is deliberately theme-neutral while the final names for contexts, suits, hands, and abilities are still being designed. Replace A/B/C and Suit 1/2/3 in the working files when the theme is locked.
+The context names are finalized as Rise / `興`, Flourish / `盛`, and Fall / `衰`. Use the English names for development identifiers and placeholder UI; use the traditional Chinese concepts to inspire visual motifs. Suits, hand catalogues, ability cards, and multiplier values remain under design.
 
 ## Priority key
 
@@ -19,7 +19,7 @@ This is the smallest coherent pack worth producing first:
 - [ ] P0 — 1 normal half-card face template, assembled from context/rank/suit elements.
 - [ ] P0 — 1 diagonal full-card merge frame/divider.
 - [ ] P0 — 1 normal card back and 1 ability card back.
-- [ ] P0 — 1 Joker half illustration plus A/B/C selected overlays or tints.
+- [ ] P0 — 1 Joker half illustration plus Rise/Flourish/Fall selected overlays or tints.
 - [ ] P0 — 4 ability-type icons/frames: manipulation, field, buff/nerf, sabotage.
 - [ ] P0 — context clock/dial with forward and reverse arrows.
 - [ ] P0 — three pile/deck markers and a shared recycle/shuffle marker.
@@ -36,12 +36,12 @@ Avoid drawing a unique illustration for every rank/suit/context combination. Bui
 | Priority | Asset | Variants/count | Production notes |
 | --- | --- | ---: | --- |
 | P0 | Normal half-card face template | 1 | Safe areas for context, rank, suit, and future effect markers. |
-| P0 | Context visual language | 3 | Emblem + pattern + color for A/B/C; never rely on color alone. |
+| P0 | Context visual language | 3 | Emblem + pattern + color for Rise (`興`), Flourish (`盛`), and Fall (`衰`); never rely on color alone. |
 | P0 | Suit icons | 3 | Legible at small card size and in monochrome. |
 | P0 | Rank glyph treatment | 11 | 0–10; 0 is primarily for Joker display. Prefer font/vector assembly. |
 | P0 | Full-card merge frame | 1 | Diagonal or otherwise clear division between the two halves. |
 | P0 | Normal card back | 1 | Used for hidden opponent hands and face-down/reveal states. |
-| P0 | Joker half | 1 base + 3 selections | Neutral “every context” state; A/B/C choice appears only while staged. |
+| P0 | Joker half | 1 base + 3 selections | Neutral “every context” state; Rise/Flourish/Fall choice appears only while staged. |
 | P0 | Active-half indicator | 2 states | Shows which half supplies rank/suit for the current context. |
 | P0 | Card state overlays | 6 | Hover, selected, staged, targeting-eligible, targeting-selected, disabled/locked. |
 | P1 | Modified-half marker | 1–3 | Clearly communicates a persistent overwrite while the card remains in hand. |
@@ -63,9 +63,9 @@ Avoid drawing a unique illustration for every rank/suit/context combination. Bui
 | P1 | Unique ability illustrations | final unique ability count | Produce after the ability list is locked; reuse art for mechanical variants if needed. |
 | P1 | Field-effect panel/token | 1 template | Dynamic name, owner, and remaining-turn count. |
 | P1 | Field duration counter | digits + frame | Must remain readable over table art. |
-| P1 | Add-context field overlays | 3 | “Also activate A/B/C” without moving the clock; lasts one turn. |
+| P1 | Add-context field overlays | 3 | “Also activate Rise/Flourish/Fall” without moving the clock; lasts one turn. |
 | P1 | Reverse-cycle field marker | 1 | Visually changes context-clock direction. |
-| P1 | Current-context shift marker | 3 | Clock jump/fast-forward to A/B/C. |
+| P1 | Current-context shift marker | 3 | Clock jump/fast-forward to Rise/Flourish/Fall. |
 | P1 | Buff/nerf status markers | expandable | Generic positive/negative frames until the final list is known. |
 | P1 | Sabotage marker | 1 | Shows that a hidden/random card was affected without revealing which card. |
 
@@ -117,7 +117,7 @@ Avoid drawing a unique illustration for every rank/suit/context combination. Bui
 - [ ] P0 — round number, timer, local race progress, and spectator count.
 - [ ] P0 — timer normal/warning/expired states.
 - [ ] P0 — Ready, Confirm Draw, Lock Hand, Pass, Confirm Discard, Cancel, Commit buttons.
-- [ ] P0 — A/B/C replacement-request steppers and total/required indicator.
+- [ ] P0 — Rise/Flourish/Fall replacement-request steppers and total/required indicator.
 - [ ] P0 — public/private request visibility indicator.
 - [ ] P0 — ability tab, count badge, expanded drawer, legal/illegal/used states.
 - [ ] P0 — dim overlay for targeting mode.
@@ -251,7 +251,7 @@ Keep music optional for the jam if time is tight. Functional sound feedback is m
 - Leave safe space for long player names and later localization.
 - Use context icon + pattern + color together so color-vision differences do not hide game state.
 - Check contrast at actual card size, not only in the large source canvas.
-- Suggested naming: `category_element_variant_state.ext`, for example `card_context_a_selected.svg`.
+- Suggested naming: `category_element_variant_state.ext`, for example `card_context_rise_selected.svg`.
 
 ### Audio
 
@@ -268,7 +268,7 @@ Keep music optional for the jam if time is tight. Functional sound feedback is m
 - Ability icons/status markers: **one per distinct persistent effect** that players must recognize without opening rules text.
 - Normal hand badges: **one reusable badge frame** plus dynamic names; optional unique emblems per finalized hand category.
 - Context hand badges: **one reusable badge frame** plus dynamic names; optional unique emblems per finalized context pattern family.
-- Context/suit names: replace all A/B/C and Suit 1/2/3 labels after the theme is locked, without changing the underlying identifiers.
+- Context/suit names: Rise/Flourish/Fall are locked; replace Suit 1/2/3 labels after the suit theme is decided, without changing the underlying numeric identifiers.
 
 ## Recommended production order
 
