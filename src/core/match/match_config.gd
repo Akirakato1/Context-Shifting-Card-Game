@@ -197,6 +197,8 @@ func to_dict() -> Dictionary:
 			"conflict_group": str(definition.conflict_group),
 			"effect_parameters": definition.effect_parameters,
 			"choice_schema": definition.choice_schema,
+			"display_name": definition.display_name,
+			"rules_text": definition.rules_text,
 		})
 	var normal_definitions: Array = []
 	for definition in _normal_definitions:
@@ -242,7 +244,8 @@ static func from_dict(data: Dictionary) -> MatchConfig:
 		definitions.append(AbilityDefinition.new(
 			StringName(item.id), item.timing, tags, StringName(item.effect_id),
 			item.field_duration, StringName(item.conflict_group),
-			item.get("effect_parameters", {}), item.get("choice_schema", {})
+			item.get("effect_parameters", {}), item.get("choice_schema", {}),
+			str(item.get("display_name", "")), str(item.get("rules_text", ""))
 		))
 	var normal_definitions: Array[NormalHandDefinition] = []
 	for item: Dictionary in data.get("normal_definitions", []):

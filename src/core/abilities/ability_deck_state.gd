@@ -154,7 +154,9 @@ func load_dict(data: Dictionary) -> void:
 			definition_data.field_duration,
 			StringName(definition_data.conflict_group),
 			definition_data.get("effect_parameters", {}),
-			definition_data.get("choice_schema", {})
+			definition_data.get("choice_schema", {}),
+			str(definition_data.get("display_name", "")),
+			str(definition_data.get("rules_text", ""))
 		)
 		var card := AbilityState.new(StringName(card_data.copy_id), definition)
 		card.move_to(card_data.zone, StringName(card_data.owner_id))
@@ -187,6 +189,8 @@ func _serialize_card(card: AbilityState) -> Dictionary:
 			"conflict_group": str(card.definition.conflict_group),
 			"effect_parameters": card.definition.effect_parameters,
 			"choice_schema": card.definition.choice_schema,
+			"display_name": card.definition.display_name,
+			"rules_text": card.definition.rules_text,
 		},
 	}
 

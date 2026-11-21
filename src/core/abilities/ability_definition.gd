@@ -18,11 +18,17 @@ var field_duration: int
 var conflict_group: StringName
 var _effect_parameters: Dictionary
 var _choice_schema: Dictionary
+var _display_name: String
+var _rules_text: String
 
 var effect_parameters: Dictionary:
 	get: return _effect_parameters.duplicate(true)
 var choice_schema: Dictionary:
 	get: return _choice_schema.duplicate(true)
+var display_name: String:
+	get: return _display_name
+var rules_text: String:
+	get: return _rules_text
 
 
 func _init(
@@ -33,7 +39,9 @@ func _init(
 	duration: int = 0,
 	field_conflict_group: StringName = &"",
 	definition_effect_parameters: Dictionary = {},
-	definition_choice_schema: Dictionary = {}
+	definition_choice_schema: Dictionary = {},
+	definition_display_name: String = "",
+	definition_rules_text: String = ""
 ) -> void:
 	assert(timing_category >= Timing.HAND_MANIPULATION and timing_category <= Timing.SABOTAGE)
 	assert(duration >= 0)
@@ -46,6 +54,8 @@ func _init(
 	conflict_group = field_conflict_group
 	_effect_parameters = definition_effect_parameters.duplicate(true)
 	_choice_schema = definition_choice_schema.duplicate(true)
+	_display_name = definition_display_name
+	_rules_text = definition_rules_text
 
 
 func allows_phase(phase: int) -> bool:
