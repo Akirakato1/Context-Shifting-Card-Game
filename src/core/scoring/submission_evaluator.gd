@@ -169,8 +169,8 @@ static func _validate_joker_choices(card: FullCardState, choices: Array) -> Dict
 		var suit_value: Variant = choice["suit"]
 		if (
 			not suit_value is int
-			or suit_value < GameTypes.Suit.ONE
-			or suit_value > GameTypes.Suit.THREE
+			or suit_value < GameTypes.Suit.MOUNTAIN
+			or suit_value > GameTypes.Suit.SEA
 		):
 			return _choice_error(&"invalid_joker_suit")
 		choices_by_half[half_index] = {

@@ -115,7 +115,7 @@ func test_zero_to_six_cards_are_legal_when_every_card_is_eligible() -> void:
 				joker_choices.append({
 					"half_index": half_index,
 					"context": GameTypes.Context.RISE,
-					"suit": GameTypes.Suit.ONE,
+					"suit": GameTypes.Suit.MOUNTAIN,
 				})
 		all_cards.append({
 			"card_id": card.card_id,
@@ -168,7 +168,7 @@ func test_reveal_scores_all_submitted_cards_and_sanitizes_manipulation_history()
 		&"commit", &"one", CommandKinds.COMMIT_MANIPULATION, {
 			"choices": {
 				"cards": [str(selected[0].card_id)],
-				"suit": [GameTypes.Suit.THREE],
+				"suit": [GameTypes.Suit.SEA],
 			},
 		}
 	), 2)

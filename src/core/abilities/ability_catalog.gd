@@ -35,7 +35,7 @@ static func manipulation_designs() -> Array[AbilityDefinition]:
 			&"suit_imprint", {}, [
 				_fixed_full_card_step(),
 				{"key": "suit", "kind": "suit", "count": 1,
-				"eligible": [GameTypes.Suit.ONE, GameTypes.Suit.TWO, GameTypes.Suit.THREE],
+				"eligible": [GameTypes.Suit.MOUNTAIN, GameTypes.Suit.CLOUD, GameTypes.Suit.SEA],
 				"prompt": "Choose a suit"},
 			]
 		),
@@ -123,7 +123,7 @@ static func field_designs() -> Array[AbilityDefinition]:
 			&"field_rule", 1,
 			{"field_rule": &"additional_context", "context": item[2]}
 		))
-	for suit in range(GameTypes.Suit.ONE, GameTypes.Suit.THREE + 1):
+	for suit in range(GameTypes.Suit.MOUNTAIN, GameTypes.Suit.SEA + 1):
 		result.append(_field_definition(
 			StringName("suit_%d_favor" % (suit + 1)), "Suit %d Favor" % (suit + 1),
 			"Add +0.1 to each player's field multiplier per submitted scoring face with Suit %d." % (suit + 1),

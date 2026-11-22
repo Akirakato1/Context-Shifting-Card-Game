@@ -17,6 +17,17 @@ func test_context_values_preserve_protocol_order_and_names() -> void:
 	assert_eq(GameTypes.context_name(3), "Unknown")
 
 
+func test_suit_values_preserve_protocol_order_and_names() -> void:
+	assert_eq(GameTypes.Suit.MOUNTAIN, 0)
+	assert_eq(GameTypes.Suit.CLOUD, 1)
+	assert_eq(GameTypes.Suit.SEA, 2)
+	assert_eq(GameTypes.suit_name(0), "Mountain")
+	assert_eq(GameTypes.suit_name(1), "Cloud")
+	assert_eq(GameTypes.suit_name(2), "Sea")
+	assert_eq(GameTypes.suit_name(-1), "Unknown")
+	assert_eq(GameTypes.suit_name(3), "Unknown")
+
+
 func test_context_integer_snapshot_round_trip_preserves_final_meaning() -> void:
 	var state := MatchState.create(_config(), 411)
 	var expected := [

@@ -69,7 +69,7 @@ func test_forced_mulligan_resets_departing_card_reconciles_lock_and_reveals_only
 		prior_cards[str(card.card_id)] = card
 		if not card.first.is_joker():
 			card.first.apply_overrides(
-				GameTypes.Context.FALL, 10, GameTypes.Suit.THREE
+				GameTypes.Context.FALL, 10, GameTypes.Suit.SEA
 			)
 		target.submission_locked_card_ids.append(card.card_id)
 	var result := MatchController.new(state).submit(

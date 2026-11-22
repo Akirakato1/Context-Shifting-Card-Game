@@ -24,7 +24,7 @@ func test_joker_staging_lock_and_reveal_use_sanitized_resolved_faces() -> void:
 	var choices := [{
 		"half_index": 0,
 		"context": GameTypes.Context.FALL,
-		"suit": GameTypes.Suit.THREE,
+		"suit": GameTypes.Suit.SEA,
 	}]
 
 	var staged := controller.submit(_stage(
@@ -41,12 +41,12 @@ func test_joker_staging_lock_and_reveal_use_sanitized_resolved_faces() -> void:
 
 	var player = state.players[&"one"]
 	assert_eq(player.submitted_faces[0].rank, 0)
-	assert_eq(player.submitted_faces[0].suit, GameTypes.Suit.THREE)
+	assert_eq(player.submitted_faces[0].suit, GameTypes.Suit.SEA)
 	assert_eq(player.submitted_card_views.size(), 1)
 	var resolved_joker: Dictionary = player.submitted_card_views[0]["halves"][0]
 	assert_eq(resolved_joker["context"], GameTypes.Context.FALL)
 	assert_eq(resolved_joker["rank"], 0)
-	assert_eq(resolved_joker["suit"], GameTypes.Suit.THREE)
+	assert_eq(resolved_joker["suit"], GameTypes.Suit.SEA)
 	assert_eq(resolved_joker["joker"], true)
 	assert_eq(joker.first.base_context, GameTypes.Context.FLOURISH)
 	assert_eq(joker.first.base_rank, 0)
@@ -68,7 +68,7 @@ func test_invalid_joker_replacement_preserves_previous_draft_and_missing_default
 	var valid := [_selection(joker.card_id, 0, [{
 		"half_index": 0,
 		"context": GameTypes.Context.RISE,
-		"suit": GameTypes.Suit.ONE,
+		"suit": GameTypes.Suit.MOUNTAIN,
 	}])]
 	assert_true(controller.submit(_stage(&"valid", &"one", valid), 1).accepted)
 	var before: Array = state.players[&"one"].staged_submission.duplicate(true)
@@ -100,8 +100,8 @@ func test_double_joker_lock_resolves_independent_choices() -> void:
 	state.players[&"one"].hand[0] = card
 	var controller := MatchController.new(state)
 	var choices := [
-		{"half_index": 0, "context": GameTypes.Context.RISE, "suit": GameTypes.Suit.ONE},
-		{"half_index": 1, "context": GameTypes.Context.FALL, "suit": GameTypes.Suit.TWO},
+		{"half_index": 0, "context": GameTypes.Context.RISE, "suit": GameTypes.Suit.MOUNTAIN},
+		{"half_index": 1, "context": GameTypes.Context.FALL, "suit": GameTypes.Suit.CLOUD},
 	]
 	controller.submit(_stage(
 		&"stage-one", &"one", [_selection(card.card_id, 1, choices)]
@@ -111,7 +111,7 @@ func test_double_joker_lock_resolves_independent_choices() -> void:
 	controller.submit(_lock(&"lock-two", &"two"), 2)
 
 	var player = state.players[&"one"]
-	assert_eq(player.submitted_faces[0].suit, GameTypes.Suit.TWO)
+	assert_eq(player.submitted_faces[0].suit, GameTypes.Suit.CLOUD)
 	assert_eq(player.locked_context.counts[GameTypes.Context.RISE], 1)
 	assert_eq(player.locked_context.counts[GameTypes.Context.FALL], 1)
 	assert_eq(player.submitted_card_views[0]["halves"][0]["context"], GameTypes.Context.RISE)
@@ -129,7 +129,7 @@ func test_replacing_or_passing_clears_staged_joker_choices() -> void:
 		&"joker", &"one", [_selection(joker.card_id, 0, [{
 			"half_index": 0,
 			"context": GameTypes.Context.FLOURISH,
-			"suit": GameTypes.Suit.TWO,
+			"suit": GameTypes.Suit.CLOUD,
 		}])]
 	), 1)
 
@@ -172,7 +172,7 @@ func test_round_cleanup_clears_resolved_views() -> void:
 		&"stage-one", &"one", [_selection(joker.card_id, 0, [{
 			"half_index": 0,
 			"context": GameTypes.Context.RISE,
-			"suit": GameTypes.Suit.ONE,
+			"suit": GameTypes.Suit.MOUNTAIN,
 		}])]
 	), 1)
 	controller.submit(_stage(&"pass-two", &"two", []), 1)
@@ -203,7 +203,7 @@ func test_joker_manipulation_is_legal_and_skips_only_the_joker_half() -> void:
 		&"commit-joker", &"one", CommandKinds.COMMIT_MANIPULATION, {
 			"choices": {
 				"cards": [str(joker.card_id)],
-				"suit": [GameTypes.Suit.THREE],
+				"suit": [GameTypes.Suit.SEA],
 			},
 		}
 	), 11)
@@ -212,7 +212,7 @@ func test_joker_manipulation_is_legal_and_skips_only_the_joker_half() -> void:
 	assert_true(joker.first.is_joker())
 	assert_eq(joker.first.effective_rank(), 0)
 	assert_eq(joker.first.effective_suit(), HalfCardState.NO_SUIT)
-	assert_eq(joker.second.effective_suit(), GameTypes.Suit.THREE)
+	assert_eq(joker.second.effective_suit(), GameTypes.Suit.SEA)
 	assert_false(state.players[&"one"].ability_hand.has(ability))
 	assert_true(state.players[&"one"].pending_manipulation.is_empty())
 
@@ -255,8 +255,8 @@ func test_double_joker_choices_are_stored_in_half_index_order() -> void:
 	state.players[&"one"].hand[0] = card
 	var controller := MatchController.new(state)
 	var reversed_choices := [
-		{"half_index": 1, "context": GameTypes.Context.FALL, "suit": GameTypes.Suit.THREE},
-		{"half_index": 0, "context": GameTypes.Context.RISE, "suit": GameTypes.Suit.ONE},
+		{"half_index": 1, "context": GameTypes.Context.FALL, "suit": GameTypes.Suit.SEA},
+		{"half_index": 0, "context": GameTypes.Context.RISE, "suit": GameTypes.Suit.MOUNTAIN},
 	]
 	assert_true(controller.submit(_stage(
 		&"stage", &"one", [_selection(card.card_id, 1, reversed_choices)]
@@ -304,7 +304,7 @@ func _joker_card(id: StringName, normal_context: int) -> FullCardState:
 		id,
 		_joker_half(StringName("%s-joker" % id), GameTypes.Context.FLOURISH),
 		HalfCardState.new(
-			StringName("%s-normal" % id), normal_context, 5, GameTypes.Suit.ONE
+			StringName("%s-normal" % id), normal_context, 5, GameTypes.Suit.MOUNTAIN
 		),
 	)
 
@@ -318,9 +318,9 @@ func _joker_half(id: StringName, origin_context: int) -> HalfCardState:
 func _normal_card(id: StringName, context: int) -> FullCardState:
 	return FullCardState.new(
 		id,
-		HalfCardState.new(StringName("%s-first" % id), context, 7, GameTypes.Suit.ONE),
+		HalfCardState.new(StringName("%s-first" % id), context, 7, GameTypes.Suit.MOUNTAIN),
 		HalfCardState.new(
-			StringName("%s-second" % id), (context + 1) % 3, 4, GameTypes.Suit.TWO
+			StringName("%s-second" % id), (context + 1) % 3, 4, GameTypes.Suit.CLOUD
 		),
 	)
 

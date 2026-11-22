@@ -28,13 +28,13 @@ func test_active_contexts_union_base_and_duplicate_resonance() -> void:
 
 func test_suit_favor_counts_selected_joker_suit_and_duplicates_stack_separately() -> void:
 	var faces: Array[ScoringTypes.SelectedCardFace] = [
-		_face(&"joker", 0, GameTypes.Suit.ONE),
-		_face(&"two", 2, GameTypes.Suit.ONE),
-		_face(&"three", 3, GameTypes.Suit.ONE),
-		_face(&"four", 4, GameTypes.Suit.TWO),
+		_face(&"joker", 0, GameTypes.Suit.MOUNTAIN),
+		_face(&"two", 2, GameTypes.Suit.MOUNTAIN),
+		_face(&"three", 3, GameTypes.Suit.MOUNTAIN),
+		_face(&"four", 4, GameTypes.Suit.CLOUD),
 	]
 	var parameters := {
-		"field_rule": &"per_selected_suit", "suit": GameTypes.Suit.ONE,
+		"field_rule": &"per_selected_suit", "suit": GameTypes.Suit.MOUNTAIN,
 		"numerator": 1, "denominator": 10,
 	}
 	var components := FieldEffectResolver.score_components(
@@ -53,9 +53,9 @@ func test_suit_favor_counts_selected_joker_suit_and_duplicates_stack_separately(
 
 
 func test_rank_favors_partition_normal_ranks_and_ignore_joker_zero() -> void:
-	var faces: Array[ScoringTypes.SelectedCardFace] = [_face(&"joker", 0, GameTypes.Suit.ONE)]
+	var faces: Array[ScoringTypes.SelectedCardFace] = [_face(&"joker", 0, GameTypes.Suit.MOUNTAIN)]
 	for rank in range(1, 11):
-		faces.append(_face(StringName("rank-%d" % rank), rank, GameTypes.Suit.ONE))
+		faces.append(_face(StringName("rank-%d" % rank), rank, GameTypes.Suit.MOUNTAIN))
 	var fields := [
 		_field(&"even", _rank_parameters([2, 4, 6, 8, 10])),
 		_field(&"odd", _rank_parameters([1, 3, 5, 7, 9])),
@@ -90,12 +90,12 @@ func test_ascendancy_requires_a_strict_untied_context_maximum() -> void:
 
 func test_zero_match_fields_emit_no_score_components() -> void:
 	var suit_three := _field(&"suit-three", {
-		"field_rule": &"per_selected_suit", "suit": GameTypes.Suit.THREE,
+		"field_rule": &"per_selected_suit", "suit": GameTypes.Suit.SEA,
 		"numerator": 1, "denominator": 10,
 	})
 	assert_eq(
 		FieldEffectResolver.score_components(
-			[_face(&"one", 1, GameTypes.Suit.ONE)], _counts(1, 1, 0), [suit_three]
+			[_face(&"one", 1, GameTypes.Suit.MOUNTAIN)], _counts(1, 1, 0), [suit_three]
 		),
 		[]
 	)

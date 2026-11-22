@@ -177,7 +177,7 @@ func test_resolved_joker_reveal_is_sanitized_for_every_network_role() -> void:
 			GameTypes.HalfKind.JOKER
 		),
 		HalfCardState.new(
-			&"network-normal-half", state.active_context, 5, GameTypes.Suit.ONE
+			&"network-normal-half", state.active_context, 5, GameTypes.Suit.MOUNTAIN
 		),
 	)
 	state.players[&"one"].hand[0] = joker
@@ -194,7 +194,7 @@ func test_resolved_joker_reveal_is_sanitized_for_every_network_role() -> void:
 			"joker_choices": [{
 				"half_index": 0,
 				"context": GameTypes.Context.FALL,
-				"suit": GameTypes.Suit.THREE,
+				"suit": GameTypes.Suit.SEA,
 			}],
 		}]}
 	), 1)
@@ -211,7 +211,7 @@ func test_resolved_joker_reveal_is_sanitized_for_every_network_role() -> void:
 		var reveal := _network_event(transport, peer_id, "hand_revealed", "one")
 		assert_eq(reveal.payload.cards[0].halves[0].context, GameTypes.Context.FALL)
 		assert_eq(reveal.payload.cards[0].halves[0].rank, 0)
-		assert_eq(reveal.payload.cards[0].halves[0].suit, GameTypes.Suit.THREE)
+		assert_eq(reveal.payload.cards[0].halves[0].suit, GameTypes.Suit.SEA)
 		var encoded := JSON.stringify(reveal.payload.cards)
 		assert_false(encoded.contains("copy_id"))
 		assert_false(encoded.contains("base_context"))
@@ -224,7 +224,7 @@ func test_reconnect_owner_receives_modified_values_without_public_target_history
 	var owner_player = state.players[&"one"]
 	var card = owner_player.hand[0]
 	var half = card.second if card.first.is_joker() else card.first
-	half.apply_overrides(GameTypes.Context.FALL, 10, GameTypes.Suit.THREE)
+	half.apply_overrides(GameTypes.Context.FALL, 10, GameTypes.Suit.SEA)
 	owner_player.pending_manipulation = {
 		"copy_id": owner_player.ability_hand[0].copy_id,
 	}

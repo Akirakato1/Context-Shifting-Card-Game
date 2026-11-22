@@ -76,7 +76,7 @@ static func _randomize_half(player, rng, operation: StringName, effect: Dictiona
 	var rank := old_rank
 	var suit := old_suit
 	if operation == &"randomize_suit":
-		suit = GameTypes.Suit.ONE + rng.pick_index(3)
+		suit = GameTypes.Suit.MOUNTAIN + rng.pick_index(3)
 	elif operation == &"randomize_rank":
 		var ranks: Array = effect.ranks
 		rank = int(ranks[rng.pick_index(ranks.size())])

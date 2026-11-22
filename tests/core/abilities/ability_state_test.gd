@@ -124,11 +124,11 @@ func test_deck_exposes_setup_draw_and_end_hand_limit_data() -> void:
 
 
 func test_effective_card_change_persists_until_the_full_card_leaves_hand() -> void:
-	var first := HalfCardState.new(&"first", GameTypes.Context.RISE, 1, GameTypes.Suit.ONE)
-	var second := HalfCardState.new(&"second", GameTypes.Context.FLOURISH, 2, GameTypes.Suit.TWO)
+	var first := HalfCardState.new(&"first", GameTypes.Context.RISE, 1, GameTypes.Suit.MOUNTAIN)
+	var second := HalfCardState.new(&"second", GameTypes.Context.FLOURISH, 2, GameTypes.Suit.CLOUD)
 	var card := FullCardState.new(&"full", first, second)
 
-	first.apply_overrides(GameTypes.Context.FALL, 10, GameTypes.Suit.THREE)
+	first.apply_overrides(GameTypes.Context.FALL, 10, GameTypes.Suit.SEA)
 	# Advancing rounds performs no reset; the persistent hand object keeps its effective values.
 	assert_eq(first.effective_context(), GameTypes.Context.FALL)
 	assert_eq(first.effective_rank(), 10)
@@ -225,14 +225,14 @@ func test_effect_registry_validates_and_returns_domain_events() -> void:
 	assert_eq(events[0].audience, &"public")
 	assert_eq(
 		registry.validate(&"field_rule", {"effect": {
-			"field_rule": &"per_selected_suit", "suit": GameTypes.Suit.ONE,
+			"field_rule": &"per_selected_suit", "suit": GameTypes.Suit.MOUNTAIN,
 			"numerator": 1, "denominator": 10,
 		}}),
 		&""
 	)
 	assert_eq(
 		registry.apply(&"field_rule", {"effect": {
-			"field_rule": &"per_selected_suit", "suit": GameTypes.Suit.ONE,
+			"field_rule": &"per_selected_suit", "suit": GameTypes.Suit.MOUNTAIN,
 			"numerator": 1, "denominator": 10,
 		}}),
 		[]

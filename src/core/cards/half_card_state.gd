@@ -44,7 +44,7 @@ static func is_valid_base(
 		GameTypes.HalfKind.NORMAL:
 			return (
 				rank >= 1 and rank <= 10
-				and suit >= GameTypes.Suit.ONE and suit <= GameTypes.Suit.THREE
+				and suit >= GameTypes.Suit.MOUNTAIN and suit <= GameTypes.Suit.SEA
 			)
 		GameTypes.HalfKind.JOKER:
 			return rank == 0 and suit == NO_SUIT

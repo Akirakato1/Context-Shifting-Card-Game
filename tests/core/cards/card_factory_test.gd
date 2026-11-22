@@ -27,8 +27,8 @@ func test_opening_hand_draws_four_of_each_context_in_fixed_pair_shape() -> void:
 
 
 func test_full_card_exposes_eligible_effective_halves_and_resets_them() -> void:
-	var first := HalfCardState.new(&"a", GameTypes.Context.RISE, 1, GameTypes.Suit.ONE)
-	var second := HalfCardState.new(&"b", GameTypes.Context.FLOURISH, 2, GameTypes.Suit.TWO)
+	var first := HalfCardState.new(&"a", GameTypes.Context.RISE, 1, GameTypes.Suit.MOUNTAIN)
+	var second := HalfCardState.new(&"b", GameTypes.Context.FLOURISH, 2, GameTypes.Suit.CLOUD)
 	var card := FullCardState.new(&"full:a+b", first, second)
 
 	assert_eq(card.half_at(0), first)
@@ -42,13 +42,13 @@ func test_full_card_exposes_eligible_effective_halves_and_resets_them() -> void:
 		PackedInt32Array([0, 1])
 	)
 
-	second.apply_overrides(GameTypes.Context.RISE, 10, GameTypes.Suit.THREE)
+	second.apply_overrides(GameTypes.Context.RISE, 10, GameTypes.Suit.SEA)
 	assert_eq(card.eligible_half_indexes(GameTypes.Context.RISE), PackedInt32Array([0, 1]))
 
 	card.reset_effective()
 	assert_eq(second.effective_context(), GameTypes.Context.FLOURISH)
 	assert_eq(second.effective_rank(), 2)
-	assert_eq(second.effective_suit(), GameTypes.Suit.TWO)
+	assert_eq(second.effective_suit(), GameTypes.Suit.CLOUD)
 
 
 func test_replenishment_pairs_one_shuffled_pool_and_can_make_same_context_cards() -> void:

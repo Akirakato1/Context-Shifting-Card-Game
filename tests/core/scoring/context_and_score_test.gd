@@ -249,9 +249,9 @@ func _context(components: Array) -> ScoringTypes.ContextHandResult:
 
 func _card(id: StringName, first_context: int, second_context: int) -> FullCardState:
 	var first := HalfCardState.new(
-		StringName("%s-first" % id), first_context, 1, GameTypes.Suit.ONE
+		StringName("%s-first" % id), first_context, 1, GameTypes.Suit.MOUNTAIN
 	)
 	var second := HalfCardState.new(
-		StringName("%s-second" % id), second_context, 1, GameTypes.Suit.TWO
+		StringName("%s-second" % id), second_context, 1, GameTypes.Suit.CLOUD
 	)
 	return FullCardState.new(id, first, second)

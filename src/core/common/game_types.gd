@@ -20,10 +20,22 @@ static func context_name(context: int) -> String:
 			return "Unknown"
 
 enum Suit {
-	ONE,
-	TWO,
-	THREE,
+	MOUNTAIN = 0,
+	CLOUD = 1,
+	SEA = 2,
 }
+
+
+static func suit_name(suit: int) -> String:
+	match suit:
+		Suit.MOUNTAIN:
+			return "Mountain"
+		Suit.CLOUD:
+			return "Cloud"
+		Suit.SEA:
+			return "Sea"
+		_:
+			return "Unknown"
 
 enum HalfKind {
 	NORMAL,

@@ -30,7 +30,7 @@ func test_joker_is_eligible_in_every_context() -> void:
 		GameTypes.HalfKind.JOKER
 	)
 	var normal := HalfCardState.new(
-		&"normal-b", GameTypes.Context.FLOURISH, 4, GameTypes.Suit.TWO
+		&"normal-b", GameTypes.Context.FLOURISH, 4, GameTypes.Suit.CLOUD
 	)
 	var card := FullCardState.new(&"card-joker", joker, normal)
 
@@ -56,7 +56,7 @@ func test_joker_recycles_only_through_its_origin_pile() -> void:
 		GameTypes.HalfKind.JOKER
 	)
 	var normal := HalfCardState.new(
-		&"normal-a", GameTypes.Context.RISE, 7, GameTypes.Suit.TWO
+		&"normal-a", GameTypes.Context.RISE, 7, GameTypes.Suit.CLOUD
 	)
 	var pile := ContextPile.new(GameTypes.Context.RISE, [normal, joker])
 	var rng := RandomSource.new(991)

@@ -44,7 +44,7 @@ func test_crossed_wires_changes_context_only_and_skips_joker_card() -> void:
 
 func test_scrambles_and_nudges_modify_only_selected_effective_property() -> void:
 	var cases := [
-		[&"suit_scramble", [0, 2], "suit", GameTypes.Suit.THREE],
+		[&"suit_scramble", [0, 2], "suit", GameTypes.Suit.SEA],
 		[&"rank_scramble", [0, 9], "rank", 10],
 		[&"context_scramble", [0, 2], "context", GameTypes.Context.FALL],
 	]
@@ -61,7 +61,7 @@ func test_scrambles_and_nudges_modify_only_selected_effective_property() -> void
 		if item[2] != "suit": assert_eq(half.effective_suit(), original[2])
 
 	var nudged := _player()
-	nudged.hand[0].first.apply_overrides(GameTypes.Context.RISE, 10, GameTypes.Suit.ONE)
+	nudged.hand[0].first.apply_overrides(GameTypes.Context.RISE, 10, GameTypes.Suit.MOUNTAIN)
 	SabotageResolver.apply(_definition(&"rank_nudge"), nudged, FakeRng.new([0, 1]), 1)
 	assert_eq(nudged.hand[0].first.effective_rank(), 1)
 	SabotageResolver.apply(_definition(&"context_nudge"), nudged, FakeRng.new([0, 0]), -1)
@@ -72,7 +72,7 @@ func test_loose_pairing_moves_complete_halves_and_lock_is_idempotent() -> void:
 	var player := _player()
 	var first_half = player.hand[0].first
 	var second_half = player.hand[1].second
-	first_half.apply_overrides(GameTypes.Context.FALL, 9, GameTypes.Suit.THREE)
+	first_half.apply_overrides(GameTypes.Context.FALL, 9, GameTypes.Suit.SEA)
 	SabotageResolver.apply(
 		_definition(&"loose_pairing"), player, FakeRng.new([0, 0, 0, 1]), 1
 	)
@@ -102,10 +102,10 @@ func _player() -> PlayerState:
 	var player := PlayerState.new(&"target", 1)
 	player.hand.assign([
 		FullCardState.new(&"card-a",
-			HalfCardState.new(&"a1", GameTypes.Context.RISE, 1, GameTypes.Suit.ONE),
-			HalfCardState.new(&"a2", GameTypes.Context.FLOURISH, 2, GameTypes.Suit.TWO)),
+			HalfCardState.new(&"a1", GameTypes.Context.RISE, 1, GameTypes.Suit.MOUNTAIN),
+			HalfCardState.new(&"a2", GameTypes.Context.FLOURISH, 2, GameTypes.Suit.CLOUD)),
 		FullCardState.new(&"card-b",
-			HalfCardState.new(&"b1", GameTypes.Context.FALL, 3, GameTypes.Suit.THREE),
-			HalfCardState.new(&"b2", GameTypes.Context.RISE, 4, GameTypes.Suit.ONE)),
+			HalfCardState.new(&"b1", GameTypes.Context.FALL, 3, GameTypes.Suit.SEA),
+			HalfCardState.new(&"b2", GameTypes.Context.RISE, 4, GameTypes.Suit.MOUNTAIN)),
 	])
 	return player

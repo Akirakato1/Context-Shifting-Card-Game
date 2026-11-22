@@ -24,10 +24,10 @@ func test_commit_requires_exact_schema_unique_owned_targets_and_valid_options() 
 		&"manipulation_choice_keys_mismatch"
 	)
 	assert_eq(ManipulationResolver.validate(suit_imprint, hand, {
-		"cards": [card_id], "suit": [GameTypes.Suit.ONE], "extra": [],
+		"cards": [card_id], "suit": [GameTypes.Suit.MOUNTAIN], "extra": [],
 	}), &"manipulation_choice_keys_mismatch")
 	assert_eq(ManipulationResolver.validate(suit_imprint, hand, {
-		"cards": card_id, "suit": [GameTypes.Suit.ONE],
+		"cards": card_id, "suit": [GameTypes.Suit.MOUNTAIN],
 	}), &"malformed_manipulation_choice")
 	assert_eq(ManipulationResolver.validate(suit_imprint, hand, {
 		"cards": [card_id], "suit": [99],
@@ -278,7 +278,7 @@ func _mixed_joker_card(id: StringName) -> FullCardState:
 		),
 		HalfCardState.new(
 			StringName("%s-normal" % id), GameTypes.Context.FLOURISH, 8,
-			GameTypes.Suit.TWO
+			GameTypes.Suit.CLOUD
 		)
 	)
 

@@ -166,7 +166,7 @@ func test_owner_resync_keeps_joker_choices_private() -> void:
 			GameTypes.HalfKind.JOKER
 		),
 		HalfCardState.new(
-			&"resync-normal-half", GameTypes.Context.RISE, 5, GameTypes.Suit.ONE
+			&"resync-normal-half", GameTypes.Context.RISE, 5, GameTypes.Suit.MOUNTAIN
 		),
 	)
 	fixture.state.players[&"one"].hand[0] = joker
@@ -176,7 +176,7 @@ func test_owner_resync_keeps_joker_choices_private() -> void:
 		"joker_choices": [{
 			"half_index": 0,
 			"context": GameTypes.Context.FALL,
-			"suit": GameTypes.Suit.THREE,
+			"suit": GameTypes.Suit.SEA,
 		}],
 	}])
 	fixture.state.players[&"one"].has_staged_submission = true

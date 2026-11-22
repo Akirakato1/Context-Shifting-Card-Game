@@ -11,8 +11,8 @@ const RandomSource = preload("res://src/core/common/random_source.gd")
 
 func test_context_exchange_swaps_pre_effect_contexts_and_preserves_rank_suit() -> void:
 	var card := _card(&"target")
-	card.first.apply_overrides(GameTypes.Context.FALL, 9, GameTypes.Suit.THREE)
-	card.second.apply_overrides(GameTypes.Context.RISE, 4, GameTypes.Suit.ONE)
+	card.first.apply_overrides(GameTypes.Context.FALL, 9, GameTypes.Suit.SEA)
+	card.second.apply_overrides(GameTypes.Context.RISE, 4, GameTypes.Suit.MOUNTAIN)
 	var definition := _definition(&"context_exchange")
 	var choices := {"cards": [str(card.card_id)]}
 
@@ -21,16 +21,16 @@ func test_context_exchange_swaps_pre_effect_contexts_and_preserves_rank_suit() -
 
 	assert_eq(card.first.effective_context(), GameTypes.Context.RISE)
 	assert_eq(card.first.effective_rank(), 9)
-	assert_eq(card.first.effective_suit(), GameTypes.Suit.THREE)
+	assert_eq(card.first.effective_suit(), GameTypes.Suit.SEA)
 	assert_eq(card.second.effective_context(), GameTypes.Context.FALL)
 	assert_eq(card.second.effective_rank(), 4)
-	assert_eq(card.second.effective_suit(), GameTypes.Suit.ONE)
+	assert_eq(card.second.effective_suit(), GameTypes.Suit.MOUNTAIN)
 
 
 func test_context_convergence_changes_only_the_selected_half() -> void:
 	var card := _card(&"target")
-	card.first.apply_overrides(GameTypes.Context.FALL, 7, GameTypes.Suit.THREE)
-	card.second.apply_overrides(GameTypes.Context.FLOURISH, 4, GameTypes.Suit.ONE)
+	card.first.apply_overrides(GameTypes.Context.FALL, 7, GameTypes.Suit.SEA)
+	card.second.apply_overrides(GameTypes.Context.FLOURISH, 4, GameTypes.Suit.MOUNTAIN)
 	var definition := _definition(&"context_convergence")
 	var choices := {"cards": [str(card.card_id)], "half_index": [0]}
 
@@ -39,7 +39,7 @@ func test_context_convergence_changes_only_the_selected_half() -> void:
 
 	assert_eq(card.first.effective_context(), GameTypes.Context.FLOURISH)
 	assert_eq(card.first.effective_rank(), 7)
-	assert_eq(card.first.effective_suit(), GameTypes.Suit.THREE)
+	assert_eq(card.first.effective_suit(), GameTypes.Suit.SEA)
 	assert_eq(card.second.effective_context(), GameTypes.Context.FLOURISH)
 	assert_eq(card.second.effective_rank(), 4)
 
@@ -47,13 +47,13 @@ func test_context_convergence_changes_only_the_selected_half() -> void:
 func test_suit_imprint_changes_both_ordinary_halves() -> void:
 	var card := _card(&"target")
 	var definition := _definition(&"suit_imprint")
-	var choices := {"cards": [str(card.card_id)], "suit": [GameTypes.Suit.THREE]}
+	var choices := {"cards": [str(card.card_id)], "suit": [GameTypes.Suit.SEA]}
 
 	assert_eq(ManipulationResolver.validate(definition, [card], choices), &"")
 	ManipulationResolver.apply(definition, [card], choices, RandomSource.new(3), 1)
 
-	assert_eq(card.first.effective_suit(), GameTypes.Suit.THREE)
-	assert_eq(card.second.effective_suit(), GameTypes.Suit.THREE)
+	assert_eq(card.first.effective_suit(), GameTypes.Suit.SEA)
+	assert_eq(card.second.effective_suit(), GameTypes.Suit.SEA)
 	assert_eq(card.first.effective_context(), GameTypes.Context.RISE)
 	assert_eq(card.second.effective_context(), GameTypes.Context.FLOURISH)
 
@@ -80,7 +80,7 @@ func test_deterministic_operations_skip_jokers_and_valid_noop_still_resolves() -
 		GameTypes.HalfKind.JOKER
 	)
 	var normal := HalfCardState.new(
-		&"normal", GameTypes.Context.FLOURISH, 8, GameTypes.Suit.TWO
+		&"normal", GameTypes.Context.FLOURISH, 8, GameTypes.Suit.CLOUD
 	)
 	var mixed := FullCardState.new(&"mixed", joker, normal)
 	var exchange := _definition(&"context_exchange")
@@ -118,7 +118,7 @@ func test_context_roulette_rolls_each_selected_ordinary_half_independently() -> 
 	assert_eq(selected.second.effective_context(), expected_second)
 	assert_eq(untouched.first.effective_context(), untouched_context)
 	assert_eq(selected.first.effective_rank(), 2)
-	assert_eq(selected.second.effective_suit(), GameTypes.Suit.TWO)
+	assert_eq(selected.second.effective_suit(), GameTypes.Suit.CLOUD)
 
 
 func test_rank_rolls_use_exact_low_high_even_and_odd_sets() -> void:
@@ -138,7 +138,7 @@ func test_rank_rolls_use_exact_low_high_even_and_odd_sets() -> void:
 		assert_true(card.first.effective_rank() in allowed_by_id[id])
 		assert_true(card.second.effective_rank() in allowed_by_id[id])
 		assert_eq(card.first.effective_context(), GameTypes.Context.RISE)
-		assert_eq(card.second.effective_suit(), GameTypes.Suit.TWO)
+		assert_eq(card.second.effective_suit(), GameTypes.Suit.CLOUD)
 		seed_value += 1
 
 
@@ -211,9 +211,9 @@ func _card(id: StringName) -> FullCardState:
 	return FullCardState.new(
 		id,
 		HalfCardState.new(
-			StringName("%s-first" % id), GameTypes.Context.RISE, 2, GameTypes.Suit.ONE
+			StringName("%s-first" % id), GameTypes.Context.RISE, 2, GameTypes.Suit.MOUNTAIN
 		),
 		HalfCardState.new(
-			StringName("%s-second" % id), GameTypes.Context.FLOURISH, 6, GameTypes.Suit.TWO
+			StringName("%s-second" % id), GameTypes.Context.FLOURISH, 6, GameTypes.Suit.CLOUD
 		)
 	)

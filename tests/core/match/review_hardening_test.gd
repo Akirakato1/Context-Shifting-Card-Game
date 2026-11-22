@@ -230,7 +230,7 @@ func test_pending_completed_and_modified_manipulation_state_round_trips() -> voi
 	var ability = player.ability_hand[0]
 	var card = player.hand[0]
 	var half = card.second if card.first.is_joker() else card.first
-	half.apply_overrides(GameTypes.Context.FALL, 10, GameTypes.Suit.THREE)
+	half.apply_overrides(GameTypes.Context.FALL, 10, GameTypes.Suit.SEA)
 	player.pending_manipulation = {"copy_id": ability.copy_id}
 	player.completed_manipulation_ids.assign([&"low_roll", &"mirror_rank"])
 	state.rng.pick_index(10)
@@ -246,7 +246,7 @@ func test_pending_completed_and_modified_manipulation_state_round_trips() -> voi
 	assert_eq(restored_player.completed_manipulation_ids, [&"low_roll", &"mirror_rank"])
 	assert_eq(restored_half.effective_context(), GameTypes.Context.FALL)
 	assert_eq(restored_half.effective_rank(), 10)
-	assert_eq(restored_half.effective_suit(), GameTypes.Suit.THREE)
+	assert_eq(restored_half.effective_suit(), GameTypes.Suit.SEA)
 	assert_eq(restored.rng.state_token(), state.rng.state_token())
 
 
@@ -259,7 +259,7 @@ func test_joker_draft_and_resolved_views_survive_canonical_round_trip() -> void:
 			GameTypes.HalfKind.JOKER
 		),
 		HalfCardState.new(
-			&"roundtrip-normal-half", state.active_context, 6, GameTypes.Suit.ONE
+			&"roundtrip-normal-half", state.active_context, 6, GameTypes.Suit.MOUNTAIN
 		),
 	)
 	state.players[&"one"].hand[0] = joker
@@ -271,7 +271,7 @@ func test_joker_draft_and_resolved_views_survive_canonical_round_trip() -> void:
 			"joker_choices": [{
 				"half_index": 0,
 				"context": GameTypes.Context.FALL,
-				"suit": GameTypes.Suit.THREE,
+				"suit": GameTypes.Suit.SEA,
 			}],
 		}]}
 	)

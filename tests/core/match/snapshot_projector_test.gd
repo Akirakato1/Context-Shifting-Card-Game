@@ -127,7 +127,7 @@ func test_manipulation_targets_and_random_results_are_owner_private() -> void:
 	var secret_copy_id := str(owner_player.ability_hand[0].copy_id)
 	if not card.first.is_joker():
 		card.first.apply_overrides(
-			GameTypes.Context.FALL, 10, GameTypes.Suit.THREE
+			GameTypes.Context.FALL, 10, GameTypes.Suit.SEA
 		)
 	owner_player.pending_manipulation = {"copy_id": secret_copy_id}
 	owner_player.completed_manipulation_ids.assign([&"low_roll"])
@@ -191,7 +191,7 @@ func test_joker_draft_is_owner_only_and_resolved_view_is_public() -> void:
 			GameTypes.HalfKind.JOKER
 		),
 		HalfCardState.new(
-			&"private-normal-half", state.active_context, 4, GameTypes.Suit.ONE
+			&"private-normal-half", state.active_context, 4, GameTypes.Suit.MOUNTAIN
 		),
 	)
 	state.players[&"one"].hand[0] = joker
@@ -199,7 +199,7 @@ func test_joker_draft_is_owner_only_and_resolved_view_is_public() -> void:
 	var choices := [{
 		"half_index": 0,
 		"context": GameTypes.Context.FALL,
-		"suit": GameTypes.Suit.THREE,
+		"suit": GameTypes.Suit.SEA,
 	}]
 	assert_true(controller.submit(GameCommand.new(
 		&"stage-joker", &"one", CommandKinds.STAGE_HAND, {"cards": [{
@@ -255,7 +255,7 @@ func test_joker_draft_is_owner_only_and_resolved_view_is_public() -> void:
 	assert_eq(revealed_views[1], revealed_views[2])
 	assert_eq(revealed_views[0][0].halves[0].context, GameTypes.Context.FALL)
 	assert_eq(revealed_views[0][0].halves[0].rank, 0)
-	assert_eq(revealed_views[0][0].halves[0].suit, GameTypes.Suit.THREE)
+	assert_eq(revealed_views[0][0].halves[0].suit, GameTypes.Suit.SEA)
 	var public_text := JSON.stringify(revealed_views[0])
 	assert_false(public_text.contains("copy_id"))
 	assert_false(public_text.contains("base_context"))

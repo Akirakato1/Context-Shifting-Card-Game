@@ -537,7 +537,7 @@ func _build_piles() -> Dictionary:
 	for context in range(GameTypes.Context.RISE, GameTypes.Context.FALL + 1):
 		var cards: Array[HalfCardState] = []
 		for rank in range(1, 11):
-			for suit in range(GameTypes.Suit.ONE, GameTypes.Suit.THREE + 1):
+			for suit in range(GameTypes.Suit.MOUNTAIN, GameTypes.Suit.SEA + 1):
 				for copy_index in range(3):
 					cards.append(HalfCardState.new(
 						StringName("%d-%d-%d-%d" % [context, rank, suit, copy_index]),

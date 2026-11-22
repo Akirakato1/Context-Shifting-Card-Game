@@ -111,8 +111,8 @@ static func _valid_context(value: Variant) -> bool:
 static func _valid_suit(value: Variant) -> bool:
 	return (
 		value is int
-		and value >= GameTypes.Suit.ONE
-		and value <= GameTypes.Suit.THREE
+		and value >= GameTypes.Suit.MOUNTAIN
+		and value <= GameTypes.Suit.SEA
 	)
 
 
