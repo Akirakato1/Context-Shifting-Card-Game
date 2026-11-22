@@ -4,6 +4,7 @@ const Rational = preload("res://src/core/common/rational.gd")
 const ScoringTypes = preload("res://src/core/scoring/scoring_types.gd")
 const NormalHandDefinition = preload("res://src/core/scoring/normal_hand_definition.gd")
 const NormalHandEvaluator = preload("res://src/core/scoring/normal_hand_evaluator.gd")
+const NormalHandCatalog = preload("res://src/core/scoring/normal_hand_catalog.gd")
 
 
 func test_rational_reduces_and_normalizes_denominator_sign() -> void:
@@ -134,6 +135,89 @@ func test_flush_definition_does_not_match_a_same_suit_subset_with_off_suit_extra
 	var result := NormalHandEvaluator.evaluate(faces, _component_definitions())
 	for component in result.components:
 		assert_ne(component.category_id, &"flush")
+
+
+func test_production_catalog_detects_every_rank_structure() -> void:
+	var fixtures := {
+		&"high_card": [7],
+		&"pair": [7, 7],
+		&"straight_3": [2, 3, 4],
+		&"two_pair": [2, 2, 8, 8],
+		&"three_kind": [7, 7, 7],
+		&"straight_4": [2, 3, 4, 5],
+		&"full_house": [3, 3, 3, 8, 8],
+		&"straight_5": [2, 3, 4, 5, 6],
+		&"four_kind": [7, 7, 7, 7],
+		&"three_pair": [2, 2, 5, 5, 8, 8],
+		&"straight_6": [2, 3, 4, 5, 6, 7],
+		&"four_house": [3, 3, 3, 3, 8, 8],
+		&"double_triple": [3, 3, 3, 8, 8, 8],
+		&"five_kind": [7, 7, 7, 7, 7],
+		&"six_kind": [7, 7, 7, 7, 7, 7],
+	}
+	for expected in fixtures:
+		var result := NormalHandEvaluator.evaluate(
+			_faces(fixtures[expected]), NormalHandCatalog.definitions()
+		)
+		assert_eq(result.category_id, expected, "production fixture %s" % expected)
+
+
+func test_production_catalog_adds_each_exact_flush_size() -> void:
+	for size in range(3, 7):
+		var ranks: Array = []
+		for index in range(size):
+			ranks.append(index + 1)
+		var faces := _faces(ranks)
+		for face in faces:
+			face.suit = 1
+		var result := NormalHandEvaluator.evaluate(faces, NormalHandCatalog.definitions())
+		assert_true(result.components.any(func(component):
+			return component.source_definition_id == StringName("flush_%d" % size)
+		), "missing flush_%d component" % size)
+
+
+func test_four_house_beats_its_contained_full_house_and_four_kind() -> void:
+	var result := NormalHandEvaluator.evaluate(
+		_faces([3, 3, 3, 3, 8, 8]), NormalHandCatalog.definitions()
+	)
+	assert_eq(result.category_id, &"four_house")
+	assert_eq(result.matched_faces.size(), 6)
+
+
+func test_joker_rank_zero_is_only_a_high_card_fallback_for_rank_patterns() -> void:
+	var catalog := NormalHandCatalog.definitions()
+	var joker_only := NormalHandEvaluator.evaluate(_faces([0]), catalog)
+	var repeated_jokers := NormalHandEvaluator.evaluate(_faces([0, 0, 8]), catalog)
+	var zero_straight := NormalHandEvaluator.evaluate(_faces([0, 1, 2]), catalog)
+
+	assert_eq(joker_only.category_id, &"high_card")
+	assert_eq(joker_only.matched_faces[0].rank, 0)
+	assert_eq(repeated_jokers.category_id, &"high_card")
+	assert_eq(repeated_jokers.matched_faces[0].rank, 8)
+	assert_eq(zero_straight.category_id, &"high_card")
+	assert_eq(zero_straight.matched_faces[0].rank, 2)
+
+
+func test_joker_selected_suit_can_participate_in_flush() -> void:
+	var faces := _faces([0, 4, 9])
+	for face in faces:
+		face.suit = 2
+	var result := NormalHandEvaluator.evaluate(faces, NormalHandCatalog.definitions())
+
+	assert_eq(result.category_id, &"high_card")
+	assert_true(result.components.any(func(component):
+		return component.source_definition_id == &"flush_3"
+	))
+
+
+func test_flush_tie_break_compares_every_rank_from_highest_to_lowest() -> void:
+	var flush_definition: NormalHandDefinition = NormalHandCatalog.definitions().filter(
+		func(definition): return definition.id == &"flush_3"
+	)[0]
+	assert_eq(
+		NormalHandEvaluator._tie_break(flush_definition, _faces([2, 9, 8])),
+		PackedInt32Array([9, 8, 2])
+	)
 
 
 func _definitions() -> Array[NormalHandDefinition]:

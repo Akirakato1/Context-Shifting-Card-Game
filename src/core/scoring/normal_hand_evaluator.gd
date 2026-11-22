@@ -112,7 +112,7 @@ static func _matches(definition: NormalHandDefinition, faces: Array[ScoringTypes
 		&"straight":
 			return _is_straight(faces)
 		&"grouped_ranks":
-			var counts: Array = _rank_counts(faces).values()
+			var counts: Array = _rank_counts(faces, true).values()
 			counts.sort_custom(func(left, right): return left > right)
 			var required: Array = definition.rule_parameters.get("group_sizes", []).duplicate()
 			required.sort_custom(func(left, right): return left > right)
@@ -145,14 +145,21 @@ static func _tie_break(
 			var result := PackedInt32Array()
 			for group in ordered_groups: result.append(group[1])
 			return result
-		&"high_card", &"straight", &"flush":
+		&"flush":
+			ranks.reverse()
+			return PackedInt32Array(ranks)
+		&"high_card", &"straight":
 			return PackedInt32Array([ranks[-1]])
 	return PackedInt32Array()
 
 
-static func _rank_counts(faces: Array[ScoringTypes.SelectedCardFace]) -> Dictionary:
+static func _rank_counts(
+	faces: Array[ScoringTypes.SelectedCardFace], exclude_jokers: bool = false
+) -> Dictionary:
 	var counts := {}
 	for face in faces:
+		if exclude_jokers and face.rank == 0:
+			continue
 		counts[face.rank] = counts.get(face.rank, 0) + 1
 	return counts
 
@@ -160,6 +167,8 @@ static func _rank_counts(faces: Array[ScoringTypes.SelectedCardFace]) -> Diction
 static func _is_straight(faces: Array[ScoringTypes.SelectedCardFace]) -> bool:
 	var ranks: Array[int] = []
 	for face in faces:
+		if face.rank == 0:
+			return false
 		if face.rank in ranks:
 			return false
 		ranks.append(face.rank)

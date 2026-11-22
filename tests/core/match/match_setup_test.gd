@@ -6,6 +6,7 @@ const MatchConfig = preload("res://src/core/match/match_config.gd")
 const MatchState = preload("res://src/core/match/match_state.gd")
 const Rational = preload("res://src/core/common/rational.gd")
 const NormalHandDefinition = preload("res://src/core/scoring/normal_hand_definition.gd")
+const NormalHandCatalog = preload("res://src/core/scoring/normal_hand_catalog.gd")
 const ContextHandDefinition = preload("res://src/core/scoring/context_hand_definition.gd")
 
 
@@ -147,6 +148,16 @@ func test_scoring_definition_metadata_survives_config_round_trip() -> void:
 	assert_eq(restored.normal_definitions[0].component_group, &"rank")
 	assert_eq(restored.normal_definitions[0].rule_parameters, {"group_sizes": [3, 2]})
 	assert_eq(restored.context_definitions[0].broad_category_id, &"two_context")
+
+
+func test_production_normal_catalog_survives_config_round_trip() -> void:
+	var config := _config([&"one", &"two"], [])
+	config._normal_definitions = NormalHandCatalog.definitions()
+
+	var restored := MatchConfig.from_dict(config.to_dict())
+
+	assert_eq(restored.normal_definitions.size(), 19)
+	assert_eq(restored.to_dict().normal_definitions, config.to_dict().normal_definitions)
 
 
 func _config(active_ids: Array, spectator_ids: Array) -> MatchConfig:
