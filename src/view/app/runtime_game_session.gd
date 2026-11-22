@@ -183,8 +183,12 @@ func start_match() -> Error:
 		return ERR_UNCONFIGURED
 	if _controller.state.active_player_ids().size() < 2:
 		return ERR_UNAVAILABLE
-	_controller.state.config.match_started = true
-	_host_session.publish_state_change([])
+	if _controller.state.config.match_started:
+		return ERR_ALREADY_IN_USE
+	var events: Array = _controller.begin_match(_now_msec())
+	if events.is_empty():
+		return ERR_INVALID_DATA
+	_host_session.publish_state_change(events)
 	return OK
 
 

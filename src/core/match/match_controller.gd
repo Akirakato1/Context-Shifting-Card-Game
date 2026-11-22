@@ -49,6 +49,32 @@ func _init(
 		_prepare_start_phase()
 
 
+func begin_match(now_msec: int) -> Array[DomainEvent]:
+	if (
+		state.config.match_started or state.round_number != 1
+		or state.phase != GameTypes.Phase.START
+	):
+		return []
+	state.config.match_started = true
+	state.start_prepared_round = state.round_number
+	state.start_ability_drawn_round = state.round_number
+	_start_requests.clear()
+	for player_id in state.seat_order:
+		var player = state.players[player_id]
+		if player.active and not player.pending:
+			player.replenishment_needed = 0
+			player.ready = false
+	state.phase = GameTypes.Phase.MAIN_1
+	state.phase_started_msec = now_msec
+	state.phase_deadline_msec = now_msec + state.config.public_hard_limit_msec
+	state.reaction_deadline_msec = -1
+	var events: Array[DomainEvent] = [DomainEvent.new(
+		EventKinds.PHASE_CHANGED, {"phase": GameTypes.Phase.MAIN_1}, &"public"
+	)]
+	state.record_public_events(events)
+	return events
+
+
 func submit(command: GameCommand, now_msec: int) -> CommandResult:
 	if command != null and command.kind == CommandKinds.JOIN_ACTIVE:
 		return _record_result(_join_active(command))

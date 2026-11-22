@@ -94,6 +94,17 @@ func test_host_runtime_builds_authority_after_first_active_peer_and_projects_nam
 	assert_true(failures.is_empty())
 
 	assert_eq(runtime.start_match(), OK)
+	assert_eq(snapshots[-1].phase, 2)
+	assert_eq(snapshots[-1].private_hand.size(), 6)
+	assert_eq(snapshots[-1].private_abilities.size(), 2)
+	assert_eq(runtime.start_match(), ERR_ALREADY_IN_USE)
+	assert_eq(runtime.submit_command("invalid-start-request", {
+		"command_id": "invalid-start-request-command",
+		"kind": "set_replenishment_request",
+		"payload": {"request": {0: 2}},
+	}), OK)
+	assert_false(results[-1].result.accepted)
+	assert_eq(results[-1].result.error_code, "command_not_allowed_in_phase")
 	assert_eq(runtime.submit_command("ready-host", {
 		"command_id": "ready-host-command",
 		"kind": "set_ready",

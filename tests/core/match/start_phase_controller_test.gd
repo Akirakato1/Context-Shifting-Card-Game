@@ -10,6 +10,39 @@ const MatchState = preload("res://src/core/match/match_state.gd")
 const MatchController = preload("res://src/core/match/match_controller.gd")
 
 
+func test_begin_match_skips_round_one_start_effects_and_enters_main_one() -> void:
+	var state := MatchState.create(_config(GameTypes.InformationVisibility.PUBLIC), 9)
+	state.config.match_started = false
+	var controller := MatchController.new(state)
+	var opening_hands := {}
+	var opening_abilities := {}
+	for player_id in state.seat_order:
+		opening_hands[player_id] = state.players[player_id].hand.size()
+		opening_abilities[player_id] = state.players[player_id].ability_hand.size()
+
+	var events: Array = controller.begin_match(1200)
+
+	assert_true(state.config.match_started)
+	assert_eq(state.round_number, 1)
+	assert_eq(state.phase, GameTypes.Phase.MAIN_1)
+	assert_eq(state.active_context, GameTypes.Context.RISE)
+	assert_eq(state.phase_started_msec, 1200)
+	assert_eq(state.phase_deadline_msec, 6200)
+	assert_eq(state.start_prepared_round, 1)
+	assert_eq(state.start_ability_drawn_round, 1)
+	assert_eq(events.size(), 1)
+	assert_eq(events[0].kind, EventKinds.PHASE_CHANGED)
+	assert_eq(events[0].payload.phase, GameTypes.Phase.MAIN_1)
+	for player_id in state.seat_order:
+		assert_eq(state.players[player_id].hand.size(), opening_hands[player_id])
+		assert_eq(state.players[player_id].ability_hand.size(), opening_abilities[player_id])
+		assert_eq(opening_hands[player_id], 6)
+		assert_eq(opening_abilities[player_id], 2)
+		assert_false(state.players[player_id].ready)
+	assert_eq(_event_count_for_player(events, EventKinds.ABILITY_DRAWN, &"one"), 0)
+	assert_true(_first_event(events, EventKinds.REPLENISHMENT_REQUESTS_REVEALED) == null)
+
+
 func test_round_one_stays_rise_and_round_two_advances_to_flourish() -> void:
 	var first := MatchState.create(_config(GameTypes.InformationVisibility.PUBLIC), 10)
 	MatchController.new(first)
