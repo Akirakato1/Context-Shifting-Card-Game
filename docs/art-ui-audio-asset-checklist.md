@@ -268,7 +268,7 @@ Keep music optional for the jam if time is tight. Functional sound feedback is m
 - Ability icons/status markers: **one per distinct persistent effect** that players must recognize without opening rules text.
 - Normal hand badges: **one reusable badge frame** plus dynamic names; optional unique emblems per finalized hand category.
 - Context hand badges: **one reusable badge frame** plus dynamic names; optional unique emblems per finalized context pattern family.
-- Context/suit names: Rise/Flourish/Fall are locked; replace Suit 1/2/3 labels after the suit theme is decided, without changing the underlying numeric identifiers.
+- Context/suit names: Rise/Flourish/Fall and Mountain/Cloud/Sea are locked; the underlying suit wire values remain `0/1/2`.
 
 ## Recommended production order
 
