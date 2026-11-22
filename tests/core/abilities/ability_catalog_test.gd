@@ -22,6 +22,56 @@ func test_manipulation_catalog_has_fourteen_unique_designs_and_two_copies_each()
 		assert_eq(counts[id], 2, "expected two copies of %s" % id)
 
 
+func test_hand_shape_catalog_has_sixteen_unique_factor_category_sign_combinations() -> void:
+	var definitions := AbilityCatalog.hand_shape_designs()
+	var combinations := {}
+	var card_count := 0
+	var context_count := 0
+	for definition in definitions:
+		var parameters := definition.effect_parameters
+		var key := "%s:%s:%d" % [parameters.factor_id, parameters.category_id, sign(parameters.numerator)]
+		combinations[key] = true
+		if parameters.factor_id == &"card_hand": card_count += 1
+		if parameters.factor_id == &"context_hand": context_count += 1
+	assert_eq(definitions.size(), 16)
+	assert_eq(combinations.size(), 16)
+	assert_eq(card_count, 10)
+	assert_eq(context_count, 6)
+
+
+func test_hand_shape_cards_use_public_player_target_schema_and_placeholder_three() -> void:
+	for definition in AbilityCatalog.hand_shape_designs():
+		assert_eq(definition.timing, AbilityDefinition.Timing.HAND_SHAPE)
+		assert_eq(definition.effect_id, &"factor_modifier")
+		assert_eq(abs(definition.effect_parameters.numerator), 3)
+		assert_eq(definition.effect_parameters.denominator, 1)
+		assert_eq(definition.choice_schema.steps.size(), 1)
+		assert_eq(definition.choice_schema.steps[0].kind, "player")
+
+
+func test_definition_data_is_independent_from_physical_copy_recipe() -> void:
+	var designs := AbilityCatalog.all_designs()
+	var recipe := AbilityCatalog.provisional_deck_recipe()
+	assert_eq(designs.size(), 30)
+	assert_eq(recipe.size(), 30)
+	for definition in designs:
+		assert_false(definition.effect_parameters.has("copy_count"))
+
+
+func test_custom_recipe_supports_different_counts_per_definition() -> void:
+	var deck := AbilityCatalog.build_deck({&"high_card_buff": 3, &"flush_nerf": 1})
+	var counts := {}
+	for definition in deck: counts[definition.id] = counts.get(definition.id, 0) + 1
+	assert_eq(counts, {&"high_card_buff": 3, &"flush_nerf": 1})
+
+
+func test_unknown_noninteger_or_nonpositive_recipe_entries_reject() -> void:
+	assert_eq(AbilityCatalog.build_deck({&"unknown": 1}), [])
+	assert_eq(AbilityCatalog.build_deck({&"high_card_buff": 1.5}), [])
+	assert_eq(AbilityCatalog.build_deck({&"high_card_buff": 0}), [])
+	assert_eq(AbilityCatalog.build_deck({&"high_card_buff": -1}), [])
+
+
 func test_manipulation_catalog_defines_exact_target_shapes_and_rules_text() -> void:
 	var by_id := _definitions_by_id(AbilityCatalog.manipulation_definitions(1))
 	assert_eq(by_id.size(), 14)

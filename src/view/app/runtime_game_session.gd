@@ -628,7 +628,7 @@ func _ability_catalog(definitions: Array) -> Dictionary:
 
 
 func _default_abilities() -> Array[AbilityDefinition]:
-	return AbilityCatalog.manipulation_definitions(2)
+	return AbilityCatalog.build_deck(AbilityCatalog.provisional_deck_recipe())
 
 
 func _placeholder_normal_hands() -> Array[NormalHandDefinition]:

@@ -105,7 +105,7 @@ func test_host_runtime_builds_authority_after_first_active_peer_and_projects_nam
 	runtime.close()
 
 
-func test_runtime_config_uses_twenty_eight_real_manipulation_cards() -> void:
+func test_runtime_config_uses_recipe_with_manipulation_and_hand_shape_cards() -> void:
 	var transport := RuntimeTransport.new()
 	var runtime = RuntimeGameSession.new(transport, Callable(self, "_now"))
 	assert_eq(runtime.start_host("ws://127.0.0.1:8080", "Mira"), OK)
@@ -119,10 +119,10 @@ func test_runtime_config_uses_twenty_eight_real_manipulation_cards() -> void:
 	var counts := {}
 	for definition in definitions:
 		counts[definition.id] = int(counts.get(definition.id, 0)) + 1
-	assert_eq(definitions.size(), 28)
-	assert_eq(counts.size(), 14)
-	for count in counts.values():
-		assert_eq(count, 2)
+	assert_eq(definitions.size(), 44)
+	assert_eq(counts.size(), 30)
+	for definition in AbilityCatalog.manipulation_designs(): assert_eq(counts[definition.id], 2)
+	for definition in AbilityCatalog.hand_shape_designs(): assert_eq(counts[definition.id], 1)
 	assert_false(definitions.any(func(definition):
 		return str(definition.id).begins_with("placeholder_ability_")
 	))

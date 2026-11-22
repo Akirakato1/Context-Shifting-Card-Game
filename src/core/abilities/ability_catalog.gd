@@ -5,8 +5,7 @@ const AbilityDefinition = preload("res://src/core/abilities/ability_definition.g
 const GameTypes = preload("res://src/core/common/game_types.gd")
 
 
-static func manipulation_definitions(copies_per_design: int = 2) -> Array[AbilityDefinition]:
-	assert(copies_per_design > 0, "ability copy count must be positive")
+static func manipulation_designs() -> Array[AbilityDefinition]:
 	var designs: Array[AbilityDefinition] = [
 		_definition(
 			&"context_exchange", "Context Exchange",
@@ -63,11 +62,75 @@ static func manipulation_definitions(copies_per_design: int = 2) -> Array[Abilit
 			&"mirror_rank", {}, [_fixed_full_card_step()]
 		),
 	]
+	return designs
+
+
+static func hand_shape_designs() -> Array[AbilityDefinition]:
 	var result: Array[AbilityDefinition] = []
-	for definition in designs:
-		for _copy_index in range(copies_per_design):
-			result.append(definition)
+	var categories := [
+		[&"card_hand", &"high_card", "High Card"],
+		[&"card_hand", &"straight", "Straight"],
+		[&"card_hand", &"family", "Family"],
+		[&"card_hand", &"group", "Group"],
+		[&"card_hand", &"flush", "Flush"],
+		[&"context_hand", &"single_context", "Single Context"],
+		[&"context_hand", &"two_context", "Two Context"],
+		[&"context_hand", &"three_context", "Three Context"],
+	]
+	for item in categories:
+		for sign_value in [1, -1]:
+			var suffix := "buff" if sign_value > 0 else "nerf"
+			var signed_text := "+3" if sign_value > 0 else "-3"
+			var factor_text := "Card Hand" if item[0] == &"card_hand" else "Context Hand"
+			result.append(AbilityDefinition.new(
+				StringName("%s_%s" % [item[1], suffix]),
+				AbilityDefinition.Timing.HAND_SHAPE,
+				[&"hand_shape", StringName(suffix)],
+				&"factor_modifier", 0, &"",
+				{"factor_id": item[0], "category_id": item[1],
+				"numerator": 3 * sign_value, "denominator": 1},
+				{"steps": [{"key": "target_player_id", "kind": "player", "count": 1,
+				"prompt": "Select a player"}]},
+				"%s %s" % [item[2], "Buff" if sign_value > 0 else "Nerf"],
+				"Target player gets %s %s multiplier if their %s category applies this round." % [signed_text, factor_text, item[2]]
+			))
 	return result
+
+
+static func all_designs() -> Array[AbilityDefinition]:
+	var result := manipulation_designs()
+	result.append_array(hand_shape_designs())
+	return result
+
+
+static func provisional_deck_recipe() -> Dictionary:
+	var recipe := {}
+	for definition in manipulation_designs(): recipe[definition.id] = 2
+	for definition in hand_shape_designs(): recipe[definition.id] = 1
+	return recipe
+
+
+static func build_deck(recipe: Dictionary) -> Array[AbilityDefinition]:
+	var by_id := {}
+	for definition in all_designs(): by_id[definition.id] = definition
+	for raw_id in recipe:
+		var id := StringName(str(raw_id))
+		var count: Variant = recipe[raw_id]
+		if not by_id.has(id) or not count is int or count <= 0: return []
+	var result: Array[AbilityDefinition] = []
+	var ids: Array = recipe.keys()
+	ids.sort_custom(func(left, right): return str(left) < str(right))
+	for raw_id in ids:
+		var definition: AbilityDefinition = by_id[StringName(str(raw_id))]
+		for _copy_index in range(recipe[raw_id]): result.append(definition)
+	return result
+
+
+static func manipulation_definitions(copies_per_design: int = 2) -> Array[AbilityDefinition]:
+	if copies_per_design <= 0: return []
+	var recipe := {}
+	for definition in manipulation_designs(): recipe[definition.id] = copies_per_design
+	return build_deck(recipe)
 
 
 static func _definition(
