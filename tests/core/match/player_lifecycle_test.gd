@@ -35,6 +35,7 @@ func test_late_active_join_waits_for_next_start_and_does_not_affect_current_read
 	state.phase_started_msec = -1
 	state.phase_deadline_msec = -1
 	controller = MatchController.new(state)
+	assert_true(state.players[&"four"].ready)
 	controller.tick(0)
 	controller.tick(5001)
 	assert_false(state.players[&"four"].pending)

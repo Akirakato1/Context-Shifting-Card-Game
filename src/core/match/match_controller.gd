@@ -128,7 +128,7 @@ func tick(now_msec: int) -> Array[DomainEvent]:
 		return []
 	if state.phase == GameTypes.Phase.START:
 		_ensure_phase_clock(now_msec)
-		if now_msec >= state.phase_deadline_msec:
+		if _all_active_ready() or now_msec >= state.phase_deadline_msec:
 			return _record_events(_finish_start(now_msec))
 	elif state.phase == GameTypes.Phase.MAIN_1:
 		_ensure_phase_clock(now_msec)
@@ -262,7 +262,7 @@ func _prepare_start_phase() -> Array[DomainEvent]:
 		var player = state.players[player_id]
 		if player.active and not player.pending:
 			player.replenishment_needed = max(6 - player.hand.size(), 0)
-			player.ready = false
+			player.ready = player.replenishment_needed == 0
 	state.start_prepared_round = state.round_number
 	state.phase_started_msec = -1
 	state.phase_deadline_msec = -1

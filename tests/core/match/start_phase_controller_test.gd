@@ -111,24 +111,44 @@ func test_private_visibility_reveals_replacement_count_but_not_context_distribut
 	assert_eq(state.players[&"one"].hand.size(), 6)
 
 
-func test_all_ready_advances_before_deadline_and_clears_readiness() -> void:
+func test_later_start_with_full_hands_auto_readies_and_advances_on_first_tick() -> void:
 	var state := MatchState.create(_config(GameTypes.InformationVisibility.PUBLIC), 14)
+	state.round_number = 2
+	state.start_prepared_round = 0
 	var controller := MatchController.new(state)
-	controller.tick(1000)
 
-	var first := controller.submit(GameCommand.new(
-		&"ready-one", &"one", CommandKinds.SET_READY, {"ready": true}
-	), 1100)
-	var second := controller.submit(GameCommand.new(
-		&"ready-two", &"two", CommandKinds.SET_READY, {"ready": true}
-	), 1200)
+	assert_true(state.players[&"one"].ready)
+	assert_true(state.players[&"two"].ready)
+	var events := controller.tick(1000)
 
-	assert_true(first.accepted)
-	assert_true(second.accepted)
 	assert_eq(state.phase, GameTypes.Phase.MAIN_1)
+	assert_eq(state.players[&"one"].ability_hand.size(), 4)
+	assert_eq(state.players[&"two"].ability_hand.size(), 4)
+	assert_eq(_event_count_for_player(events, EventKinds.ABILITY_DRAWN, &"one"), 2)
+	assert_eq(_event_count_for_player(events, EventKinds.ABILITY_DRAWN, &"two"), 2)
 	assert_false(state.players[&"one"].ready)
 	assert_false(state.players[&"two"].ready)
-	assert_true(_first_event(second.events, EventKinds.PHASE_CHANGED) != null)
+
+
+func test_only_player_needing_replenishment_must_ready_before_main_one() -> void:
+	var state := MatchState.create(_config(GameTypes.InformationVisibility.PUBLIC), 15)
+	_discard_one_full_card(state, &"one")
+	state.round_number = 2
+	state.start_prepared_round = 0
+	var controller := MatchController.new(state)
+
+	assert_false(state.players[&"one"].ready)
+	assert_true(state.players[&"two"].ready)
+	var result := controller.submit(GameCommand.new(
+		&"ready-one", &"one", CommandKinds.SET_READY, {"ready": true}
+	), 1100)
+
+	assert_true(result.accepted)
+	assert_eq(state.phase, GameTypes.Phase.MAIN_1)
+	assert_eq(state.players[&"one"].hand.size(), 6)
+	assert_false(state.players[&"one"].ready)
+	assert_false(state.players[&"two"].ready)
+	assert_true(_first_event(result.events, EventKinds.PHASE_CHANGED) != null)
 	assert_eq(state.players[&"one"].ability_hand.size(), 4)
 
 
