@@ -4,6 +4,9 @@ const GameTypes = preload("res://src/core/common/game_types.gd")
 const AbilityDefinition = preload("res://src/core/abilities/ability_definition.gd")
 const MatchConfig = preload("res://src/core/match/match_config.gd")
 const MatchState = preload("res://src/core/match/match_state.gd")
+const Rational = preload("res://src/core/common/rational.gd")
+const NormalHandDefinition = preload("res://src/core/scoring/normal_hand_definition.gd")
+const ContextHandDefinition = preload("res://src/core/scoring/context_hand_definition.gd")
 
 
 func test_config_rejects_active_and_spectator_count_limits() -> void:
@@ -127,6 +130,23 @@ func test_snapshot_round_trip_preserves_canonical_match_values() -> void:
 	assert_eq(restored.players[&"one"].hand.size(), 6)
 	assert_eq(restored.players[&"one"].ability_hand.size(), 3)
 	assert_eq(restored.seat_order, [&"one", &"two"])
+
+
+func test_scoring_definition_metadata_survives_config_round_trip() -> void:
+	var config := _config([&"one", &"two"], [])
+	config._normal_definitions = [NormalHandDefinition.new(
+		&"full_house", 50, 5, &"grouped_ranks", Rational.new(5, 2),
+		&"group", &"rank", {"group_sizes": [3, 2]}
+	)]
+	config._context_definitions = [ContextHandDefinition.new(
+		&"two_context", 20, {0: 2, 1: 2}, Rational.new(3, 1), &"two_context"
+	)]
+
+	var restored := MatchConfig.from_dict(config.to_dict())
+	assert_eq(restored.normal_definitions[0].broad_category_id, &"group")
+	assert_eq(restored.normal_definitions[0].component_group, &"rank")
+	assert_eq(restored.normal_definitions[0].rule_parameters, {"group_sizes": [3, 2]})
+	assert_eq(restored.context_definitions[0].broad_category_id, &"two_context")
 
 
 func _config(active_ids: Array, spectator_ids: Array) -> MatchConfig:

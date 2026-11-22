@@ -29,6 +29,45 @@ class ScoreModifier extends RefCounted:
 		source_id = source
 
 
+class MultiplierComponent extends RefCounted:
+	var factor_id: StringName
+	var category_id: StringName
+	var source_definition_id: StringName
+	var value: Rational
+
+	func _init(
+		component_factor_id: StringName,
+		component_category_id: StringName,
+		component_source_definition_id: StringName,
+		component_value: Rational
+	) -> void:
+		factor_id = component_factor_id
+		category_id = component_category_id
+		source_definition_id = component_source_definition_id
+		value = component_value
+
+
+class FactorModifier extends RefCounted:
+	var factor_id: StringName
+	var category_id: StringName
+	var delta: Rational
+	var source_copy_id: StringName
+	var source_definition_id: StringName
+
+	func _init(
+		modifier_factor_id: StringName,
+		modifier_category_id: StringName,
+		modifier_delta: Rational,
+		modifier_source_copy_id: StringName,
+		modifier_source_definition_id: StringName
+	) -> void:
+		factor_id = modifier_factor_id
+		category_id = modifier_category_id
+		delta = modifier_delta
+		source_copy_id = modifier_source_copy_id
+		source_definition_id = modifier_source_definition_id
+
+
 class NormalHandResult extends RefCounted:
 	var is_valid: bool
 	var category_id: StringName

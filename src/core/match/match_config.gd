@@ -205,6 +205,9 @@ func to_dict() -> Dictionary:
 		normal_definitions.append({
 			"id": str(definition.id), "priority": definition.priority,
 			"subset_size": definition.subset_size, "rule_id": str(definition.rule_id),
+			"broad_category_id": str(definition.broad_category_id),
+			"component_group": str(definition.component_group),
+			"rule_parameters": definition.rule_parameters.duplicate(true),
 			"multiplier_numerator": definition.multiplier.numerator,
 			"multiplier_denominator": definition.multiplier.denominator,
 		})
@@ -215,6 +218,7 @@ func to_dict() -> Dictionary:
 			minimums[str(context)] = definition.minimums[context]
 		context_definitions.append({
 			"id": str(definition.id), "priority": definition.priority, "minimums": minimums,
+			"broad_category_id": str(definition.broad_category_id),
 			"multiplier_numerator": definition.multiplier.numerator,
 			"multiplier_denominator": definition.multiplier.denominator,
 		})
@@ -251,7 +255,9 @@ static func from_dict(data: Dictionary) -> MatchConfig:
 	for item: Dictionary in data.get("normal_definitions", []):
 		normal_definitions.append(NormalHandDefinition.new(
 			StringName(item.id), item.priority, item.subset_size, StringName(item.rule_id),
-			Rational.new(item.multiplier_numerator, item.multiplier_denominator)
+			Rational.new(item.multiplier_numerator, item.multiplier_denominator),
+			StringName(item.get("broad_category_id", "")),
+			StringName(item.get("component_group", "")), item.get("rule_parameters", {})
 		))
 	var context_definitions: Array[ContextHandDefinition] = []
 	for item: Dictionary in data.get("context_definitions", []):
@@ -260,7 +266,8 @@ static func from_dict(data: Dictionary) -> MatchConfig:
 			minimums[int(context)] = item.minimums[context]
 		context_definitions.append(ContextHandDefinition.new(
 			StringName(item.id), item.priority, minimums,
-			Rational.new(item.multiplier_numerator, item.multiplier_denominator)
+			Rational.new(item.multiplier_numerator, item.multiplier_denominator),
+			StringName(item.get("broad_category_id", ""))
 		))
 	var script: Script = load("res://src/core/match/match_config.gd")
 	var config: MatchConfig = script.new(

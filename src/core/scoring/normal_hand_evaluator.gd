@@ -7,10 +7,9 @@ const NormalHandDefinition = preload("res://src/core/scoring/normal_hand_definit
 
 const SUPPORTED_RULES := {
 	&"high_card": true,
-	&"pair": true,
-	&"three_kind": true,
 	&"straight": true,
-	&"full_house": true,
+	&"grouped_ranks": true,
+	&"flush": true,
 }
 
 
@@ -33,9 +32,9 @@ static func evaluate(
 		for untyped_subset in subsets:
 			var subset: Array[ScoringTypes.SelectedCardFace] = []
 			subset.assign(untyped_subset)
-			if not _matches(definition.rule_id, subset):
+			if not _matches(definition, subset):
 				continue
-			var candidate_tie_break := _tie_break(definition.rule_id, subset)
+			var candidate_tie_break := _tie_break(definition, subset)
 			if _candidate_precedes(
 				definition, candidate_tie_break, best_definition, best_tie_break
 			):
@@ -84,43 +83,47 @@ static func _compare_tie_break(left: PackedInt32Array, right: PackedInt32Array) 
 	return 1 if left.size() > right.size() else -1
 
 
-static func _matches(rule_id: StringName, faces: Array[ScoringTypes.SelectedCardFace]) -> bool:
-	match rule_id:
+static func _matches(definition: NormalHandDefinition, faces: Array[ScoringTypes.SelectedCardFace]) -> bool:
+	match definition.rule_id:
 		&"high_card":
 			return faces.size() == 1
-		&"pair":
-			return faces.size() == 2 and faces[0].rank == faces[1].rank
-		&"three_kind":
-			return faces.size() == 3 and _rank_counts(faces).size() == 1
 		&"straight":
 			return _is_straight(faces)
-		&"full_house":
+		&"grouped_ranks":
 			var counts: Array = _rank_counts(faces).values()
-			counts.sort()
-			return counts == [2, 3]
+			counts.sort_custom(func(left, right): return left > right)
+			var required: Array = definition.rule_parameters.get("group_sizes", []).duplicate()
+			required.sort_custom(func(left, right): return left > right)
+			return counts == required
+		&"flush":
+			if faces.is_empty(): return false
+			for face in faces:
+				if face.suit != faces[0].suit: return false
+			return true
 	return false
 
 
 static func _tie_break(
-	rule_id: StringName,
+	definition: NormalHandDefinition,
 	faces: Array[ScoringTypes.SelectedCardFace]
 ) -> PackedInt32Array:
 	var ranks: Array[int] = []
 	for face in faces:
 		ranks.append(face.rank)
 	ranks.sort()
-	match rule_id:
-		&"full_house":
+	match definition.rule_id:
+		&"grouped_ranks":
 			var counts := _rank_counts(faces)
-			var triple_rank := 0
-			var pair_rank := 0
+			var ordered_groups: Array = []
 			for rank in counts:
-				if counts[rank] == 3:
-					triple_rank = rank
-				elif counts[rank] == 2:
-					pair_rank = rank
-			return PackedInt32Array([triple_rank, pair_rank])
-		&"high_card", &"pair", &"three_kind", &"straight":
+				ordered_groups.append([counts[rank], rank])
+			ordered_groups.sort_custom(func(left, right):
+				return left[0] > right[0] or (left[0] == right[0] and left[1] > right[1])
+			)
+			var result := PackedInt32Array()
+			for group in ordered_groups: result.append(group[1])
+			return result
+		&"high_card", &"straight", &"flush":
 			return PackedInt32Array([ranks[-1]])
 	return PackedInt32Array()
 
