@@ -51,9 +51,12 @@ func test_snapshot_replaces_gap_and_state_getters_are_immutable() -> void:
 		"round_number": 7,
 		"players": [{"player_id": "one", "score": 12}],
 		"private_hand": [{"card_id": "replacement"}],
+		"required_ability_discards": 2,
 	}, 9))
 	var public_copy: Dictionary = presentation.public_state()
 	var private_copy: Dictionary = presentation.private_state()
+	assert_false(public_copy.has("required_ability_discards"))
+	assert_eq(private_copy.required_ability_discards, 2)
 	public_copy.players[0].score = 999
 	private_copy.private_hand[0].card_id = "mutated"
 	assert_eq(presentation.public_state().players[0].score, 12)

@@ -717,7 +717,7 @@ func _render_preview() -> void:
 			var selection: Dictionary = _staged[card_id]
 			var half := _card_half(_hand_cards[card_id], int(selection.half_index))
 			base_sum += int(half.get("effective_rank", half.get("rank", 0)))
-		_preview_details.text = "Base %d  ·  hand/context multipliers pending final catalogue" % base_sum
+		_preview_details.text = "Base %d  ·  hand/context multipliers appear after host evaluation" % base_sum
 		_invalid_reason.text = "" if not _staged_order.is_empty() else "Stage one or more cards, or choose PASS."
 		return
 	if preview.has("score_breakdown"):
@@ -895,7 +895,7 @@ func _render_end() -> void:
 		_ability_choices.remove_child(child)
 		child.queue_free()
 	var abilities: Array = _model.get("private_abilities", [])
-	var required := maxi(abilities.size() - 3, 0)
+	var required := _required_ability_discards()
 	_end_required.text = "Choose %d to discard" % required
 	for ability in abilities:
 		if not ability is Dictionary:
@@ -923,8 +923,15 @@ func _update_start_total() -> void:
 
 
 func _update_end_button() -> void:
-	var required := maxi(_model.get("private_abilities", []).size() - 3, 0)
+	var required := _required_ability_discards()
 	_end_confirm.disabled = _input_locked or _ability_discards.size() != required or _pending.has(&"choose_ability_discards")
+
+
+func _required_ability_discards() -> int:
+	return int(_model.get(
+		"required_ability_discards",
+		maxi(_model.get("private_abilities", []).size() - 3, 0)
+	))
 
 
 func _refresh_buttons() -> void:

@@ -52,8 +52,9 @@ func _init(
 		_prepare_start_phase()
 
 
-func begin_opening_round(now_msec: int) -> Array[DomainEvent]:
-	assert(state.round_number == 1 and state.phase == GameTypes.Phase.START)
+func begin_match(now_msec: int) -> Array[DomainEvent]:
+	if state.round_number != 1 or state.phase != GameTypes.Phase.START or state.match_complete:
+		return []
 	state.config.lock_for_match()
 	state.start_ability_drawn_round = state.round_number
 	var clock_start := state.freeze_started_msec if state.frozen else now_msec
@@ -115,7 +116,7 @@ func tick(now_msec: int) -> Array[DomainEvent]:
 		if not state.config.match_started:
 			return []
 		_ensure_phase_clock(now_msec)
-		if _phase_deadline_reached(now_msec):
+		if _all_active_ready() or _phase_deadline_reached(now_msec):
 			return _record_events(_finish_start(now_msec))
 	elif state.phase == GameTypes.Phase.MAIN_1:
 		_ensure_phase_clock(now_msec)
@@ -219,9 +220,15 @@ func _submit_start(command: GameCommand, now_msec: int) -> CommandResult:
 		CommandKinds.SET_READY:
 			if not command.payload.has("ready") or not command.payload.ready is bool:
 				return CommandResult.new(false, &"malformed_command")
-			state.players[command.player_id].ready = command.payload.ready
 			if not state.config.match_started:
+				state.players[command.player_id].ready = command.payload.ready
 				return CommandResult.new(true)
+			if (
+				state.players[command.player_id].replenishment_needed == 0
+				and not command.payload.ready
+			):
+				return CommandResult.new(false, &"no_replenishment_needed")
+			state.players[command.player_id].ready = command.payload.ready
 			_ensure_phase_clock(now_msec)
 			var events: Array[DomainEvent] = []
 			if _all_active_ready():
@@ -259,7 +266,7 @@ func _prepare_start_phase() -> Array[DomainEvent]:
 		var player = state.players[player_id]
 		if player.active and not player.pending:
 			player.replenishment_needed = max(6 - player.hand.size(), 0)
-			player.ready = false
+			player.ready = state.config.match_started and player.replenishment_needed == 0
 	state.start_prepared_round = state.round_number
 	state.phase_started_msec = -1
 	state.phase_deadline_msec = -1

@@ -28,7 +28,7 @@ func start() -> void:
 	config.set_victory_target(3)
 	config.set_information_visibility(Types.InformationVisibility.PRIVATE)
 	_controller = Controller.new(State.create(config, randi()), null, Callable(), false)
-	_controller.begin_opening_round(Time.get_ticks_msec())
+	_controller.begin_match(Time.get_ticks_msec())
 	_runtime._controller = _controller
 	_runtime._display_names = {HOST: "You", &"mika": "Mika", &"ren": "Ren", &"jo": "Jo"}
 	_publish()

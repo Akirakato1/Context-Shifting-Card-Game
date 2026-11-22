@@ -42,6 +42,7 @@ func public_state() -> Dictionary:
 	for key in result.keys():
 		if str(key).begins_with("private_"):
 			result.erase(key)
+	result.erase("required_ability_discards")
 	return result
 
 

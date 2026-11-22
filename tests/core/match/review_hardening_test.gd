@@ -349,8 +349,8 @@ func test_replenishment_context_counts_private_cards_and_context_advance_are_eve
 		&"request", &"one", CommandKinds.SET_REPLENISHMENT_REQUEST,
 		{"request": {GameTypes.Context.RISE: 1}}
 	), 1)
-	controller.submit(_ready(&"one-ready", &"one"), 2)
-	var completed := controller.submit(_ready(&"two-ready", &"two"), 2)
+	assert_true(state.players[&"two"].ready)
+	var completed := controller.submit(_ready(&"one-ready", &"one"), 2)
 	var request_event = _first_event(completed.events, EventKinds.REPLENISHMENT_REQUESTS_REVEALED)
 	assert_true(request_event != null)
 	assert_eq(request_event.payload.counts.one, 1)

@@ -1,6 +1,7 @@
 extends "res://tests/test_case.gd"
 
 const APP_PATH := "res://src/view/app/app_root.tscn"
+const GameTypes = preload("res://src/core/common/game_types.gd")
 
 
 class FakeSession extends RefCounted:
@@ -10,6 +11,7 @@ class FakeSession extends RefCounted:
 	signal session_failed(reason: String)
 
 	var submissions: Array[Dictionary] = []
+	var start_calls := 0
 
 	func submit_command(message_id: String, command: Dictionary) -> Error:
 		submissions.append({"message_id": message_id, "command": command.duplicate(true)})
@@ -17,6 +19,10 @@ class FakeSession extends RefCounted:
 
 	func poll() -> void:
 		pass
+
+	func start_match() -> Error:
+		start_calls += 1
+		return OK
 
 
 func test_menu_opens_separate_create_and_join_forms_and_returns() -> void:
@@ -73,6 +79,7 @@ func test_app_starts_on_menu_and_can_present_each_mock_screen() -> void:
 
 	var complete := _match_model()
 	complete["match_complete"] = true
+	complete["phase"] = GameTypes.Phase.COMPLETE
 	complete["winner_id"] = "p1"
 	complete["end_reason"] = "victory_target"
 	complete["room_code"] = "ABC234"
@@ -97,6 +104,41 @@ func test_practice_button_starts_a_match_and_can_open_settings_or_return() -> vo
 		table.leave_requested.emit()
 		assert_eq(app.current_screen_id(), &"menu")
 		assert_false(host.has_node("GeneralSettingsScreen"))
+	await _unmount(app)
+
+
+func test_lobby_start_does_not_auto_ready_host_in_main_one() -> void:
+	var app = await _mount_app()
+	if app == null:
+		return
+	var session := FakeSession.new()
+	app.bind_session(session)
+	app.show_screen(&"lobby", _lobby_model())
+	var lobby = app.get_node("SafeArea/ScreenHost").get_child(0)
+	lobby.get_node("Layout/Footer/StartButton").pressed.emit()
+
+	assert_eq(session.start_calls, 1)
+	assert_eq(session.submissions, [])
+	await _unmount(app)
+
+
+func test_winning_end_stays_on_match_until_discards_complete() -> void:
+	var app = await _mount_app()
+	if app == null:
+		return
+	app.show_screen(&"match", _match_model())
+	var end_state := _match_model()
+	end_state["screen_id"] = "match"
+	end_state["phase"] = GameTypes.Phase.END
+	end_state["match_complete"] = true
+	end_state["winner_id"] = "p1"
+	end_state["required_ability_discards"] = 2
+	app.present_state(end_state)
+	assert_eq(app.current_screen_id(), &"match")
+
+	end_state["phase"] = GameTypes.Phase.COMPLETE
+	app.present_state(end_state)
+	assert_eq(app.current_screen_id(), &"results")
 	await _unmount(app)
 
 

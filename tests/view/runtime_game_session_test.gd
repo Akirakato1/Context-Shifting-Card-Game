@@ -2,6 +2,7 @@ extends "res://tests/test_case.gd"
 
 const RuntimeGameSession = preload("res://src/view/app/runtime_game_session.gd")
 const AbilityCatalog = preload("res://src/core/abilities/ability_catalog.gd")
+const GameTypes = preload("res://src/core/common/game_types.gd")
 const FakePeerTransport = preload("res://tests/network/fake_peer_transport.gd")
 
 
@@ -69,6 +70,20 @@ func test_host_runtime_builds_authority_after_first_active_peer_and_projects_nam
 	assert_true(transport.sent.any(func(entry):
 		return entry.peer_id == "peer-one"
 	))
+	for _index in range(3):
+		runtime.poll()
+	assert_false(runtime._controller.state.config.match_started)
+	assert_eq(runtime._controller.state.phase, GameTypes.Phase.START)
+	assert_eq(runtime._controller.state.players[&"host"].ability_hand.size(), 2)
+	assert_eq(runtime.submit_command("lobby-ready", {
+		"command_id": "lobby-ready-command",
+		"kind": "set_ready",
+		"payload": {"ready": true},
+	}), OK)
+	assert_true(results[-1].result.accepted)
+	assert_false(runtime._controller.state.config.match_started)
+	assert_eq(runtime._controller.state.phase, GameTypes.Phase.START)
+	assert_eq(runtime._controller.state.players[&"host"].ability_hand.size(), 2)
 
 	transport.clear_sent()
 	transport.join_status.emit("approved", {
@@ -110,6 +125,16 @@ func test_host_runtime_builds_authority_after_first_active_peer_and_projects_nam
 		guest_snapshot.private_abilities.map(func(ability): return ability.copy_id),
 		peer_two_snapshot.private_abilities.map(func(ability): return ability.copy_id)
 	)
+	assert_eq(snapshots[-1].private_hand.size(), 6)
+	assert_eq(snapshots[-1].private_abilities.size(), 2)
+	assert_eq(runtime.start_match(), ERR_ALREADY_IN_USE)
+	assert_eq(runtime.submit_command("invalid-start-request", {
+		"command_id": "invalid-start-request-command",
+		"kind": "set_replenishment_request",
+		"payload": {"request": {0: 2}},
+	}), OK)
+	assert_false(results[-1].result.accepted)
+	assert_eq(results[-1].result.error_code, "command_not_allowed_in_phase")
 	assert_eq(runtime.submit_command("ready-host", {
 		"command_id": "ready-host-command",
 		"kind": "set_ready",
@@ -160,6 +185,85 @@ func test_runtime_config_uses_recipe_with_all_four_ability_categories() -> void:
 	assert_false(contexts.any(func(definition):
 		return definition.multiplier.numerator == 1 and definition.multiplier.denominator == 1
 	))
+	var normals: Array = runtime._controller.state.config.normal_definitions
+	var normals_by_id := {}
+	var normal_categories := {}
+	for definition in normals:
+		normals_by_id[definition.id] = definition
+		normal_categories[definition.broad_category_id] = true
+	assert_eq(normals.size(), 19)
+	assert_eq(normal_categories.keys().size(), 5)
+	assert_eq(normals_by_id.pair.priority, 20)
+	assert_eq(normals_by_id.pair.multiplier.numerator, 5)
+	assert_eq(normals_by_id.pair.multiplier.denominator, 4)
+	assert_eq(normals_by_id.four_house.rule_parameters.group_sizes, [4, 2])
+	assert_eq(normals_by_id.six_kind.priority, 190)
+	assert_eq(normals_by_id.six_kind.multiplier.numerator, 19)
+	assert_eq(normals_by_id.six_kind.multiplier.denominator, 4)
+	assert_false(normals.all(func(definition):
+		return definition.multiplier.numerator == 1 and definition.multiplier.denominator == 1
+	))
+	runtime.close()
+
+
+func test_runtime_end_discard_uses_owner_choices_and_rejects_wrong_count() -> void:
+	var transport := RuntimeTransport.new()
+	var runtime = RuntimeGameSession.new(transport, Callable(self, "_now"))
+	var snapshots: Array[Dictionary] = []
+	var results: Array[Dictionary] = []
+	runtime.snapshot_applied.connect(func(snapshot: Dictionary, _sequence: int):
+		snapshots.append(snapshot)
+	)
+	runtime.command_result_received.connect(func(message_id: String, result: Dictionary):
+		results.append({"message_id": message_id, "result": result})
+	)
+	assert_eq(runtime.start_host("ws://127.0.0.1:8080", "Mira"), OK)
+	transport.lobby_created.emit("ABC234")
+	transport.join_status.emit("approved", {
+		"peer_id": "peer-one", "role": "active", "display_name": "Noah",
+	})
+	transport.peer_connected.emit("peer-one")
+	assert_eq(runtime.start_match(), OK)
+
+	var state = runtime._controller.state
+	var host = state.players[&"host"]
+	host.ability_hand.append_array(state.ability_deck.draw(&"host", 3, state.rng))
+	state.phase = GameTypes.Phase.MAIN_2
+	state.phase_started_msec = 1000
+	state.phase_deadline_msec = 6000
+	state.reaction_deadline_msec = 1000
+	host.ready = true
+	state.players[&"peer-one"].ready = true
+	var end_events: Array = runtime._controller.tick(1000)
+	runtime._host_session.publish_state_change(end_events)
+
+	assert_eq(snapshots[-1].phase, GameTypes.Phase.END)
+	assert_eq(snapshots[-1].private_abilities.size(), 5)
+	assert_eq(snapshots[-1].required_ability_discards, 2)
+	var chosen_ids := [
+		str(host.ability_hand[0].copy_id), str(host.ability_hand[1].copy_id),
+	]
+	assert_eq(runtime.submit_command("wrong-end-discard", {
+		"command_id": "wrong-end-discard-command",
+		"kind": "choose_ability_discards",
+		"payload": {"copy_ids": [chosen_ids[0]]},
+	}), OK)
+	assert_false(results[-1].result.accepted)
+	assert_eq(results[-1].result.error_code, "incorrect_discard_count")
+	assert_eq(host.ability_hand.size(), 5)
+
+	assert_eq(runtime.submit_command("chosen-end-discard", {
+		"command_id": "chosen-end-discard-command",
+		"kind": "choose_ability_discards",
+		"payload": {"copy_ids": chosen_ids},
+	}), OK)
+	assert_true(results[-1].result.accepted)
+	assert_eq(host.ability_hand.size(), 3)
+	for copy_id in chosen_ids:
+		assert_false(host.ability_hand.any(func(ability):
+			return str(ability.copy_id) == copy_id
+		))
+	assert_eq(snapshots[-1].phase, GameTypes.Phase.START)
 	runtime.close()
 
 

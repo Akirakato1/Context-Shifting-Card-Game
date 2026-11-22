@@ -323,6 +323,27 @@ func test_end_discard_requires_exact_excess_and_timeout_notice_is_authoritative(
 	await _unmount(controls)
 
 
+func test_end_discard_uses_authoritative_required_count() -> void:
+	var controls = await _mount_controls()
+	if controls == null:
+		return
+	controls.render(_model(5, _hand(), {
+		"private_abilities": [
+			{"copy_id": "a1", "ability_id": "field_a"},
+			{"copy_id": "a2", "ability_id": "buff_pair"},
+			{"copy_id": "a3", "ability_id": "sabotage"},
+			{"copy_id": "a4", "ability_id": "manipulate"},
+			{"copy_id": "a5", "ability_id": "field_b"},
+		],
+		"required_ability_discards": 1,
+	}))
+
+	assert_eq(controls.get_node("EndControls/Required").text, "Choose 1 to discard")
+	controls.toggle_ability_discard(&"a3", true)
+	assert_false(controls.get_node("EndControls/ConfirmButton").disabled)
+	await _unmount(controls)
+
+
 func test_match_screen_hosts_phase_controls_and_bubbles_intents() -> void:
 	var match_screen = await _mount_path(MATCH_SCREEN_PATH)
 	if match_screen == null:

@@ -145,11 +145,21 @@ func test_confirmed_and_timeout_discards_reach_three_with_visibility_rules() -> 
 		public_state.players[&"one"].ability_hand[0].copy_id,
 		public_state.players[&"one"].ability_hand[1].copy_id,
 	]
+	var rejected := public_controller.submit(GameCommand.new(
+		&"wrong-discard-count", &"one", CommandKinds.CHOOSE_ABILITY_DISCARDS,
+		{"copy_ids": [discard_ids[0]]}
+	), 19)
+	assert_eq(rejected.error_code, &"incorrect_discard_count")
+	assert_eq(public_state.players[&"one"].ability_hand.size(), 5)
 	var confirmed := public_controller.submit(GameCommand.new(
 		&"discard", &"one", CommandKinds.CHOOSE_ABILITY_DISCARDS,
 		{"copy_ids": discard_ids}
 	), 20)
 	assert_eq(public_state.players[&"one"].ability_hand.size(), 3)
+	for copy_id in discard_ids:
+		assert_false(public_state.players[&"one"].ability_hand.any(func(ability):
+			return ability.copy_id == copy_id
+		))
 	var public_discard = _first_event(confirmed.events, EventKinds.ABILITIES_DISCARDED)
 	assert_true(public_discard.payload.has("ability_ids"))
 

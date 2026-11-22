@@ -222,11 +222,16 @@ func start_match() -> Error:
 	if _mode != "host" or _controller == null or _host_session == null:
 		return ERR_UNCONFIGURED
 	var state: MatchState = _controller.state
-	if state.config.match_started or state.phase != GameTypes.Phase.START or state.match_complete:
+	if state.config.match_started:
+		return ERR_ALREADY_IN_USE
+	if state.phase != GameTypes.Phase.START or state.match_complete:
 		return ERR_UNAVAILABLE
 	if not state.config.validate().is_empty():
 		return ERR_UNAVAILABLE
-	_host_session.publish_state_change(_controller.begin_opening_round(_now_msec()))
+	var events: Array = _controller.begin_match(_now_msec())
+	if events.is_empty():
+		return ERR_INVALID_DATA
+	_host_session.publish_state_change(events)
 	return OK
 
 

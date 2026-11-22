@@ -10,6 +10,60 @@ const MatchState = preload("res://src/core/match/match_state.gd")
 const MatchController = preload("res://src/core/match/match_controller.gd")
 
 
+func test_begin_match_skips_round_one_start_effects_and_enters_main_one() -> void:
+	var state := MatchState.create(_config(GameTypes.InformationVisibility.PUBLIC), 9)
+	state.config.match_started = false
+	var controller := MatchController.new(state)
+	var opening_hands := {}
+	var opening_abilities := {}
+	for player_id in state.seat_order:
+		opening_hands[player_id] = state.players[player_id].hand.size()
+		opening_abilities[player_id] = state.players[player_id].ability_hand.size()
+
+	var events: Array = controller.begin_match(1200)
+
+	assert_true(state.config.match_started)
+	assert_eq(state.round_number, 1)
+	assert_eq(state.phase, GameTypes.Phase.MAIN_1)
+	assert_eq(state.active_context, GameTypes.Context.RISE)
+	assert_eq(state.phase_started_msec, 1200)
+	assert_eq(state.phase_deadline_msec, 6200)
+	assert_eq(state.start_prepared_round, 1)
+	assert_eq(state.start_ability_drawn_round, 1)
+	assert_eq(events.size(), 1)
+	assert_eq(events[0].kind, EventKinds.PHASE_CHANGED)
+	assert_eq(events[0].payload.phase, GameTypes.Phase.MAIN_1)
+	for player_id in state.seat_order:
+		assert_eq(state.players[player_id].hand.size(), opening_hands[player_id])
+		assert_eq(state.players[player_id].ability_hand.size(), opening_abilities[player_id])
+		assert_eq(opening_hands[player_id], 6)
+		assert_eq(opening_abilities[player_id], 2)
+		assert_false(state.players[player_id].ready)
+	assert_eq(_event_count_for_player(events, EventKinds.ABILITY_DRAWN, &"one"), 0)
+	assert_true(_first_event(events, EventKinds.REPLENISHMENT_REQUESTS_REVEALED) == null)
+
+
+func test_open_lobby_poll_and_ready_toggle_cannot_start_round_one() -> void:
+	var state := MatchState.create(_config(GameTypes.InformationVisibility.PUBLIC), 90)
+	state.config.match_started = false
+	var controller := MatchController.new(state)
+
+	assert_false(state.players[&"one"].ready)
+	assert_false(state.players[&"two"].ready)
+	assert_eq(controller.tick(1000), [])
+	var ready := controller.submit(GameCommand.new(
+		&"lobby-ready", &"one", CommandKinds.SET_READY, {"ready": true}
+	), 1100)
+
+	assert_true(ready.accepted)
+	assert_true(state.players[&"one"].ready)
+	assert_eq(state.phase, GameTypes.Phase.START)
+	assert_false(state.config.match_started)
+	assert_eq(state.phase_started_msec, -1)
+	assert_eq(state.players[&"one"].ability_hand.size(), 2)
+	assert_eq(controller.tick(10_000), [])
+
+
 func test_round_one_stays_rise_and_round_two_advances_to_flourish() -> void:
 	var first := MatchState.create(_config(GameTypes.InformationVisibility.PUBLIC), 10)
 	MatchController.new(first)
@@ -78,24 +132,50 @@ func test_private_visibility_reveals_replacement_count_but_not_context_distribut
 	assert_eq(state.players[&"one"].hand.size(), 6)
 
 
-func test_all_ready_advances_before_deadline_and_clears_readiness() -> void:
+func test_later_start_with_full_hands_auto_readies_and_advances_on_first_tick() -> void:
 	var state := MatchState.create(_config(GameTypes.InformationVisibility.PUBLIC), 14)
+	state.round_number = 2
+	state.start_prepared_round = 0
 	var controller := MatchController.new(state)
-	controller.tick(1000)
 
-	var first := controller.submit(GameCommand.new(
-		&"ready-one", &"one", CommandKinds.SET_READY, {"ready": true}
-	), 1100)
-	var second := controller.submit(GameCommand.new(
-		&"ready-two", &"two", CommandKinds.SET_READY, {"ready": true}
-	), 1200)
+	assert_true(state.players[&"one"].ready)
+	assert_true(state.players[&"two"].ready)
+	var events := controller.tick(1000)
 
-	assert_true(first.accepted)
-	assert_true(second.accepted)
 	assert_eq(state.phase, GameTypes.Phase.MAIN_1)
+	assert_eq(state.players[&"one"].ability_hand.size(), 4)
+	assert_eq(state.players[&"two"].ability_hand.size(), 4)
+	assert_eq(_event_count_for_player(events, EventKinds.ABILITY_DRAWN, &"one"), 2)
+	assert_eq(_event_count_for_player(events, EventKinds.ABILITY_DRAWN, &"two"), 2)
 	assert_false(state.players[&"one"].ready)
 	assert_false(state.players[&"two"].ready)
-	assert_true(_first_event(second.events, EventKinds.PHASE_CHANGED) != null)
+
+
+func test_only_player_needing_replenishment_must_ready_before_main_one() -> void:
+	var state := MatchState.create(_config(GameTypes.InformationVisibility.PUBLIC), 15)
+	_discard_one_full_card(state, &"one")
+	state.round_number = 2
+	state.start_prepared_round = 0
+	var controller := MatchController.new(state)
+
+	assert_false(state.players[&"one"].ready)
+	assert_true(state.players[&"two"].ready)
+	var cannot_unready := controller.submit(GameCommand.new(
+		&"unready-two", &"two", CommandKinds.SET_READY, {"ready": false}
+	), 1050)
+	assert_false(cannot_unready.accepted)
+	assert_eq(cannot_unready.error_code, &"no_replenishment_needed")
+	assert_true(state.players[&"two"].ready)
+	var result := controller.submit(GameCommand.new(
+		&"ready-one", &"one", CommandKinds.SET_READY, {"ready": true}
+	), 1100)
+
+	assert_true(result.accepted)
+	assert_eq(state.phase, GameTypes.Phase.MAIN_1)
+	assert_eq(state.players[&"one"].hand.size(), 6)
+	assert_false(state.players[&"one"].ready)
+	assert_false(state.players[&"two"].ready)
+	assert_true(_first_event(result.events, EventKinds.PHASE_CHANGED) != null)
 	assert_eq(state.players[&"one"].ability_hand.size(), 4)
 
 
