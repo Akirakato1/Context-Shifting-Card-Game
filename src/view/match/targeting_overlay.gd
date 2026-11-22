@@ -8,6 +8,7 @@ signal selection_changed(kind: StringName, eligible: Array, selected: Array)
 var _steps: Array = []
 var _choices: Dictionary = {}
 var _current_step := 0
+var _player_labels: Dictionary = {}
 
 @onready var _prompt: Label = $Panel/Layout/Prompt
 @onready var _remaining: Label = $Panel/Layout/Remaining
@@ -15,8 +16,9 @@ var _current_step := 0
 @onready var _commit: Button = $Panel/Layout/CommitButton
 
 
-func begin(workflow: Dictionary, private_hand: Array = []) -> void:
-	_steps = _resolved_steps(workflow.get("steps", []), private_hand)
+func begin(workflow: Dictionary, private_hand: Array = [], player_targets: Array = []) -> void:
+	_player_labels.clear()
+	_steps = _resolved_steps(workflow.get("steps", []), private_hand, player_targets)
 	_choices.clear()
 	_current_step = 0
 	visible = not _steps.is_empty()
@@ -102,7 +104,7 @@ func _render_step() -> void:
 	if kind not in ["card", "full_card", "half_card"]:
 		for value in eligible:
 			var button := Button.new()
-			button.text = str(value).replace("_", " ").capitalize()
+			button.text = str(_player_labels.get(str(value), str(value))).replace("_", " ").capitalize()
 			button.pressed.connect(func(): select_value(value))
 			_options.add_child(button)
 	selection_changed.emit(
@@ -158,7 +160,7 @@ func _on_cancel_pressed() -> void:
 	cancel()
 
 
-func _resolved_steps(raw_steps: Variant, private_hand: Array) -> Array:
+func _resolved_steps(raw_steps: Variant, private_hand: Array, player_targets: Array) -> Array:
 	if not raw_steps is Array:
 		return []
 	var card_ids: Array = []
@@ -173,6 +175,13 @@ func _resolved_steps(raw_steps: Variant, private_hand: Array) -> Array:
 		for half_index in range(2):
 			half_targets.append({"card_id": card_id, "half_index": half_index})
 	var result: Array = []
+	var player_ids: Array = []
+	for target in player_targets:
+		if not target is Dictionary: continue
+		var player_id := str(target.get("player_id", ""))
+		if player_id.is_empty(): continue
+		player_ids.append(player_id)
+		_player_labels[player_id] = str(target.get("display_name", player_id))
 	for raw_step in raw_steps:
 		if not raw_step is Dictionary:
 			continue
@@ -182,6 +191,8 @@ func _resolved_steps(raw_steps: Variant, private_hand: Array) -> Array:
 			step["eligible"] = card_ids.duplicate()
 		elif kind == "half_card":
 			step["eligible"] = half_targets.duplicate(true)
+		elif kind == "player":
+			step["eligible"] = player_ids.duplicate()
 		result.append(step)
 	return result
 

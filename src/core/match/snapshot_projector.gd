@@ -100,7 +100,42 @@ static func _revealed_submission(player) -> Dictionary:
 	if player.provisional_score != null:
 		result["base_value"] = player.provisional_score.base_value
 		result["provisional_score"] = player.provisional_score.final_score
+		result["score_breakdown"] = _public_score_breakdown(player.provisional_score)
 	return result
+
+
+static func _public_score_breakdown(value) -> Dictionary:
+	var card_components: Array = []
+	for component in value.card_hand_components: card_components.append(_public_component(component))
+	var context_components: Array = []
+	for component in value.context_hand_components: context_components.append(_public_component(component))
+	var field_components: Array = []
+	for component in value.field_components: field_components.append(_public_component(component))
+	var modifiers: Array = []
+	for modifier in value.applied_modifiers:
+		modifiers.append({"factor_id": str(modifier.factor_id), "category_id": str(modifier.category_id),
+			"delta": _public_rational(modifier.delta), "source_definition_id": str(modifier.source_definition_id)})
+	return {
+		"base_value": value.base_value,
+		"card_hand_components": card_components, "context_hand_components": context_components,
+		"field_components": field_components, "applied_modifiers": modifiers,
+		"card_hand_unclamped": _public_rational(value.card_hand_unclamped),
+		"card_hand_factor": _public_rational(value.card_hand_factor),
+		"context_hand_unclamped": _public_rational(value.context_hand_unclamped),
+		"context_hand_factor": _public_rational(value.context_hand_factor),
+		"field_unclamped": _public_rational(value.field_unclamped),
+		"field_factor": _public_rational(value.field_factor),
+		"raw_score": _public_rational(value.raw_score), "final_score": value.final_score,
+	}
+
+
+static func _public_component(component) -> Dictionary:
+	return {"factor_id": str(component.factor_id), "category_id": str(component.category_id),
+		"source_definition_id": str(component.source_definition_id), "value": _public_rational(component.value)}
+
+
+static func _public_rational(value) -> Dictionary:
+	return {"numerator": value.numerator, "denominator": value.denominator}
 
 static func _private_hand(hand: Array, active_context: int) -> Array:
 	var result: Array = []

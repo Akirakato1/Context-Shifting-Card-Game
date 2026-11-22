@@ -90,6 +90,30 @@ func test_fixed_targeting_auto_commits_after_final_required_choice() -> void:
 	await _unmount(overlay)
 
 
+func test_player_targeting_lists_active_self_and_opponents_and_commits_matching_choice() -> void:
+	var overlay = await _mount(TARGETING_OVERLAY_PATH)
+	if overlay == null: return
+	var commits: Array[Dictionary] = []
+	overlay.commit_requested.connect(func(choices: Dictionary): commits.append(choices))
+	overlay.begin({"steps": [{"key": "target_player_id", "kind": "player", "count": 1}]}, [], [
+		{"player_id": "p1", "display_name": "Mira"},
+		{"player_id": "p2", "display_name": "North"},
+	])
+	assert_eq(overlay.get_node("Panel/Layout/Options").get_child_count(), 2)
+	overlay.select_value("p2")
+	assert_eq(commits, [{"target_player_id": ["p2"]}])
+	await _unmount(overlay)
+
+	var match_screen = await _mount(MATCH_SCREEN_PATH)
+	if match_screen == null: return
+	var model := _active_model(2)
+	model.players.append({"player_id": "pending", "name": "Later", "active": true, "pending": true, "spectator": false})
+	model.players.append({"player_id": "watcher", "name": "Watcher", "active": false, "pending": false, "spectator": true})
+	match_screen.render(model)
+	assert_eq(match_screen._active_player_targets().map(func(item): return item.player_id), ["p1", "p2"])
+	await _unmount(match_screen)
+
+
 func test_variable_targeting_toggles_one_to_max_and_requires_activate() -> void:
 	var overlay = await _mount(TARGETING_OVERLAY_PATH)
 	if overlay == null:
@@ -152,6 +176,24 @@ func test_ability_drawer_displays_name_and_rules_text() -> void:
 	var button: Button = panel.get_node("Drawer/Layout/Cards").get_child(0)
 	assert_true(button.text.contains("Mirror Rank"))
 	assert_true(button.text.contains("Mirror both ranks"))
+	await _unmount(panel)
+
+
+func test_hand_shape_card_displays_category_delta_and_both_legal_phases() -> void:
+	var panel = await _mount(ABILITY_PANEL_PATH)
+	if panel == null: return
+	var abilities := [{"copy_id": "flush-buff-copy", "ability_id": "flush_buff"}]
+	var catalog := {"flush_buff": {"label": "Flush Buff",
+		"rules_text": "Target player gets +3 Card Hand multiplier if their hand is a Flush this round.",
+		"timing": 2, "choice_schema": {}}}
+	panel.render(abilities, 2, catalog, false)
+	var button: Button = panel.get_node("Drawer/Layout/Cards").get_child(0)
+	assert_true(button.text.contains("Flush"))
+	assert_true(button.text.contains("+3"))
+	assert_true(button.text.contains("MAIN 1 / MAIN 2"))
+	assert_eq(panel.legal_ability_ids(), [&"flush-buff-copy"])
+	panel.render(abilities, 4, catalog, false)
+	assert_eq(panel.legal_ability_ids(), [&"flush-buff-copy"])
 	await _unmount(panel)
 
 

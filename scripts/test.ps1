@@ -30,6 +30,16 @@ if ($godotFileName -match '_console\.exe$') {
     }
 }
 
+# Import newly added textures/fonts before the script runner tries to load them.
+# A normal editor launch does this automatically; headless CI starts from a clean clone.
+$importArguments = '--headless --editor --path "' + $projectRoot + '" --import --quit'
+$importProcess = Start-Process -FilePath $godotBin -ArgumentList $importArguments `
+    -WorkingDirectory $projectRoot -WindowStyle Hidden -PassThru -Wait
+if ($importProcess.ExitCode -ne 0) {
+    Write-Error 'Godot resource import failed.'
+    exit 1
+}
+
 $godotArguments = @(
     '--headless'
     '--path', $projectRoot

@@ -1,0 +1,8 @@
+Font: Mountain King Regular
+Designer: Michael W. Moss
+Source: https://www.fontspace.com/mountain-king-font-f119642
+License: CC BY 4.0
+License URL: https://creativecommons.org/licenses/by/4.0/
+Downloaded: 2026-11-22
+Original archive SHA-256: 3581EE3A688022E8A0B1D55B99137E8CABD4747F0D0C0D737E21EAE75B41DF08
+Included TTF SHA-256: F594E33B1402FCDB5614708189621C7A59531195F36E06947112783878CB4134

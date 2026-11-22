@@ -89,4 +89,4 @@ func _timing_allows(timing: int, phase: int) -> bool:
 
 
 func _timing_name(timing: int) -> String:
-	return ["HAND MANIPULATION", "FIELD · MAIN 1", "BUFF / NERF", "SABOTAGE · MAIN 1"][timing] if timing >= 0 and timing <= 3 else "UNCONFIGURED"
+	return ["HAND MANIPULATION", "FIELD · MAIN 1", "BUFF / NERF · MAIN 1 / MAIN 2", "SABOTAGE · MAIN 1"][timing] if timing >= 0 and timing <= 3 else "UNCONFIGURED"

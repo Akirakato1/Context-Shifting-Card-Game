@@ -103,6 +103,8 @@ func _request_text(request: Dictionary) -> String:
 
 func _score_text(player: Dictionary, revealed: Dictionary) -> String:
 	if not revealed.is_empty():
+		if revealed.has("score_breakdown"):
+			return _factor_score_text(revealed.score_breakdown, "pts")
 		return "%s  ×  %s   ·   %d pts" % [
 		_category_name(str(revealed.get("normal_category", "high_card"))),
 		_context_name(str(revealed.get("context_category", "no_context_pattern"))),
@@ -111,11 +113,27 @@ func _score_text(player: Dictionary, revealed: Dictionary) -> String:
 	var provisional: Dictionary = player.get("provisional_score", {})
 	if provisional.is_empty():
 		return ""
+	if provisional.has("score_breakdown"):
+		return _factor_score_text(provisional.score_breakdown, "provisional")
 	return "%s  ×  %s   ·   %d provisional" % [
 		_category_name(str(provisional.get("normal_category", "high_card"))),
 		_context_name(str(provisional.get("context_category", "no_context_pattern"))),
 		int(provisional.get("final_score", 0)),
 	]
+
+
+func _factor_score_text(breakdown: Dictionary, suffix: String) -> String:
+	return "Base %d · Card %s · Context %s · Field %s · %d %s" % [
+		int(breakdown.get("base_value", 0)), _rational_text(breakdown.get("card_hand_factor", {})),
+		_rational_text(breakdown.get("context_hand_factor", {})),
+		_rational_text(breakdown.get("field_factor", {})), int(breakdown.get("final_score", 0)), suffix,
+	]
+
+
+func _rational_text(value: Dictionary) -> String:
+	var numerator := int(value.get("numerator", 1))
+	var denominator := int(value.get("denominator", 1))
+	return str(numerator) if denominator == 1 else "%d/%d" % [numerator, denominator]
 
 
 func _category_name(id: String) -> String:

@@ -209,7 +209,15 @@ func test_joker_draft_is_owner_only_and_resolved_view_is_public() -> void:
 		[&"watcher", GameTypes.RecipientRole.SPECTATOR],
 	]:
 		var projected := SnapshotProjector.for_recipient(state, entry[0], entry[1])
-		revealed_views.append(_player_view(projected.players, &"one").revealed_submission.cards)
+		var revealed: Dictionary = _player_view(projected.players, &"one").revealed_submission
+		revealed_views.append(revealed.cards)
+		assert_true(revealed.has("score_breakdown"))
+		assert_true(revealed.score_breakdown.has("card_hand_components"))
+		assert_true(revealed.score_breakdown.has("context_hand_components"))
+		assert_true(revealed.score_breakdown.has("applied_modifiers"))
+		assert_true(revealed.score_breakdown.has("card_hand_unclamped"))
+		assert_true(revealed.score_breakdown.has("card_hand_factor"))
+		assert_true(revealed.score_breakdown.has("final_score"))
 	assert_eq(revealed_views[0], revealed_views[1])
 	assert_eq(revealed_views[1], revealed_views[2])
 	assert_eq(revealed_views[0][0].halves[0].context, GameTypes.Context.FALL)

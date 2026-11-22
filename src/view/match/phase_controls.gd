@@ -408,12 +408,30 @@ func _render_preview() -> void:
 		_preview_details.text = "Base %d  ·  hand/context multipliers pending final catalogue" % base_sum
 		_invalid_reason.text = "" if not _staged_order.is_empty() else "Stage one or more cards, or choose PASS."
 		return
+	if preview.has("score_breakdown"):
+		_preview_details.text = _factor_breakdown_text(preview.score_breakdown)
+		_invalid_reason.text = str(preview.get("invalid_reason", ""))
+		return
 	_preview_details.text = "Base %d  ·  %s %s  ·  %s %s  ·  projected %d" % [
 		int(preview.get("base_value", 0)), str(preview.get("normal_category", "—")),
 		str(preview.get("normal_multiplier", "×1")), str(preview.get("context_category", "No Context Pattern")),
 		str(preview.get("context_multiplier", "×1")), int(preview.get("projected_score", 0)),
 	]
 	_invalid_reason.text = str(preview.get("invalid_reason", ""))
+
+
+func _factor_breakdown_text(breakdown: Dictionary) -> String:
+	return "Base %d  ·  Card %s  ·  Context %s  ·  Field %s  ·  projected %d" % [
+		int(breakdown.get("base_value", 0)), _rational_text(breakdown.get("card_hand_factor", {})),
+		_rational_text(breakdown.get("context_hand_factor", {})),
+		_rational_text(breakdown.get("field_factor", {})), int(breakdown.get("final_score", 0)),
+	]
+
+
+func _rational_text(value: Dictionary) -> String:
+	var numerator := int(value.get("numerator", 1))
+	var denominator := int(value.get("denominator", 1))
+	return str(numerator) if denominator == 1 else "%d/%d" % [numerator, denominator]
 
 
 func _render_end() -> void:

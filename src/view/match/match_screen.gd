@@ -279,12 +279,12 @@ func _on_ability_activated(copy_id: StringName, ability: Dictionary) -> void:
 	var workflow: Dictionary = ability.get("choice_schema", {})
 	if timing == 0:
 		intent_requested.emit(&"stage_manipulation", {"copy_id": str(copy_id)})
-		_targeting_overlay.begin(workflow, _model.get("private_hand", []))
+		_targeting_overlay.begin(workflow, _model.get("private_hand", []), _active_player_targets())
 	elif workflow.get("steps", []).is_empty():
 		intent_requested.emit(&"play_public_ability", {"copy_id": str(copy_id), "target_player_id": ""})
 		_clear_active_ability()
 	else:
-		_targeting_overlay.begin(workflow, _model.get("private_hand", []))
+		_targeting_overlay.begin(workflow, _model.get("private_hand", []), _active_player_targets())
 
 
 func _on_targeting_commit_requested(choices: Dictionary) -> void:
@@ -297,6 +297,17 @@ func _on_targeting_commit_requested(choices: Dictionary) -> void:
 			"target_player_id": str(_single_choice(choices, "target_player_id", "")),
 			"choices": choices.duplicate(true),
 		})
+
+
+func _active_player_targets() -> Array:
+	var result: Array = []
+	for player in _model.get("players", []):
+		if not player is Dictionary: continue
+		if bool(player.get("spectator", false)) or not bool(player.get("active", false)) or bool(player.get("pending", false)):
+			continue
+		result.append({"player_id": str(player.get("player_id", "")),
+			"display_name": str(player.get("display_name", player.get("name", player.get("player_id", ""))))})
+	return result
 
 
 func _on_targeting_selection_changed(kind: StringName, eligible: Array, selected: Array) -> void:

@@ -23,11 +23,15 @@ var targeting_half_eligible: Array[bool] = [false, false]
 var targeting_half_selected: Array[bool] = [false, false]
 var _card: Dictionary = {}
 var _staged := false
+var _first_debug_text := ""
+var _second_debug_text := ""
 
 @onready var _back: Label = $Back
 @onready var _face: VBoxContainer = $Face
 @onready var _first: Label = $Face/First
+@onready var _first_rank_art: HBoxContainer = $Face/FirstRankArt
 @onready var _second: Label = $Face/Second
+@onready var _second_rank_art: HBoxContainer = $Face/SecondRankArt
 @onready var _first_choices: HBoxContainer = $Face/FirstChoices
 @onready var _first_context: OptionButton = $Face/FirstChoices/Context
 @onready var _first_suit: OptionButton = $Face/FirstChoices/Suit
@@ -88,8 +92,12 @@ func render(
 	if resolved_halves.size() >= 2:
 		first = _resolved_half(resolved_halves[0])
 		second = _resolved_half(resolved_halves[1])
-	_first.text = _half_text(first)
-	_second.text = _half_text(second)
+	_first_debug_text = _half_text(first)
+	_second_debug_text = _half_text(second)
+	_first.text = _half_text_without_rank(first)
+	_second.text = _half_text_without_rank(second)
+	_render_rank_art(_first_rank_art, _half_rank(first))
+	_render_rank_art(_second_rank_art, _half_rank(second))
 	if card.has("selected_half_index"):
 		active_half_index = int(card["selected_half_index"])
 	elif view_state.has("selected_half_index"):
@@ -125,11 +133,11 @@ func _gui_input(event: InputEvent) -> void:
 
 
 func first_face_text() -> String:
-	return _first.text
+	return _first_debug_text
 
 
 func second_face_text() -> String:
-	return _second.text
+	return _second_debug_text
 
 
 func joker_prompts_visible() -> bool:
@@ -143,6 +151,33 @@ func _half_text(half: Dictionary) -> String:
 	var rank := int(half.get("effective_rank", half.get("rank", half.get("base_rank", 0))))
 	var suit := int(half.get("effective_suit", half.get("suit", half.get("base_suit", 0))))
 	return "%s  %d  %s" % [GameTypes.context_name(context), rank, _safe_name(SUIT_NAMES, suit, "?")]
+
+
+func _half_text_without_rank(half: Dictionary) -> String:
+	if int(half.get("kind", 0)) == 1: return "JOKER  ANY"
+	var context := int(half.get("effective_context", half.get("base_context", 0)))
+	var suit := int(half.get("effective_suit", half.get("suit", half.get("base_suit", 0))))
+	return "%s  %s" % [GameTypes.context_name(context), _safe_name(SUIT_NAMES, suit, "?")]
+
+
+func _half_rank(half: Dictionary) -> int:
+	return 0 if int(half.get("kind", 0)) == 1 else int(half.get("effective_rank", half.get("rank", half.get("base_rank", 0))))
+
+
+func _render_rank_art(container: HBoxContainer, rank: int) -> void:
+	for child in container.get_children():
+		container.remove_child(child)
+		child.queue_free()
+	var digits := str(clampi(rank, 0, 10))
+	container.tooltip_text = "Rank %d" % rank
+	for digit in digits:
+		var texture_rect := TextureRect.new()
+		texture_rect.name = "Digit%s" % digit
+		texture_rect.custom_minimum_size = Vector2(18, 24)
+		texture_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		texture_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		texture_rect.texture = load("res://assets/artwork/card_number/png/card_number_%s.png" % digit)
+		container.add_child(texture_rect)
 
 
 func _half_matches_context(half: Dictionary, active_context: int) -> bool:
@@ -202,14 +237,18 @@ func _apply_joker_choices(first: Dictionary, second: Dictionary, view_state: Dic
 func _apply_orientation() -> void:
 	if orientation_flipped:
 		_face.move_child(_second, 0)
-		_face.move_child(_second_choices, 1)
-		_face.move_child(_first, 3)
-		_face.move_child(_first_choices, 4)
+		_face.move_child(_second_rank_art, 1)
+		_face.move_child(_second_choices, 2)
+		_face.move_child(_first, 4)
+		_face.move_child(_first_rank_art, 5)
+		_face.move_child(_first_choices, 6)
 	else:
 		_face.move_child(_first, 0)
-		_face.move_child(_first_choices, 1)
-		_face.move_child(_second, 3)
-		_face.move_child(_second_choices, 4)
+		_face.move_child(_first_rank_art, 1)
+		_face.move_child(_first_choices, 2)
+		_face.move_child(_second, 4)
+		_face.move_child(_second_rank_art, 5)
+		_face.move_child(_second_choices, 6)
 
 
 func _populate_choices(button: OptionButton, values: Array) -> void:

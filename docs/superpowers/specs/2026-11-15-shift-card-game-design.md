@@ -377,9 +377,9 @@ A player may submit one to six eligible full cards. Extra eligible cards are leg
 Normal evaluation:
 
 1. Examine every valid normal-hand subset within the submitted cards.
-2. Classify using a fixed poker-style hierarchy.
-3. Lock the highest category before buffs and nerfs.
-4. Use that category's configured normal multiplier.
+2. Lock exactly one rank component—High Card, Straight, Family, or Group—using the configured hierarchy.
+3. Independently add one Flush component only when every submitted selected face shares a suit.
+4. Lock these components before buffs and nerfs.
 
 High Card is an exact one-card category. Because every non-empty eligible submission contains at least a High Card subset, a selection such as ranks `3, 8, 9` is legal and classifies as Nine High if it contains no higher category.
 
@@ -408,7 +408,7 @@ Planned pattern families:
 - `Rise`, `Flourish`, or `Fall x 5..12`: at least `N` of one context
 - `Rise + Flourish`, `Rise + Fall`, or `Flourish + Fall x 3..6`: at least `N` of both named contexts
 
-For totals Rise 4 / Flourish 3 / Fall 1, both `Rise + Flourish + Fall x1` and `Rise + Flourish x3` qualify. Lock only the highest-ranked qualifying context category. Lower contained categories do not also score. If no listed threshold qualifies, lock `No Context Pattern x1`; this category supplies no bonus and may be targeted only by effects that explicitly name it. The remaining context hierarchy and multipliers remain balance data.
+For totals Rise 4 / Flourish 3 / Fall 1, both `Rise + Flourish + Fall x1` and `Rise + Flourish x3` qualify. Lock only the highest-ranked qualifying context category. Lower contained categories do not also score. If no listed threshold qualifies, use a neutral unbuffable fallback. The remaining context hierarchy and multipliers remain balance data.
 
 ### Formula and rounding
 
@@ -417,16 +417,16 @@ base value = sum of all submitted selected active-context ranks
 
 raw score =
     base value
-    x locked normal-hand multiplier
-    x locked context-hand multiplier
-    then modified by ability effects
+    x max(1, sum of locked card-hand components + matching card-hand adjustments)
+    x max(1, sum of locked context-hand components + matching context-hand adjustments)
+    x max(1, neutral field value + field components + matching field adjustments)
 
-final score = ceil(max(0, raw score))
+final score = ceil(raw score)
 ```
 
-Keep exact fractional arithmetic through every modifier and round upward exactly once at finalization. Implementation should avoid binary floating-point disagreement; fixed-point integers or rational values are appropriate.
+Each multiplier factor combines additively inside the factor, then the three factors multiply. Each factor is independently floored to `1`; base value is not floored, so a pass remains `0`. A physical buff/nerf contributes at most once when its category matches, while separate physical cards stack. Keep exact fractional arithmetic throughout and round upward exactly once at finalization.
 
-Normal and context classifications are locked before buffs/nerfs. An effect may alter the score or multiplier of the locked category but cannot cause the evaluator to fall back to a contained category.
+Normal and context classifications are locked before buffs/nerfs. Main 1 modifiers wait for Hand Play resolution to determine applicability. Main 2 modifiers recalculate the provisional score from the locked components without reclassification. See [Hand Buff/Nerf Abilities Design](2026-11-22-hand-buff-nerf-abilities-design.md) for the closed category vocabulary, lifecycle, and initial sixteen-card catalogue.
 
 ## Ability system
 
@@ -576,7 +576,7 @@ These decisions do not block the rules architecture and will be supplied after p
 - Complete normal-hand catalogue and hierarchy for up to six submitted cards
 - Normal-hand multipliers
 - Context-hand hierarchy and multipliers
-- Field, hand-shape buff/nerf, and Opponent Sabotage ability catalogues; final copy-count balance; and modifier ordering where future card text requires it
+- Field and Opponent Sabotage ability catalogues; final Hand Buff/Nerf values and all copy-count balance
 - Exact phase timer, response-window, hard-limit, and reconnect-grace defaults
 - Final UI layout, animation timing, art, 3D models, audio, and music
 - Signaling/STUN hosting provider and TURN fallback decision after connectivity tests

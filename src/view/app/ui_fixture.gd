@@ -77,9 +77,17 @@ func _fixture_model() -> Dictionary:
 		"frozen": false, "victory_mode": 0, "victory_target": 100,
 		"pile_counts": {"0": {"draw_count": 68}, "1": {"draw_count": 71}, "2": {"draw_count": 65}},
 		"submission_preview": {
-			"valid": true, "base_value": 0, "normal_category": "Pass",
-			"normal_multiplier": "×1", "context_category": "No Context Pattern",
-			"context_multiplier": "×1", "projected_score": 0,
+			"valid": true, "score_breakdown": {
+				"base_value": 0, "card_hand_components": [], "context_hand_components": [],
+				"field_components": [], "applied_modifiers": [],
+				"card_hand_unclamped": {"numerator": 0, "denominator": 1},
+				"card_hand_factor": {"numerator": 1, "denominator": 1},
+				"context_hand_unclamped": {"numerator": 0, "denominator": 1},
+				"context_hand_factor": {"numerator": 1, "denominator": 1},
+				"field_unclamped": {"numerator": 1, "denominator": 1},
+				"field_factor": {"numerator": 1, "denominator": 1},
+				"raw_score": {"numerator": 0, "denominator": 1}, "final_score": 0,
+			},
 		},
 	}
 
