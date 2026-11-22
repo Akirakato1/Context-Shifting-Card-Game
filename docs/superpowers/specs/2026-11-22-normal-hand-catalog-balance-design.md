@@ -116,4 +116,3 @@ After approval:
 - serialize the authoritative catalogue through existing match configuration paths;
 - add exhaustive catalogue, evaluator, scoring, runtime, and reconnect tests;
 - update player-facing names and the balancing worksheet/documentation.
-

@@ -73,4 +73,3 @@ static func _flush(
 		id, priority, size, &"flush", Rational.new(numerator, denominator),
 		ScoringCategories.FLUSH, ScoringCategories.SUIT_GROUP
 	)
-

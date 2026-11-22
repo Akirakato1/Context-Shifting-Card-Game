@@ -256,4 +256,3 @@ Expected: host, remote players, spectator, reconnect, command transport, and con
 git add README.md docs/superpowers/specs/2026-11-15-shift-card-game-design.md docs/art-ui-audio-asset-checklist.md
 git commit -m "docs: finalize hands and round phase rules"
 ```
-

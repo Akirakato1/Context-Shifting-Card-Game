@@ -45,4 +45,3 @@ func test_catalog_contains_all_approved_definitions_with_exact_balance_data() ->
 		assert_eq(definition.broad_category_id, row[5], "%s category" % id)
 		assert_eq(definition.component_group, row[6], "%s component group" % id)
 		assert_eq(definition.rule_parameters.get("group_sizes", []), row[7], "%s groups" % id)
-
