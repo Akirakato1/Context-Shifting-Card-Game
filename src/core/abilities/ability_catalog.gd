@@ -219,11 +219,16 @@ static func all_designs() -> Array[AbilityDefinition]:
 
 static func provisional_deck_recipe() -> Dictionary:
 	var recipe := {}
-	for definition in manipulation_designs(): recipe[definition.id] = 2
+	for definition in manipulation_designs(): recipe[definition.id] = 3
+	for id in [&"context_roulette", &"ride_the_cycle", &"against_the_cycle"]:
+		recipe[id] = 4
 	for definition in hand_shape_designs(): recipe[definition.id] = 1
-	for definition in field_designs():
-		recipe[definition.id] = 4 if str(definition.id).ends_with("_resonance") else 1
+	recipe[&"high_card_buff"] = 2
+	recipe[&"high_card_nerf"] = 2
+	for definition in field_designs(): recipe[definition.id] = 1
 	for definition in sabotage_designs(): recipe[definition.id] = 1
+	for id in [&"suit_scramble", &"rank_scramble", &"context_scramble"]:
+		recipe[id] = 2
 	return recipe
 
 

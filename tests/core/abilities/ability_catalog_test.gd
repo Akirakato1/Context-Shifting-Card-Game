@@ -109,18 +109,40 @@ func test_sabotage_catalog_has_nine_single_opponent_main_one_designs() -> void:
 func test_definition_data_is_independent_from_physical_copy_recipe() -> void:
 	var designs := AbilityCatalog.all_designs()
 	var recipe := AbilityCatalog.provisional_deck_recipe()
+	var deck := AbilityCatalog.build_deck(recipe)
+	var category_counts := {
+		AbilityDefinition.Timing.HAND_MANIPULATION: 0,
+		AbilityDefinition.Timing.HAND_SHAPE: 0,
+		AbilityDefinition.Timing.SABOTAGE: 0,
+		AbilityDefinition.Timing.FIELD: 0,
+	}
+	var copy_counts := {}
+	for definition in deck:
+		category_counts[definition.timing] += 1
+		copy_counts[definition.id] = int(copy_counts.get(definition.id, 0)) + 1
 	assert_eq(designs.size(), 54)
 	assert_eq(recipe.size(), 54)
 	for definition in designs:
 		assert_false(definition.effect_parameters.has("copy_count"))
-	assert_eq(AbilityCatalog.build_deck(recipe).size(), 77)
-	for definition in AbilityCatalog.field_designs():
-		assert_eq(
-			recipe[definition.id],
-			4 if str(definition.id).ends_with("_resonance") else 1
-		)
+	assert_eq(deck.size(), 90)
+	assert_eq(category_counts[AbilityDefinition.Timing.HAND_MANIPULATION], 45)
+	assert_eq(category_counts[AbilityDefinition.Timing.HAND_SHAPE], 18)
+	assert_eq(category_counts[AbilityDefinition.Timing.SABOTAGE], 12)
+	assert_eq(category_counts[AbilityDefinition.Timing.FIELD], 15)
+	for definition in AbilityCatalog.manipulation_designs():
+		assert_eq(copy_counts[definition.id], 4 if definition.id in [
+			&"context_roulette", &"ride_the_cycle", &"against_the_cycle",
+		] else 3)
+	for definition in AbilityCatalog.hand_shape_designs():
+		assert_eq(copy_counts[definition.id], 2 if definition.id in [
+			&"high_card_buff", &"high_card_nerf",
+		] else 1)
 	for definition in AbilityCatalog.sabotage_designs():
-		assert_eq(recipe[definition.id], 1)
+		assert_eq(copy_counts[definition.id], 2 if definition.id in [
+			&"suit_scramble", &"rank_scramble", &"context_scramble",
+		] else 1)
+	for definition in AbilityCatalog.field_designs():
+		assert_eq(copy_counts[definition.id], 1)
 
 
 func test_custom_recipe_supports_different_counts_per_definition() -> void:

@@ -117,18 +117,16 @@ func test_runtime_config_uses_recipe_with_all_four_ability_categories() -> void:
 
 	var definitions: Array = runtime._controller.state.config.ability_definitions
 	var counts := {}
+	var timing_counts := {}
 	for definition in definitions:
 		counts[definition.id] = int(counts.get(definition.id, 0)) + 1
-	assert_eq(definitions.size(), 77)
+		timing_counts[definition.timing] = int(timing_counts.get(definition.timing, 0)) + 1
+	assert_eq(definitions.size(), 90)
 	assert_eq(counts.size(), 54)
-	for definition in AbilityCatalog.manipulation_designs(): assert_eq(counts[definition.id], 2)
-	for definition in AbilityCatalog.hand_shape_designs(): assert_eq(counts[definition.id], 1)
-	for definition in AbilityCatalog.field_designs():
-		assert_eq(
-			counts[definition.id],
-			4 if str(definition.id).ends_with("_resonance") else 1
-		)
-	for definition in AbilityCatalog.sabotage_designs(): assert_eq(counts[definition.id], 1)
+	assert_eq(timing_counts[AbilityDefinition.Timing.HAND_MANIPULATION], 45)
+	assert_eq(timing_counts[AbilityDefinition.Timing.HAND_SHAPE], 18)
+	assert_eq(timing_counts[AbilityDefinition.Timing.SABOTAGE], 12)
+	assert_eq(timing_counts[AbilityDefinition.Timing.FIELD], 15)
 	assert_false(definitions.any(func(definition):
 		return str(definition.id).begins_with("placeholder_ability_")
 	))
