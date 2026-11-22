@@ -2,6 +2,8 @@ service/signaling/node_modules/
 /.godot/
 /godot-extension-webrtc_native.zip
 /.superpowers/
+/graphify-out/
 /outputs/
 /build/
+/addons/webrtc_native/lib/~libwebrtc_native*.TMP
 *.import

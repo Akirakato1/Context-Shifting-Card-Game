@@ -180,6 +180,14 @@ func set_reconnect_grace_msec(value: int) -> StringName:
 	return &""
 
 
+func set_ability_definitions(definitions: Array[AbilityDefinition]) -> StringName:
+	if match_started: return &"config_locked"
+	if definitions.size() < _active_player_ids.size() * 3:
+		return &"insufficient_ability_cards"
+	_ability_definitions = definitions.duplicate()
+	return &""
+
+
 func to_dict() -> Dictionary:
 	var active: Array = []
 	for id in _active_player_ids: active.append(str(id))

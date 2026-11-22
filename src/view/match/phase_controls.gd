@@ -1,16 +1,48 @@
 class_name PhaseControls
-extends VBoxContainer
+extends Control
 
 signal intent_requested(kind: StringName, payload: Dictionary)
 signal card_target_requested(card_id: StringName)
 signal half_target_requested(card_id: StringName, half_index: int)
+signal hand_reordered_manually
 
 const CARD_SCENE := preload("res://src/view/match/card_widget.tscn")
+const ScorePreview := preload("res://src/view/match/score_preview.gd")
+const GameTypes := preload("res://src/core/common/game_types.gd")
+const Rational := preload("res://src/core/common/rational.gd")
+const SCORE_COLORS := {
+	"Base": Color("#ffffff"), "Hand": Color("#8ac7ff"), "Context": Color("#ff9393"),
+	"Field": Color("#99dfaa"), "Total": Color("#ffffff"),
+}
 const PHASE_START := 1
 const PHASE_MAIN_1 := 2
 const PHASE_HAND_PLAY := 3
 const PHASE_MAIN_2 := 4
 const PHASE_END := 5
+
+class ScoreValue extends Label:
+	var rows: Array = []
+
+	func _make_custom_tooltip(_text: String) -> Object:
+		var panel := PanelContainer.new()
+		panel.add_theme_stylebox_override("panel", get_theme_stylebox("panel", "TooltipPanel"))
+		var table := GridContainer.new()
+		table.columns = 2
+		table.add_theme_constant_override("h_separation", 18)
+		table.add_theme_constant_override("v_separation", 3)
+		panel.add_child(table)
+		for row: Array in rows:
+			var term := Label.new()
+			term.text = row[0]
+			var value := Label.new()
+			value.text = row[1]
+			value.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+			table.add_child(term)
+			table.add_child(value)
+			for label in [term, value]:
+				label.add_theme_font_override("font", get_theme_font("font"))
+				label.add_theme_font_size_override("font_size", 18)
+		return panel
 
 var _model: Dictionary = {}
 var _phase := -1
@@ -33,6 +65,13 @@ var _target_kind: StringName = &""
 var _target_eligible: Array = []
 var _target_selected: Array = []
 var _authoritative_staging_signature := ""
+var _score_preview := ScorePreview.new()
+var _score_values: Dictionary = {}
+var _sort_key := -2
+var _rank_sort_ascending := true
+@export var table_cockpit := false
+@export var score_font: Font
+var show_placeholder_guides := true
 
 @onready var _status: Label = $Status
 @onready var _timeout_notice: Label = $TimeoutNotice
@@ -45,11 +84,12 @@ var _authoritative_staging_signature := ""
 @onready var _start_ready: Button = $StartControls/ReadyButton
 @onready var _main: HBoxContainer = $MainControls
 @onready var _main_ready: Button = $MainControls/ReadyButton
-@onready var _hand_play: VBoxContainer = $HandPlayControls
+@onready var _hand_play: Control = $HandPlayControls
 @onready var _shelf_cards: HBoxContainer = $HandPlayControls/SubmissionShelf/Cards
 @onready var _hand_cards_node: HBoxContainer = $HandPlayControls/Hand/Cards
 @onready var _preview_heading: Label = $HandPlayControls/Preview/Heading
 @onready var _preview_details: Label = $HandPlayControls/Preview/Details
+@onready var _preview_factors: HBoxContainer = $HandPlayControls/Preview/Factors
 @onready var _preview_authority: Label = $HandPlayControls/Preview/Authority
 @onready var _invalid_reason: Label = $HandPlayControls/InvalidReason
 @onready var _lock_button: Button = $HandPlayControls/ActionRow/LockButton
@@ -58,6 +98,84 @@ var _authoritative_staging_signature := ""
 @onready var _end_required: Label = $EndControls/Required
 @onready var _ability_choices: HBoxContainer = $EndControls/AbilityChoices
 @onready var _end_confirm: Button = $EndControls/ConfirmButton
+
+
+func _ready() -> void:
+	resized.connect(_position_phase_content)
+	if table_cockpit:
+		$HandPlayControls/SubmissionShelf.hide()
+		$HandPlayControls/Preview/Heading.hide()
+		$HandPlayControls/Preview/Authority.hide()
+		_preview_details.hide()
+		_build_score_formula()
+		_preview_factors.show()
+		$HandPlayControls/Hand/Heading.hide()
+		_pass_button.text = "PASS"
+		_lock_button.text = "SUBMIT"
+		_hand_play.custom_minimum_size.y = 410
+		_hand_cards_node.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_hand_cards_node.add_theme_constant_override("separation", 14)
+		_layout_cockpit()
+	_position_phase_content()
+
+
+func _draw() -> void:
+	if not show_placeholder_guides:
+		return
+	if not table_cockpit:
+		draw_style_box(get_theme_stylebox("panel"), Rect2(Vector2.ZERO, size))
+		return
+	for controls: Control in [_start, _main, _end]:
+		if controls.visible:
+			draw_style_box(get_theme_stylebox("panel"), Rect2(controls.position - Vector2(12, 10), controls.size + Vector2(24, 20)))
+
+
+func _position_phase_content() -> void:
+	var panel_width := minf(size.x - 24, 780.0) if table_cockpit else size.x
+	var horizontal_padding := (size.x - panel_width) / 2.0
+	for controls: Control in [_start, _main, _end]:
+		if not controls.visible:
+			continue
+		var height := controls.get_combined_minimum_size().y
+		controls.size = Vector2(panel_width, height)
+		var top := -height - 16 if table_cockpit else 48.0
+		if table_cockpit and controls == _main and _phase == PHASE_MAIN_2:
+			top = 12.0
+		controls.position = Vector2(horizontal_padding, top)
+	_hand_play.offset_top = 0.0 if table_cockpit else 42.0
+	_hand_play.offset_bottom = _hand_play.offset_top + (410.0 if table_cockpit else 478.0)
+	_status.position = Vector2(0, -240 if table_cockpit else 0)
+	_timeout_notice.position = Vector2(0, -266 if table_cockpit else 24)
+	for label: Label in [_status, _timeout_notice]:
+		label.size.x = size.x
+	queue_redraw()
+
+
+func _layout_cockpit() -> void:
+	var preview: Control = $HandPlayControls/Preview
+	preview.anchor_left = 0.0
+	preview.offset_left = 10
+	preview.offset_top = 8
+	preview.offset_right = -280
+	preview.offset_bottom = 52
+	var reason: Control = $HandPlayControls/InvalidReason
+	reason.anchor_left = 0.0
+	reason.offset_left = 10
+	reason.offset_top = 53
+	reason.offset_right = -10
+	reason.offset_bottom = 83
+	var hand_ui: Control = $HandPlayControls/Hand
+	hand_ui.offset_top = 68
+	hand_ui.offset_bottom = 368
+	var actions: Control = $HandPlayControls/ActionRow
+	actions.anchor_left = 0.0
+	actions.offset_top = 2
+	actions.offset_bottom = 48
+	actions.offset_right = -4
+	_pass_button.custom_minimum_size.x = 90
+	_lock_button.custom_minimum_size.x = 150
+	for label: Label in [_status, _timeout_notice]:
+		label.visible = not label.text.is_empty()
 
 
 func render(model: Dictionary) -> void:
@@ -78,10 +196,16 @@ func render(model: Dictionary) -> void:
 			_start_fall.value = 0
 	_phase = next_phase
 	_model = model.duplicate(true)
+	queue_redraw()
 	_rendering = true
 	_start.visible = _phase == PHASE_START
 	_main.visible = _phase in [PHASE_MAIN_1, PHASE_MAIN_2]
-	_hand_play.visible = _phase == PHASE_HAND_PLAY
+	var hand_playing := _phase == PHASE_HAND_PLAY
+	_hand_play.visible = table_cockpit or hand_playing
+	if table_cockpit:
+		$HandPlayControls/Preview.visible = hand_playing
+		$HandPlayControls/ActionRow.visible = hand_playing
+		_invalid_reason.visible = hand_playing
 	_end.visible = _phase == PHASE_END
 	_timeout_notice.text = str(_model.get("timeout_notice", ""))
 	_timeout_notice.visible = not _timeout_notice.text.is_empty()
@@ -95,8 +219,11 @@ func render(model: Dictionary) -> void:
 		_main_ready.disabled = _input_locked or _pending.has(&"set_ready")
 	if _hand_play.visible:
 		_render_hand_play()
+	if table_cockpit:
+		_status.visible = not _status.text.is_empty() and next_phase != PHASE_HAND_PLAY
 	if _end.visible:
 		_render_end()
+	_position_phase_content()
 	_rendering = false
 
 
@@ -110,14 +237,19 @@ func click_card(card_id: StringName) -> void:
 	if _staged.has(card_id):
 		_staged.erase(card_id)
 		_staged_order.erase(card_id)
-	elif _staged_order.size() < 6 and _hand_cards.has(card_id) and _card_is_eligible(_hand_cards[card_id]):
+	elif _staged_order.size() < 6 and _hand_cards.has(card_id):
 		var card: Dictionary = _hand_cards[card_id]
+		var half_index := _top_half(card_id) if table_cockpit else _default_half_index_for_card(card_id)
+		if not _half_index_is_eligible(card, half_index):
+			_show_hand_feedback("The top half is outside the active contexts.")
+			return
 		_staged_order.append(card_id)
 		_staged[card_id] = {
 			"card_id": str(card_id),
-			"half_index": _default_half_index_for_card(card_id),
+			"half_index": half_index,
 			"joker_choices": _default_joker_choices(card),
 		}
+	_status.text = ""
 	_render_hand_play()
 
 
@@ -131,6 +263,8 @@ func choose_half(card_id: StringName, half_index: int) -> void:
 		return
 	if not _half_index_is_eligible(_hand_cards[card_id], half_index):
 		return
+	if table_cockpit:
+		_orientations[card_id] = half_index == 1
 	_staged[card_id]["half_index"] = half_index
 	_render_hand_play()
 
@@ -150,8 +284,129 @@ func set_joker_choice(card_id: StringName, half_index: int, context: int, suit: 
 func right_click_card(card_id: StringName) -> void:
 	if not _hand_cards.has(card_id):
 		return
+	if table_cockpit:
+		if _targeting or _hand_is_locked() or _input_locked or _hand_command_pending():
+			return
+		var incoming_half := 1 - _top_half(card_id)
+		if not _half_index_is_eligible(_hand_cards[card_id], incoming_half):
+			_show_hand_feedback("That half is outside the active contexts.")
+			return
+		if _staged.has(card_id):
+			_staged[card_id]["half_index"] = incoming_half
+	_status.text = ""
 	_orientations[card_id] = not bool(_orientations.get(card_id, false))
 	_render_hand_play()
+
+
+func sort_hand(context: int = -1) -> bool:
+	if not _can_sort_hand():
+		return false
+	_sort_key = context
+	var kept_scoring_half := false
+	if _sort_key >= 0:
+		for card_id in _hand_order:
+			if not _orient_for_context_sort(card_id):
+				kept_scoring_half = true
+	_apply_hand_sort()
+	if kept_scoring_half:
+		_show_hand_feedback("Staged cards keep their scoring half if the other half is inactive.")
+	return true
+
+
+func toggle_rank_sort() -> bool:
+	if not _can_sort_hand():
+		return false
+	_rank_sort_ascending = not _rank_sort_ascending
+	if _sort_key == -2:
+		_sort_key = -1
+	_apply_hand_sort()
+	return true
+
+
+func rank_sort_ascending() -> bool:
+	return _rank_sort_ascending
+
+
+func _can_sort_hand() -> bool:
+	return not (_input_locked or _targeting or _hand_command_pending() or _hand_is_locked())
+
+
+func _apply_hand_sort() -> void:
+	_sort_hand_order()
+	if table_cockpit or _phase == PHASE_HAND_PLAY:
+		_render_hand_play()
+
+
+func _orient_for_context_sort(card_id: StringName) -> bool:
+	var card: Dictionary = _hand_cards[card_id]
+	var top := _top_half(card_id)
+	var other := 1 - top
+	if _half_matches_sort_context(_card_half(card, top)) or not _half_matches_sort_context(_card_half(card, other)):
+		return true
+	if _staged.has(card_id):
+		if not _half_index_is_eligible(card, other):
+			return false
+		_staged[card_id]["half_index"] = other
+	_orientations[card_id] = other == 1
+	return true
+
+
+func _half_matches_sort_context(half: Dictionary) -> bool:
+	return int(half.get("kind", 0)) != 1 and int(half.get("effective_context", half.get("base_context", -1))) == _sort_key
+
+
+func ordered_hand(cards: Array) -> Array:
+	if _sort_key == -2:
+		return cards
+	var ordered := cards.duplicate()
+	var original := {}
+	for i in cards.size():
+		original[str(cards[i].get("card_id", ""))] = i
+	ordered.sort_custom(func(a: Dictionary, b: Dictionary):
+		var priority_a := _sort_priority(a)
+		var priority_b := _sort_priority(b)
+		if priority_a.x != priority_b.x:
+			return priority_a.x < priority_b.x
+		if priority_a.y != priority_b.y:
+			return priority_a.y < priority_b.y
+		return original[str(a.card_id)] < original[str(b.card_id)]
+	)
+	return ordered
+
+
+func _sort_hand_order() -> void:
+	if _sort_key == -2:
+		return
+	var cards: Array = []
+	for id in _hand_order:
+		if _hand_cards.has(id): cards.append(_hand_cards[id])
+	_hand_order.clear()
+	for entry: Dictionary in ordered_hand(cards):
+		_hand_order.append(StringName(entry.card_id))
+
+
+func _sort_priority(card: Dictionary) -> Vector2i:
+	var face := _card_half(card, _top_half(StringName(card.get("card_id", ""))))
+	var context_group := 1 if _sort_key >= 0 and not _half_matches_sort_context(face) else 0
+	var rank := int(face.get("effective_rank", face.get("base_rank", 0)))
+	return Vector2i(context_group, rank if _rank_sort_ascending else -rank)
+
+
+func _top_half(card_id: StringName) -> int:
+	return 1 if bool(_orientations.get(card_id, false)) else 0
+
+
+func _hand_command_pending() -> bool:
+	return _pending.has(&"stage_hand") or _pending.has(&"lock_hand")
+
+
+func _hand_is_locked() -> bool:
+	return bool(_model.get("private_staging", {}).get("hand_locked", false))
+
+
+func _show_hand_feedback(message: String) -> void:
+	if table_cockpit:
+		_invalid_reason.text = message
 
 
 func reorder_hand(card_id: StringName, target_index: int) -> void:
@@ -160,6 +415,17 @@ func reorder_hand(card_id: StringName, target_index: int) -> void:
 	_hand_order.erase(card_id)
 	_hand_order.insert(clampi(target_index, 0, _hand_order.size()), card_id)
 	_render_hand_play()
+
+
+func _on_reorder_dropped(card_id: StringName, target_id: StringName) -> void:
+	if not _can_sort_hand() or card_id not in _hand_order:
+		return
+	var target_index := _hand_order.find(target_id)
+	if target_index < 0 or target_index == _hand_order.find(card_id):
+		return
+	_sort_key = -2
+	reorder_hand(card_id, target_index)
+	hand_reordered_manually.emit()
 
 
 func move_card(card_id: StringName, delta: int) -> void:
@@ -198,6 +464,8 @@ func card_widget(card_id: StringName) -> Variant:
 
 
 func set_inputs_locked(locked: bool) -> void:
+	if locked == _input_locked:
+		return
 	_input_locked = locked
 	if _phase == PHASE_HAND_PLAY:
 		_render_hand_play()
@@ -249,6 +517,9 @@ func handle_command_result(
 	if not accepted:
 		_after_stage_action = &""
 		_status.text = "Action rejected: %s" % str(error_code).replace("_", " ")
+		_show_hand_feedback(_status.text)
+		if table_cockpit and _phase != PHASE_HAND_PLAY:
+			_status.show()
 		_refresh_buttons()
 		return
 	if kind == &"set_replenishment_request":
@@ -270,11 +541,34 @@ func _render_start() -> void:
 
 
 func _render_hand_play() -> void:
-	_load_private_hand()
-	_load_authoritative_staging_if_needed()
+	var hand_changed := _load_private_hand()
+	if _phase == PHASE_HAND_PLAY:
+		_load_authoritative_staging_if_needed()
+	if table_cockpit and hand_changed:
+		_sort_hand_order()
 	_clear_card_nodes()
 	var active_context := int(_model.get("active_context", 0))
 	var locked := bool(_model.get("private_staging", {}).get("hand_locked", false))
+	if table_cockpit:
+		for index in range(6):
+			var slot := Control.new()
+			slot.name = "CardSlot"
+			slot.custom_minimum_size = Vector2(120, 300)
+			slot.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			_hand_cards_node.add_child(slot)
+			if index >= _hand_order.size():
+				continue
+			var card_id := _hand_order[index]
+			var staged := _staged.has(card_id)
+			var widget: Control = _make_card_widget(card_id, active_context, staged, locked, slot)
+			widget.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+			widget.offset_top = 0 if staged else 24
+			widget.offset_bottom = -24 if staged else 0
+		if _phase == PHASE_HAND_PLAY:
+			_render_preview()
+		_refresh_buttons()
+		return
 	for card_id in _staged_order:
 		if not _hand_cards.has(card_id):
 			continue
@@ -296,7 +590,7 @@ func _render_hand_play() -> void:
 	_refresh_buttons()
 
 
-func _load_private_hand() -> void:
+func _load_private_hand() -> bool:
 	var cards: Array = _model.get("private_hand", [])
 	var current_ids: Array[StringName] = []
 	_hand_cards.clear()
@@ -306,14 +600,22 @@ func _load_private_hand() -> void:
 		var card_id := StringName(card.get("card_id", ""))
 		current_ids.append(card_id)
 		_hand_cards[card_id] = card.duplicate(true)
+	var changed := current_ids.size() != _hand_order.size()
 	for existing in _hand_order.duplicate():
 		if existing not in current_ids:
+			changed = true
 			_hand_order.erase(existing)
 			_staged.erase(existing)
 			_staged_order.erase(existing)
+			_orientations.erase(existing)
 	for card_id in current_ids:
 		if card_id not in _hand_order:
 			_hand_order.append(card_id)
+			if table_cockpit:
+				_orientations[card_id] = _default_half_index(_hand_cards[card_id]) == 1
+				if _sort_key >= 0:
+					_orient_for_context_sort(card_id)
+	return changed
 
 
 func _load_authoritative_staging_if_needed() -> void:
@@ -331,6 +633,8 @@ func _load_authoritative_staging_if_needed() -> void:
 		if _hand_cards.has(card_id):
 			_staged_order.append(card_id)
 			_staged[card_id] = selection.duplicate(true)
+			if table_cockpit:
+				_orientations[card_id] = int(selection.get("half_index", 0)) == 1
 
 
 func _make_card_widget(
@@ -360,19 +664,22 @@ func _make_card_widget(
 	widget.render(_hand_cards[card_id], active_context, false, {
 		"active_contexts": _active_contexts(),
 		"staged": staged,
-		"selected_half_index": selection.get("half_index", _default_half_index_for_card(card_id)),
+		"selected_half_index": selection.get("half_index", _top_half(card_id) if table_cockpit else _default_half_index_for_card(card_id)),
 		"joker_choices": selection.get("joker_choices", []),
 		"orientation_flipped": bool(_orientations.get(card_id, false)),
 		"interaction_disabled": (
-			_input_locked or locked or (_targeting and not has_target)
-			or (not _targeting and not staged and not _card_is_eligible(_hand_cards[card_id]))
+			_phase != PHASE_HAND_PLAY or _input_locked or locked or (_targeting and not has_target)
+			or (not table_cockpit and not _targeting and not staged and not _card_is_eligible(_hand_cards[card_id]))
 		),
+		"display_only": table_cockpit and _phase != PHASE_HAND_PLAY,
 		"targeting_kind": _target_kind,
 		"targeting_eligible": full_card_eligible,
 		"targeting_selected": full_card_selected,
 		"targeting_half_eligible": half_eligible,
 		"targeting_half_selected": half_selected,
-		"reorder_enabled": not _targeting and not locked,
+		"reorder_enabled": not table_cockpit and not _targeting and not locked,
+		"drag_hand": _hand_cards_node if table_cockpit and _can_sort_hand() else null,
+		"select_in_place": table_cockpit,
 	})
 	widget.primary_clicked.connect(click_card)
 	widget.orientation_requested.connect(right_click_card)
@@ -380,6 +687,7 @@ func _make_card_widget(
 	widget.half_target_requested.connect(_on_half_target_requested)
 	widget.joker_choice_changed.connect(set_joker_choice)
 	widget.reorder_requested.connect(move_card)
+	widget.reorder_dropped.connect(_on_reorder_dropped)
 	_card_widgets[card_id] = widget
 	return widget
 
@@ -398,6 +706,9 @@ func _clear_card_nodes() -> void:
 
 func _render_preview() -> void:
 	var preview: Dictionary = _model.get("submission_preview", {})
+	if table_cockpit:
+		_render_cockpit_preview(preview)
+		return
 	_preview_heading.text = "SCORE PREVIEW"
 	_preview_authority.text = "Local estimate · host validates on lock"
 	if preview.is_empty():
@@ -421,8 +732,127 @@ func _render_preview() -> void:
 	_invalid_reason.text = str(preview.get("invalid_reason", ""))
 
 
+func _render_cockpit_preview(fixture_preview: Dictionary) -> void:
+	var preview := _score_preview.evaluate(_model, _canonical_staging())
+	if preview.is_empty():
+		preview = fixture_preview
+	var score: Dictionary = preview.get("score_breakdown", {})
+	_set_score_value("Base", str(score.get("base_value", "—")), _base_score_rows(score))
+	_set_score_value("Hand", _preview_factor_text(score, "card_hand"), _factor_score_rows(score, "card_hand"))
+	_set_score_value("Context", _preview_factor_text(score, "context_hand"), _factor_score_rows(score, "context_hand"))
+	_set_score_value("Field", _preview_factor_text(score, "field"), _factor_score_rows(score, "field"))
+	_set_score_value("Total", str(score.get("final_score", "—")), _total_score_rows(score))
+	_invalid_reason.text = "Submitted · waiting for the other hands" if _hand_is_locked() else str(preview.get("invalid_reason", "")).replace("_", " ")
+
+
+func _build_score_formula() -> void:
+	for key: String in SCORE_COLORS:
+		if key != "Base":
+			_add_formula_label(Label.new(), "=" if key == "Total" else "×", Color.WHITE)
+		if key != "Total":
+			_add_formula_label(Label.new(), key, SCORE_COLORS[key])
+		var number := ScoreValue.new()
+		number.name = key + "Value"
+		number.mouse_filter = Control.MOUSE_FILTER_PASS
+		_score_values[key] = number
+		_add_formula_label(number, "—", SCORE_COLORS[key])
+
+
+func _add_formula_label(label: Label, text: String, color: Color) -> void:
+	label.text = text
+	label.add_theme_color_override("font_color", color)
+	label.add_theme_font_size_override("font_size", 22)
+	if score_font != null:
+		label.add_theme_font_override("font", score_font)
+	_preview_factors.add_child(label)
+
+
+func _set_score_value(key: String, text: String, rows: Array) -> void:
+	var number: ScoreValue = _score_values[key]
+	number.text = text
+	number.rows = rows
+	number.tooltip_text = "" if rows.is_empty() else key + " contributions"
+	number.mouse_default_cursor_shape = Control.CURSOR_ARROW if rows.is_empty() else Control.CURSOR_HELP
+
+
+func _base_score_rows(score: Dictionary) -> Array:
+	if score.is_empty():
+		return []
+	var rows := [["Selected face", "Points"]]
+	for face: Dictionary in score.get("base_components", []):
+		var rank := str(face.get("rank", 0))
+		var name := "Joker" if bool(face.get("joker", false)) else "Rank " + rank
+		rows.append(["%s · %s" % [name, GameTypes.suit_name(int(face.get("suit", -1)))], rank])
+	rows.append(["Base", str(score.get("base_value", 0))])
+	return rows
+
+
+func _preview_factor_text(score: Dictionary, factor_id: String) -> String:
+	return "—" if score.is_empty() else _rational_text(score.get(factor_id + "_factor", {}))
+
+
+func _factor_score_rows(score: Dictionary, factor_id: String) -> Array:
+	if score.is_empty():
+		return []
+	var field := factor_id == "field"
+	var group := "context" if factor_id == "context_hand" else "normal"
+	var rows := [["Effect" if field else "Component", "Contribution"]]
+	if field:
+		rows.append(["Starting factor", "1"])
+	for component: Dictionary in score.get(factor_id + "_components", []):
+		var source_id := str(component.get("source_definition_id", component.get("category_id", "")))
+		var name := _ability_score_name(source_id) if field else _hand_score_name(source_id, group)
+		var value: Dictionary = component.get("value", {})
+		rows.append([name, _signed_rational_text(value) if field else _rational_text(value)])
+	for modifier: Dictionary in score.get("applied_modifiers", []):
+		if str(modifier.get("factor_id", "")) != factor_id:
+			continue
+		var source_id := str(modifier.get("source_definition_id", modifier.get("category_id", "")))
+		rows.append([_ability_score_name(source_id), _signed_rational_text(modifier.get("delta", {}))])
+	if rows.size() == 1:
+		rows.append(["No matching pattern", "1"])
+	else:
+		var unclamped: Dictionary = score.get(factor_id + "_unclamped", {})
+		if _rational_less_than_one(unclamped):
+			var denominator := int(unclamped.denominator)
+			var adjustment := Rational.new(denominator - int(unclamped.numerator), denominator)
+			rows.append(["Minimum factor", _signed_rational_text({
+				"numerator": adjustment.numerator, "denominator": adjustment.denominator,
+			})])
+	rows.append(["Factor", _preview_factor_text(score, factor_id)])
+	return rows
+
+
+func _ability_score_name(source_id: String) -> String:
+	var ability: Dictionary = _model.get("ability_catalog", {}).get(source_id, {})
+	return str(ability.get("display_name", source_id.capitalize()))
+
+
+func _hand_score_name(source_id: String, group: String) -> String:
+	for definition: Dictionary in _model.get("scoring_catalog", {}).get(group, []):
+		if str(definition.get("id", "")) == source_id:
+			return str(definition.get("display_name", source_id.capitalize()))
+	return source_id.capitalize()
+
+
+func _total_score_rows(score: Dictionary) -> Array:
+	if score.is_empty():
+		return []
+	var rows := [
+		["Component", "Value"],
+		["Base", str(score.get("base_value", 0))],
+		["Hand", _preview_factor_text(score, "card_hand")],
+		["Context", _preview_factor_text(score, "context_hand")],
+		["Field", _preview_factor_text(score, "field")],
+	]
+	if score.has("raw_score"):
+		rows.append(["Exact product", _rational_text(score.raw_score)])
+	rows.append(["Score (rounded up)", str(score.get("final_score", 0))])
+	return rows
+
+
 func _factor_breakdown_text(breakdown: Dictionary) -> String:
-	return "Base %d  ·  Card %s  ·  Context %s  ·  Field %s  ·  projected %d" % [
+	return "Base %d\nCard %s\nContext %s\nField %s\nprojected %d" % [
 		int(breakdown.get("base_value", 0)), _factor_summary(breakdown, "card_hand"),
 		_factor_summary(breakdown, "context_hand"), _factor_summary(breakdown, "field"),
 		int(breakdown.get("final_score", 0)),
@@ -501,8 +931,10 @@ func _refresh_buttons() -> void:
 	if _phase == PHASE_HAND_PLAY:
 		var locked := bool(_model.get("private_staging", {}).get("hand_locked", false))
 		var busy := _pending.has(&"stage_hand") or _pending.has(&"lock_hand")
-		_lock_button.disabled = _input_locked or locked or busy or _staged_order.is_empty()
-		_pass_button.disabled = _input_locked or locked or busy
+		_lock_button.disabled = _input_locked or locked or busy or _targeting or _staged_order.is_empty() or (
+			table_cockpit and _staged_order.any(func(id): return not _half_index_is_eligible(_hand_cards[id], _top_half(id)))
+		)
+		_pass_button.disabled = _input_locked or locked or busy or _targeting
 	elif _phase == PHASE_START:
 		_update_start_total()
 	elif _phase in [PHASE_MAIN_1, PHASE_MAIN_2]:

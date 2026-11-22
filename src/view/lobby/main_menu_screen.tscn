@@ -1,7 +1,13 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene load_steps=8 format=3]
 
 [ext_resource type="Script" path="res://src/view/lobby/main_menu_screen.gd" id="1_script"]
 [ext_resource type="Theme" path="res://themes/placeholder_theme.tres" id="2_theme"]
+[ext_resource type="StyleBox" path="res://themes/shift_panel.tres" id="3_panel"]
+[ext_resource type="Texture2D" path="res://assets/artwork/board/board.png" id="4_board"]
+[ext_resource type="Texture2D" path="res://assets/artwork/context_emblems/context_emblem_flourish.png" id="5_emblem"]
+[ext_resource type="StyleBox" path="res://themes/shift_primary_action.tres" id="6_primary"]
+
+[sub_resource type="StyleBoxEmpty" id="StyleBoxEmpty_join"]
 
 [node name="MainMenuScreen" type="Control"]
 layout_mode = 3
@@ -21,69 +27,123 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
-color = Color(0.027, 0.047, 0.069, 1)
+color = Color(0.078, 0.102, 0.129, 1)
 
-[node name="Content" type="VBoxContainer" parent="."]
-custom_minimum_size = Vector2(520, 0)
+[node name="BoardTexture" type="TextureRect" parent="."]
+modulate = Color(0.67, 0.78, 0.92, 0.18)
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+texture = ExtResource("4_board")
+expand_mode = 1
+stretch_mode = 6
+
+[node name="MenuSurface" type="Panel" parent="."]
 layout_mode = 1
 anchors_preset = 8
 anchor_left = 0.5
 anchor_top = 0.5
 anchor_right = 0.5
 anchor_bottom = 0.5
-offset_left = -260.0
-offset_top = -315.0
-offset_right = 260.0
-offset_bottom = 315.0
+offset_left = -380.0
+offset_top = -354.0
+offset_right = 380.0
+offset_bottom = 354.0
+mouse_filter = 2
+theme_override_styles/panel = ExtResource("3_panel")
+
+[node name="Content" type="VBoxContainer" parent="."]
+custom_minimum_size = Vector2(620, 0)
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -310.0
+offset_top = -320.0
+offset_right = 310.0
+offset_bottom = 320.0
 grow_horizontal = 2
 grow_vertical = 2
-theme_override_constants/separation = 18
+theme_override_constants/separation = 13
+alignment = 1
 
-[node name="Eyebrow" type="Label" parent="Content"]
+[node name="Emblem" type="TextureRect" parent="Content"]
+custom_minimum_size = Vector2(72, 72)
 layout_mode = 2
-theme_override_colors/font_color = Color(0.35, 0.78, 0.93, 1)
-theme_override_font_sizes/font_size = 16
-text = "HOST-AUTHORITATIVE CARD TABLE"
-horizontal_alignment = 1
+size_flags_horizontal = 4
+mouse_filter = 2
+texture = ExtResource("5_emblem")
+expand_mode = 1
+stretch_mode = 5
 
 [node name="Title" type="Label" parent="Content"]
 layout_mode = 2
-theme_override_colors/font_color = Color(0.96, 0.97, 1, 1)
+theme_override_colors/font_color = Color(1, 0.84, 0.54, 1)
 theme_override_font_sizes/font_size = 64
 text = "SHIFT"
 horizontal_alignment = 1
 
-[node name="Subtitle" type="Label" parent="Content"]
+[node name="CreateLobbyButton" type="Button" parent="Content"]
+custom_minimum_size = Vector2(0, 64)
 layout_mode = 2
-theme_override_colors/font_color = Color(0.68, 0.75, 0.83, 1)
-theme_override_font_sizes/font_size = 20
-text = "Build a hand. Bend the context. Outsmart the table."
-horizontal_alignment = 1
+theme_override_font_sizes/font_size = 30
+theme_override_styles/normal = ExtResource("6_primary")
+text = "Create Lobby"
 
-[node name="Spacer" type="Control" parent="Content"]
-custom_minimum_size = Vector2(0, 16)
+[node name="JoinLobbyButton" type="Button" parent="Content"]
+custom_minimum_size = Vector2(0, 64)
 layout_mode = 2
+theme_override_font_sizes/font_size = 30
+theme_override_styles/normal = ExtResource("6_primary")
+text = "Join Lobby"
+
+[node name="PracticeButton" type="Button" parent="Content"]
+custom_minimum_size = Vector2(0, 56)
+layout_mode = 2
+theme_override_font_sizes/font_size = 24
+tooltip_text = "Play an untimed match against three bots"
+text = "Practice"
+
+[node name="SettingsButton" type="Button" parent="Content"]
+custom_minimum_size = Vector2(0, 56)
+layout_mode = 2
+theme_override_font_sizes/font_size = 24
+text = "Settings"
+
+[node name="QuitButton" type="Button" parent="Content"]
+custom_minimum_size = Vector2(0, 50)
+layout_mode = 2
+theme_override_font_sizes/font_size = 22
+text = "Quit"
 
 [node name="PlayerNameLabel" type="Label" parent="Content"]
 layout_mode = 2
-text = "PLAYER NAME"
+text = "Player name"
+theme_override_font_sizes/font_size = 24
 
 [node name="PlayerName" type="LineEdit" parent="Content"]
 custom_minimum_size = Vector2(0, 48)
 layout_mode = 2
 placeholder_text = "How should the table know you?"
 max_length = 24
+theme_override_font_sizes/font_size = 24
 
 [node name="HostButton" type="Button" parent="Content"]
 custom_minimum_size = Vector2(0, 54)
 layout_mode = 2
-text = "HOST A TABLE"
-
-[node name="Divider" type="HSeparator" parent="Content"]
-layout_mode = 2
+text = "Create Lobby"
+theme_override_font_sizes/font_size = 28
+theme_override_styles/normal = ExtResource("6_primary")
 
 [node name="JoinPanel" type="PanelContainer" parent="Content"]
 layout_mode = 2
+theme_override_styles/panel = SubResource("StyleBoxEmpty_join")
 
 [node name="JoinFields" type="VBoxContainer" parent="Content/JoinPanel"]
 layout_mode = 2
@@ -91,28 +151,39 @@ theme_override_constants/separation = 10
 
 [node name="JoinLabel" type="Label" parent="Content/JoinPanel/JoinFields"]
 layout_mode = 2
-text = "JOIN AN EXISTING TABLE"
+text = "Room code"
+theme_override_font_sizes/font_size = 24
 
 [node name="Code" type="LineEdit" parent="Content/JoinPanel/JoinFields"]
 custom_minimum_size = Vector2(0, 46)
 layout_mode = 2
-placeholder_text = "ROOM CODE"
+placeholder_text = "Enter your room code"
 max_length = 8
 alignment = 1
+theme_override_font_sizes/font_size = 24
 
 [node name="Role" type="OptionButton" parent="Content/JoinPanel/JoinFields"]
 custom_minimum_size = Vector2(0, 44)
 layout_mode = 2
+theme_override_font_sizes/font_size = 24
 
 [node name="JoinButton" type="Button" parent="Content/JoinPanel/JoinFields"]
 custom_minimum_size = Vector2(0, 50)
 layout_mode = 2
-text = "JOIN TABLE"
+text = "Join Lobby"
+theme_override_font_sizes/font_size = 28
+theme_override_styles/normal = ExtResource("6_primary")
+
+[node name="BackButton" type="Button" parent="Content"]
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+theme_override_font_sizes/font_size = 24
+text = "Back"
 
 [node name="Status" type="Label" parent="Content"]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.72, 0.78, 0.85, 1)
-text = "Host a new table or join your friends with a room code."
+theme_override_font_sizes/font_size = 22
 horizontal_alignment = 1
 autowrap_mode = 2
 

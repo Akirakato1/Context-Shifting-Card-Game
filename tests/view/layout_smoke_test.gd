@@ -3,6 +3,25 @@ extends "res://tests/test_case.gd"
 const MATCH_PATH := "res://src/view/match/match_screen.tscn"
 
 
+func test_display_preserves_a_full_hd_design_canvas() -> void:
+	var window: Window = Engine.get_main_loop().root
+	assert_eq(window.content_scale_size, Vector2i(1920, 1080))
+	assert_eq(window.content_scale_mode, Window.CONTENT_SCALE_MODE_CANVAS_ITEMS)
+	assert_eq(window.content_scale_aspect, Window.CONTENT_SCALE_ASPECT_KEEP)
+
+
+func test_display_modes_are_available_from_the_main_menu() -> void:
+	var scene_path := "res://src/view/app/app_root.tscn"
+	var screen := await _mount_in_host(scene_path, Vector2(1920, 1080))
+	screen.get_node("SafeArea/ScreenHost/MainMenuScreen/Content/SettingsButton").pressed.emit()
+	var modes := screen.get_node_or_null("SafeArea/ScreenHost/GeneralSettingsScreen/Content/Modes") as OptionButton
+	assert_true(modes != null, "The main menu must expose display modes")
+	if modes != null:
+		assert_eq(modes.item_count, 6)
+		assert_eq(modes.get_item_id(modes.item_count - 1), 0)
+	await _unmount(screen)
+
+
 func test_full_table_stays_inside_supported_landscape_sizes() -> void:
 	for viewport_size in [Vector2(1280, 720), Vector2(1600, 900), Vector2(1920, 1080), Vector2(2560, 1440)]:
 		var table = await _mount_table(viewport_size)
@@ -20,6 +39,10 @@ func test_full_table_stays_inside_supported_landscape_sizes() -> void:
 		var ability_button: Control = table.get_node("AbilityPanel/ToggleButton")
 		assert_false(pass_button.get_global_rect().intersects(lock_button.get_global_rect()), "phase buttons overlap at %s" % viewport_size)
 		assert_false(lock_button.get_global_rect().intersects(ability_button.get_global_rect()), "ability tab overlaps lock at %s" % viewport_size)
+		var hand := table.get_node("PhaseControls/HandPlayControls/Hand/Cards") as HBoxContainer
+		for card: Control in hand.get_children():
+			assert_false(card.get_global_rect().intersects(pass_button.get_global_rect()), "hand overlaps pass at %s" % viewport_size)
+			assert_false(card.get_global_rect().intersects(lock_button.get_global_rect()), "hand overlaps lock at %s" % viewport_size)
 		await _unmount(table)
 
 

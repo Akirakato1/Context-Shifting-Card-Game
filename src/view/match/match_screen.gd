@@ -3,8 +3,11 @@ extends Control
 
 signal intent_requested(kind: StringName, payload: Dictionary)
 signal connection_action_requested(action: StringName)
+signal settings_requested
+signal leave_requested
 
 const GameTypes = preload("res://src/core/common/game_types.gd")
+const Rules := preload("res://src/view/help/rules_and_cards_modal.tscn")
 const PHASE_NAMES := ["SETUP", "START", "MAIN 1", "HAND PLAY", "MAIN 2", "END", "COMPLETE"]
 
 var _model: Dictionary = {}
@@ -12,11 +15,22 @@ var _active_ability: Dictionary = {}
 var _active_copy_id: StringName = &""
 var _connection_action: StringName = &""
 var _timer_local_deadline_msec := -1
+var _rules: Control
+var _field_details: AcceptDialog
+var _selected_sort := -1
 
-@onready var _phase: Label = $Header/Phase
+@export_group("Artwork")
+@export var show_placeholder_guides := true
+@export var phase_badge_art: StyleBoxTexture
+@export var match_score_art: StyleBoxTexture
+@export var opponent_seat_art: StyleBoxTexture
+@export var reveal_panel_art: StyleBoxTexture
+@export var context_sort_art: Array[Texture2D]
+
+@onready var _phase: Label = $PhaseBadge/Phase
 @onready var _round: Label = $Header/Round
 @onready var _timer: Label = $Header/Timer
-@onready var _progress: Label = $Header/Progress
+@onready var _progress: Label = $MatchScore/Progress
 @onready var _spectators: Label = $Header/Spectators
 @onready var _top_seat = $TableLayer/TopSeat
 @onready var _left_seat = $TableLayer/LeftSeat
@@ -24,10 +38,10 @@ var _timer_local_deadline_msec := -1
 @onready var _bottom_seat = $TableLayer/BottomSeat
 @onready var _clock_direction: Label = $Center/ContextClock/Direction
 @onready var _clock_active: Label = $Center/ContextClock/Active
-@onready var _field_rows: VBoxContainer = $Center/Fields/FieldRows
+@onready var _field_rows: VBoxContainer = $Center/Fields/FieldScroll/FieldRows
 @onready var _round_result: Label = $Center/RoundResult
 @onready var _phase_controls = $PhaseControls
-@onready var _ability_panel = $AbilityPanel
+@onready var _ability_panel: AbilityPanel = $AbilityPanel
 @onready var _targeting_overlay = $TargetingOverlay
 @onready var _ability_history: VBoxContainer = $AbilityHistory/Rows
 @onready var _connection_overlay: Control = $ConnectionOverlay
@@ -36,6 +50,47 @@ var _timer_local_deadline_msec := -1
 
 
 func _ready() -> void:
+	_configure_artwork()
+	_rules = Rules.instantiate()
+	add_child(_rules)
+	_field_details = AcceptDialog.new()
+	_field_details.dialog_autowrap = true
+	add_child(_field_details)
+	$MenuButton.pressed.connect(func(): $MatchMenu.visible = not $MatchMenu.visible)
+	$HelpButton.pressed.connect(func():
+		$MatchMenu.hide()
+		_rules.open()
+	)
+	$MatchMenu/Options/Settings.pressed.connect(func():
+		$MatchMenu.hide()
+		settings_requested.emit()
+	)
+	$MatchMenu/Options/Leave.pressed.connect(func():
+		$MatchMenu.hide()
+		$ConfirmLeave.popup_centered()
+	)
+	$ConfirmLeave.confirmed.connect(func(): leave_requested.emit())
+	$SortControls/Rank.pressed.connect(_on_rank_sort_pressed)
+	for i in 3:
+		var button: Button = $SortControls.get_child(i)
+		button.pressed.connect(_on_sort_pressed.bind(i))
+		if i < 3 and (show_placeholder_guides or (i < context_sort_art.size() and context_sort_art[i] != null)):
+			var disc := TextureRect.new()
+			var has_art := i < context_sort_art.size() and context_sort_art[i] != null
+			disc.texture = context_sort_art[i] if has_art else preload("res://assets/artwork/board/figma/sort_button.svg")
+			disc.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+			disc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			disc.show_behind_parent = true
+			button.add_child(disc)
+			disc.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+			if not has_art:
+				disc.modulate = Color("586b7f")
+				button.toggled.connect(func(pressed: bool):
+					disc.modulate = Color("98743a") if pressed else Color("586b7f"))
+	resized.connect(_position_cockpit)
+	var toggle: Button = $AbilityPanel/ToggleButton
+	toggle.offset_top = -88
+	_position_cockpit()
 	_top_seat.seat_position = &"top"
 	_left_seat.seat_position = &"left"
 	_right_seat.seat_position = &"right"
@@ -44,14 +99,34 @@ func _ready() -> void:
 		_phase_controls.intent_requested.connect(_on_phase_intent_requested)
 	_phase_controls.card_target_requested.connect(_targeting_overlay.select_value)
 	_phase_controls.half_target_requested.connect(_on_half_target_requested)
+	_phase_controls.hand_reordered_manually.connect(_clear_context_sort)
 	_ability_panel.ability_activated.connect(_on_ability_activated)
 	_targeting_overlay.commit_requested.connect(_on_targeting_commit_requested)
 	_targeting_overlay.closed.connect(_on_targeting_closed)
 	_targeting_overlay.selection_changed.connect(_on_targeting_selection_changed)
 
 
+func _configure_artwork() -> void:
+	$TableScenery.show_placeholder_guides = show_placeholder_guides
+	$Backdrop.visible = show_placeholder_guides
+	_phase_controls.show_placeholder_guides = show_placeholder_guides
+	for seat in [_top_seat, _left_seat, _right_seat, _bottom_seat]:
+		seat.show_placeholder_guides = show_placeholder_guides
+		seat.seat_art = opponent_seat_art
+	var art_by_panel := {
+		$PhaseBadge: phase_badge_art, $MatchScore: match_score_art, $RoundReveal: reveal_panel_art,
+	}
+	for panel: PanelContainer in art_by_panel:
+		var artwork: StyleBoxTexture = art_by_panel[panel]
+		if artwork != null:
+			panel.add_theme_stylebox_override("panel", artwork)
+		elif not show_placeholder_guides:
+			panel.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
+
+
 func render(model: Dictionary) -> void:
 	_model = model.duplicate(true)
+	_rules.render(_model)
 	_render_header()
 	_render_context_and_piles()
 	_render_fields()
@@ -59,6 +134,7 @@ func render(model: Dictionary) -> void:
 	_render_phase_controls()
 	_render_abilities()
 	_render_connection_state()
+	$RoundReveal.render(_model)
 
 
 func _process(_delta: float) -> void:
@@ -119,13 +195,18 @@ func _render_header() -> void:
 
 
 func _update_timer(remaining_msec: int) -> void:
-	_timer.text = "%.1fs" % (remaining_msec / 1000.0) if _timer_local_deadline_msec >= 0 else "—"
+	if _timer_local_deadline_msec >= 0:
+		_timer.text = "%.1fs" % (remaining_msec / 1000.0)
+	else:
+		_timer.text = "UNTIMED" if bool(_model.get("is_practice", false)) else "—"
 
 
 func _render_context_and_piles() -> void:
 	var active_context := int(_model.get("active_context", 0))
 	var active_contexts := _active_contexts()
 	var direction := int(_model.get("context_direction", 1))
+	var is_selecting_hand := int(_model.get("phase", 0)) == GameTypes.Phase.HAND_PLAY and not str(_model.get("private_player_id", "")).is_empty()
+	$TableScenery.render(active_context, direction, active_contexts, is_selecting_hand)
 	_clock_direction.text = (
 		"Rise  →  Flourish  →  Fall"
 		if direction >= 0
@@ -149,20 +230,42 @@ func _render_fields() -> void:
 	for child in _field_rows.get_children():
 		_field_rows.remove_child(child)
 		child.queue_free()
+	var catalog: Dictionary = _model.get("ability_catalog", {})
+	var player_names := {}
+	for player: Dictionary in _model.get("players", []):
+		var player_id := str(player.get("player_id", ""))
+		player_names[player_id] = str(player.get("name", player_id))
 	for field in _model.get("active_fields", []):
 		if not field is Dictionary:
 			continue
-		var row := Label.new()
+		var ability_id := str(field.get("ability_id", "field"))
+		var definition: Dictionary = catalog.get(ability_id, {})
+		var field_name := str(definition.get("display_name", ability_id.replace("_", " ").capitalize()))
+		var rules := str(definition.get("rules_text", ""))
+		var source_id := str(field.get("source_player_id", "?"))
+		var source_name := str(player_names.get(source_id, source_id))
 		var duration_text := "Persistent" if bool(field.get("persistent", false)) else "%d round%s" % [
 			int(field.get("remaining_rounds", 0)),
 			"" if int(field.get("remaining_rounds", 0)) == 1 else "s",
 		]
-		row.text = "%s  ·  %s  ·  by %s" % [
-			str(field.get("ability_id", "field")).replace("_", " ").capitalize(),
-			duration_text,
-			str(field.get("source_player_id", "?")),
-		]
+		var row := Button.new()
+		row.flat = true
+		row.clip_text = true
+		row.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		row.text = "%s  ·  %s  ·  by %s" % [field_name, duration_text, source_name]
+		row.tooltip_text = rules
+		if not rules.is_empty():
+			row.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+			row.pressed.connect(_show_field_details.bind(field_name, rules))
 		_field_rows.add_child(row)
+	$Center/Fields/FieldScroll.visible = _field_rows.get_child_count() > 0
+	$Center/Fields/Heading.text = "ACTIVE FIELDS  ·  SELECT FOR DETAILS" if _field_rows.get_child_count() > 0 else "ACTIVE FIELDS"
+
+
+func _show_field_details(field_name: String, rules: String) -> void:
+	_field_details.title = field_name
+	_field_details.dialog_text = rules
+	_field_details.popup_centered(Vector2i(440, 150))
 
 
 func _render_seats() -> void:
@@ -184,9 +287,9 @@ func _render_seats() -> void:
 		opponents = active_players.slice(1)
 	var requests: Dictionary = _model.get("replacement_requests", {})
 	_bottom_seat.render(
-		local_player, _model.get("private_hand", []), int(_model.get("active_context", 0)),
+		local_player, [], int(_model.get("active_context", 0)),
 		not private_id.is_empty() and str(local_player.get("player_id", "")) == private_id,
-		_request_for(requests, local_player), not private_id.is_empty(), _active_contexts()
+		_request_for(requests, local_player), false, _active_contexts()
 	)
 	var opponent_seats := [_top_seat, _left_seat, _right_seat]
 	for index in opponent_seats.size():
@@ -195,6 +298,7 @@ func _render_seats() -> void:
 			player, [], int(_model.get("active_context", 0)), false,
 			_request_for(requests, player), true, _active_contexts()
 		)
+		opponent_seats[index].render_table_seat(player, int(_model.get("victory_mode", 0)))
 
 
 func _active_contexts() -> Array:
@@ -207,15 +311,52 @@ func _active_contexts() -> Array:
 func _render_phase_controls() -> void:
 	var has_private_player := not str(_model.get("private_player_id", "")).is_empty()
 	_phase_controls.visible = has_private_player
+	_bottom_seat.visible = not has_private_player
+	$MatchScore.visible = has_private_player
+	$SortControls.visible = has_private_player
+	_position_cockpit()
 	if not has_private_player:
 		return
 	_phase_controls.render(_model)
 	_phase_controls.set_inputs_locked(bool(_model.get("frozen", false)))
-	var building_hand := int(_model.get("phase", 0)) == 3
-	_bottom_seat.get_node("Hand").visible = not building_hand
-	_bottom_seat.get_node("Background").visible = not building_hand
-	_bottom_seat.get_node("ScoreSummary").visible = not building_hand
-	_bottom_seat.get_node("Request").visible = not building_hand and _bottom_seat.get_node("Request").visible
+
+
+func _position_cockpit() -> void:
+	var ui_scale := maxf(0.25, minf(size.x / 1920.0, size.y / 1080.0))
+	_phase_controls.position = Vector2(size.x * 0.188, size.y * 0.613)
+	_phase_controls.scale = Vector2.ONE * ui_scale
+	_phase_controls.size = Vector2(size.x * 0.649 / ui_scale, 410)
+	_ability_panel.scale = Vector2.ONE * ui_scale
+	_ability_panel.position = Vector2(size.x * 0.852, size.y * 0.765 - _ability_panel.size.y * ui_scale)
+	var toggle: Button = $AbilityPanel/ToggleButton
+	var drawer_top := -get_global_transform().origin.y
+	var drawer_bottom := _ability_panel.position.y + (toggle.position.y - 8.0) * ui_scale
+	var drawer_left := size.x * 0.844
+	var drawer_right := size.x * 0.987
+	var drawer_position := (Vector2(drawer_left, drawer_top) - _ability_panel.position) / ui_scale
+	var drawer_size := Vector2(drawer_right - drawer_left, drawer_bottom - drawer_top) / ui_scale
+	_ability_panel.set_drawer_bounds(Rect2(drawer_position, drawer_size))
+
+
+func _on_sort_pressed(index: int) -> void:
+	if _phase_controls.sort_hand(index):
+		_selected_sort = index
+	for i in 3:
+		$SortControls.get_child(i).set_pressed_no_signal(i == _selected_sort)
+
+
+func _clear_context_sort() -> void:
+	_selected_sort = -1
+	for i in 3:
+		$SortControls.get_child(i).button_pressed = false
+
+
+func _on_rank_sort_pressed() -> void:
+	if not _phase_controls.toggle_rank_sort():
+		return
+	var ascending: bool = _phase_controls.rank_sort_ascending()
+	$SortControls/Rank.text = "RANK ↑" if ascending else "RANK ↓"
+	$SortControls/Rank.tooltip_text = "Top-half rank: low to high" if ascending else "Top-half rank: high to low"
 
 
 func _render_abilities() -> void:

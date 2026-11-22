@@ -1,7 +1,10 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene load_steps=6 format=3]
 
 [ext_resource type="Script" path="res://src/view/results/results_screen.gd" id="1_script"]
 [ext_resource type="Theme" path="res://themes/placeholder_theme.tres" id="2_theme"]
+[ext_resource type="StyleBox" path="res://themes/shift_panel.tres" id="3_panel"]
+[ext_resource type="Texture2D" path="res://assets/artwork/board/board.png" id="4_board"]
+[ext_resource type="StyleBox" path="res://themes/shift_primary_action.tres" id="5_primary"]
 
 [node name="ResultsScreen" type="Control"]
 layout_mode = 3
@@ -21,36 +24,65 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
-color = Color(0.025, 0.045, 0.062, 1)
+color = Color(0.078, 0.102, 0.129, 1)
 
-[node name="Layout" type="VBoxContainer" parent="."]
-custom_minimum_size = Vector2(720, 0)
+[node name="BoardTexture" type="TextureRect" parent="."]
+modulate = Color(0.67, 0.78, 0.92, 0.18)
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+texture = ExtResource("4_board")
+expand_mode = 1
+stretch_mode = 6
+
+[node name="ResultsSurface" type="Panel" parent="."]
 layout_mode = 1
 anchors_preset = 8
 anchor_left = 0.5
 anchor_top = 0.5
 anchor_right = 0.5
 anchor_bottom = 0.5
-offset_left = -360.0
-offset_top = -320.0
-offset_right = 360.0
-offset_bottom = 320.0
+offset_left = -540.0
+offset_top = -350.0
+offset_right = 540.0
+offset_bottom = 350.0
+mouse_filter = 2
+theme_override_styles/panel = ExtResource("3_panel")
+
+[node name="Layout" type="VBoxContainer" parent="."]
+custom_minimum_size = Vector2(960, 0)
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -480.0
+offset_top = -312.0
+offset_right = 480.0
+offset_bottom = 312.0
 grow_horizontal = 2
 grow_vertical = 2
 theme_override_constants/separation = 16
 
 [node name="Eyebrow" type="Label" parent="Layout"]
 layout_mode = 2
-theme_override_colors/font_color = Color(0.35, 0.78, 0.93, 1)
-text = "MATCH COMPLETE"
+theme_override_colors/font_color = Color(0.87, 0.92, 0.95, 1)
+theme_override_font_sizes/font_size = 29
+text = "Match Complete"
 horizontal_alignment = 1
 
 [node name="Title" type="Label" parent="Layout"]
 layout_mode = 2
 theme_override_colors/font_color = Color(1, 0.82, 0.38, 1)
-theme_override_font_sizes/font_size = 48
+theme_override_font_sizes/font_size = 56
 text = "MATCH ENDED"
 horizontal_alignment = 1
+text_overrun_behavior = 3
 
 [node name="Summary" type="Label" parent="Layout"]
 layout_mode = 2
@@ -98,17 +130,21 @@ theme_override_constants/separation = 12
 visible = false
 custom_minimum_size = Vector2(190, 48)
 layout_mode = 2
-text = "RETURN TO MENU"
+text = "Main Menu"
+theme_override_font_sizes/font_size = 22
 
 [node name="LobbyButton" type="Button" parent="Layout/Actions"]
 custom_minimum_size = Vector2(190, 48)
 layout_mode = 2
-text = "RETURN TO LOBBY"
+text = "Return to Lobby"
+theme_override_font_sizes/font_size = 22
 
 [node name="RematchButton" type="Button" parent="Layout/Actions"]
 custom_minimum_size = Vector2(190, 48)
 layout_mode = 2
-text = "START REMATCH"
+text = "Rematch"
+theme_override_font_sizes/font_size = 22
+theme_override_styles/normal = ExtResource("5_primary")
 
 [connection signal="pressed" from="Layout/Actions/MenuButton" to="." method="_on_menu_pressed"]
 [connection signal="pressed" from="Layout/Actions/LobbyButton" to="." method="_on_lobby_pressed"]

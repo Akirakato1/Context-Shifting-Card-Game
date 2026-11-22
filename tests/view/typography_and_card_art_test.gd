@@ -21,15 +21,95 @@ func test_card_rank_uses_number_art_and_ten_composes_one_then_zero() -> void:
 	await _unmount(widget)
 
 
-func test_joker_rank_uses_zero_art_while_other_card_text_uses_theme_font() -> void:
+func test_rank_and_suit_stay_upright_when_halves_swap() -> void:
+	var widget = await _mount_card()
+	widget.size = Vector2(175, 279)
+	var card := {"card_id": "flip", "first": _half(0, 10, 0), "second": _half(1, 3, 1)}
+	for flipped in [false, true]:
+		widget.render(card, 0, false, {"orientation_flipped": flipped})
+		await Engine.get_main_loop().process_frame
+		var top := "Second" if flipped else "First"
+		var bottom := "First" if flipped else "Second"
+		var top_suit: Label = widget.get_node("Face/" + top)
+		var bottom_suit: Label = widget.get_node("Face/" + bottom)
+		var top_rank: Control = widget.get_node("Face/" + top + "RankArt")
+		var bottom_rank: Control = widget.get_node("Face/" + bottom + "RankArt")
+		assert_eq(top_suit.text, "C" if flipped else "M")
+		assert_eq(bottom_suit.text, "M" if flipped else "C")
+		assert_eq(top_rank.position.y, top_suit.position.y)
+		assert_eq(bottom_rank.position.y, bottom_suit.position.y)
+		assert_true(top_rank.position.y < bottom_rank.position.y)
+		assert_true(top_rank.position.x + top_rank.size.x <= top_suit.position.x)
+		assert_true(bottom_suit.position.x + bottom_suit.size.x <= bottom_rank.position.x)
+		assert_eq(top_rank.modulate, Color.WHITE)
+		assert_eq(bottom_rank.modulate, Color.WHITE)
+		for marker: Control in [top_suit, bottom_suit, top_rank, bottom_rank]:
+			assert_eq(marker.rotation, 0.0)
+	var requested_flips: Array[StringName] = []
+	widget.orientation_requested.connect(func(id: StringName): requested_flips.append(id))
+	var click := InputEventMouseButton.new()
+	click.button_index = MOUSE_BUTTON_RIGHT
+	click.position = widget.get_global_rect().position + Vector2(25, 30)
+	click.pressed = true
+	widget.get_viewport().push_input(click, true)
+	click.pressed = false
+	widget.get_viewport().push_input(click, true)
+	assert_eq(requested_flips, [&"flip"])
+	await _unmount(widget)
+
+
+func test_joker_rank_uses_zero_art_and_assigned_suit() -> void:
 	var widget = await _mount_card()
 	if widget == null: return
-	widget.render({"card_id": "joker", "first": _joker(), "second": _half(1, 7, 2)}, 0)
+	widget.theme = load("res://themes/placeholder_theme.tres")
+	widget.custom_minimum_size = Vector2(175, 279)
+	widget.render({"card_id": "joker", "first": _joker(), "second": _half(1, 7, 2)}, 0, false, {
+		"select_in_place": true,
+		"staged": true,
+		"joker_choices": [{"half_index": 0, "context": 1, "suit": 2}],
+	})
+	await Engine.get_main_loop().process_frame
 	var digits = widget.get_node("Face/FirstRankArt").get_children()
 	assert_eq(digits.size(), 1)
 	assert_eq(digits[0].texture.resource_path, "res://assets/artwork/card_number/png/card_number_0.png")
-	assert_true(widget.get_node("Face/First").text.contains("JOKER"))
+	assert_eq(widget.get_node("Face/First").text, "S")
 	assert_true(widget.get_node("Face/First").get_theme_font("font") != null)
+	assert_eq(widget.size, Vector2(175, 279))
+	assert_eq(widget.get_theme_stylebox("panel"), widget.selected_panel_style)
+	var joker_art := widget.get_node("Artwork/TopHalf").texture as AtlasTexture
+	assert_eq(joker_art.atlas.resource_path.get_file(), "card_half_context_flourish.png")
+	await _unmount(widget)
+
+
+func test_card_context_art_meets_the_divider_and_follows_orientation() -> void:
+	var widget = await _mount_card()
+	var artwork := widget.get_node_or_null("Artwork") as Control
+	assert_true(artwork != null, "Card face should have a shared layer for its three art assets.")
+	if artwork == null:
+		await _unmount(widget)
+		return
+	var top := artwork.get_node("TopHalf") as TextureRect
+	var bottom := artwork.get_node("BottomHalf") as TextureRect
+	var divider := artwork.get_node("Divider") as TextureRect
+	var card := {"card_id": "art", "first": _half(0, 10, 0), "second": _half(2, 4, 1)}
+	widget.render(card, 0)
+	assert_eq((top.texture as AtlasTexture).atlas.resource_path.get_file(), "card_half_context_rise.png")
+	assert_eq((bottom.texture as AtlasTexture).atlas.resource_path.get_file(), "card_half_context_fall.png")
+	assert_eq((divider.texture as AtlasTexture).atlas.resource_path.get_file(), "card_divider.png")
+	assert_eq((top.texture as AtlasTexture).region, (divider.texture as AtlasTexture).region)
+	assert_eq((bottom.texture as AtlasTexture).region, (divider.texture as AtlasTexture).region)
+	assert_true(bottom.flip_h and bottom.flip_v)
+	widget.render(card, 0, false, {
+		"orientation_flipped": true,
+		"interaction_disabled": true,
+		"display_only": true,
+	})
+	assert_true(widget.interaction_disabled)
+	assert_eq(widget.modulate, Color.WHITE)
+	assert_eq((top.texture as AtlasTexture).atlas.resource_path.get_file(), "card_half_context_fall.png")
+	assert_eq((bottom.texture as AtlasTexture).atlas.resource_path.get_file(), "card_half_context_rise.png")
+	widget.render(card, 0, true)
+	assert_false(artwork.visible)
 	await _unmount(widget)
 
 

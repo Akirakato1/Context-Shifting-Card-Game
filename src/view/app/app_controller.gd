@@ -14,7 +14,10 @@ const PresentationState = preload("res://src/view/common/presentation_state.gd")
 const PresentationQueue = preload("res://src/view/common/presentation_queue.gd")
 const UICommandGateway = preload("res://src/view/common/ui_command_gateway.gd")
 const RuntimeGameSession = preload("res://src/view/app/runtime_game_session.gd")
+const PracticeGameSession = preload("res://src/view/app/practice_game_session.gd")
+const DisplayPreferences = preload("res://src/view/app/display_preferences.gd")
 const MAIN_MENU_SCENE := preload("res://src/view/lobby/main_menu_screen.tscn")
+const GENERAL_SETTINGS_SCENE := preload("res://src/view/lobby/general_settings_screen.tscn")
 const LOBBY_SCENE := preload("res://src/view/lobby/lobby_screen.tscn")
 const MATCH_SCENE := preload("res://src/view/match/match_screen.tscn")
 const RESULTS_SCENE := preload("res://src/view/results/results_screen.tscn")
@@ -29,6 +32,9 @@ var _connection := {"status": "idle", "reason": ""}
 var _current_screen_id: StringName = &""
 var _current_screen: Node
 var _last_presentation: Dictionary = {}
+var _settings_overlay: Control
+var _settings_previous_focus: WeakRef
+var _player_name := ""
 
 @onready var _screen_host: Control = $SafeArea/ScreenHost
 @onready var _connection_banner: PanelContainer = $SafeArea/ConnectionBanner
@@ -36,8 +42,12 @@ var _last_presentation: Dictionary = {}
 
 
 func _ready() -> void:
+	DisplayPreferences.apply(get_window(), DisplayPreferences.load_mode())
 	show_screen(&"menu")
 	for argument in OS.get_cmdline_user_args():
+		if argument == "--practice":
+			start_practice()
+			return
 		if argument.begins_with(STARTUP_SMOKE_PREFIX):
 			show_screen(&"lobby")
 			var marker_path := argument.trim_prefix(STARTUP_SMOKE_PREFIX)
@@ -112,21 +122,24 @@ func current_screen_id() -> StringName:
 
 
 func show_screen(screen_id: StringName, model: Dictionary = {}) -> void:
-	for child in _screen_host.get_children():
-		_screen_host.remove_child(child)
-		child.queue_free()
 	var scene: PackedScene
 	match screen_id:
-		&"menu": scene = MAIN_MENU_SCENE
+		&"menu", &"create_lobby", &"join_lobby": scene = MAIN_MENU_SCENE
 		&"lobby": scene = LOBBY_SCENE
 		&"match": scene = MATCH_SCENE
 		&"results": scene = RESULTS_SCENE
 		_: return
+	_close_general_settings()
+	if is_instance_valid(_current_screen):
+		_screen_host.remove_child(_current_screen)
+		_current_screen.queue_free()
 	_current_screen_id = screen_id
 	_current_screen = scene.instantiate()
 	_screen_host.add_child(_current_screen)
 	if _current_screen is Control:
 		_current_screen.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	if _current_screen.has_method("set_page"):
+		_current_screen.set_page(screen_id, _player_name)
 	_wire_current_screen()
 	if not model.is_empty() and _current_screen.has_method("render"):
 		_current_screen.render(model)
@@ -134,6 +147,8 @@ func show_screen(screen_id: StringName, model: Dictionary = {}) -> void:
 
 func present_state(state: Dictionary) -> void:
 	_last_presentation = state.duplicate(true)
+	if state.is_empty():
+		return
 	var requested_screen := StringName(state.get("screen_id", ""))
 	if bool(state.get("match_complete", false)):
 		requested_screen = &"results"
@@ -187,7 +202,7 @@ func _on_session_failed(reason: String) -> void:
 	command_gateway.set_input_locked(true)
 	presentation_queue.skip_to_latest()
 	_set_connection("failed", reason)
-	if _current_screen_id == &"menu" and _current_screen.has_method("show_error"):
+	if _current_screen_id in [&"menu", &"create_lobby", &"join_lobby"]:
 		_current_screen.show_error(_connection_error_message(reason))
 	elif _current_screen_id == &"lobby" and _current_screen.has_method("show_error"):
 		_current_screen.show_error(StringName(reason))
@@ -213,44 +228,90 @@ func _on_presentation_changed(state: Dictionary, sequence: int) -> void:
 
 func _wire_current_screen() -> void:
 	match _current_screen_id:
-		&"menu":
+		&"menu", &"create_lobby", &"join_lobby":
 			_current_screen.host_requested.connect(_begin_host_runtime)
 			_current_screen.join_requested.connect(_begin_join_runtime)
+			_current_screen.screen_requested.connect(_on_menu_screen_requested)
+			_current_screen.settings_requested.connect(_open_general_settings)
+			_current_screen.practice_requested.connect(start_practice)
 		&"lobby":
 			_current_screen.setting_change_requested.connect(func(key: StringName, value: Variant): _on_lobby_intent(&"setting", {"key": key, "value": value}))
 			_current_screen.ready_requested.connect(func(ready: bool): _on_lobby_intent(&"ready", {"ready": ready}))
 			_current_screen.start_requested.connect(func(): _on_lobby_intent(&"start", {}))
 			_current_screen.leave_requested.connect(_return_to_menu)
+			_current_screen.retry_requested.connect(func(): _on_connection_action(&"retry"))
 		&"match":
 			_current_screen.intent_requested.connect(_on_match_intent)
 			_current_screen.connection_action_requested.connect(_on_connection_action)
+			_connect_if_present(_current_screen, "settings_requested", _open_general_settings)
+			_connect_if_present(_current_screen, "leave_requested", _return_to_menu)
 		&"results":
 			_current_screen.rematch_requested.connect(_on_rematch_requested)
 			_current_screen.return_to_lobby_requested.connect(_on_return_to_lobby_requested)
 			_current_screen.menu_requested.connect(_return_to_menu)
 
 
+func _on_menu_screen_requested(screen_id: StringName) -> void:
+	if not _current_screen.player_name().is_empty():
+		_player_name = _current_screen.player_name()
+	if screen_id == &"menu":
+		_return_to_menu()
+	else:
+		request_screen(screen_id)
+
+
+func _open_general_settings() -> void:
+	if is_instance_valid(_settings_overlay):
+		return
+	var previous_focus := get_viewport().gui_get_focus_owner()
+	_settings_previous_focus = weakref(previous_focus) if previous_focus != null else null
+	_settings_overlay = GENERAL_SETTINGS_SCENE.instantiate()
+	_settings_overlay.back_requested.connect(_close_general_settings)
+	_screen_host.add_child(_settings_overlay)
+
+
+func _close_general_settings() -> void:
+	if not is_instance_valid(_settings_overlay):
+		return
+	_screen_host.remove_child(_settings_overlay)
+	_settings_overlay.queue_free()
+	_settings_overlay = null
+	var previous_focus: Control = _settings_previous_focus.get_ref() if _settings_previous_focus != null else null
+	_settings_previous_focus = null
+	if is_instance_valid(previous_focus) and previous_focus.is_visible_in_tree():
+		previous_focus.grab_focus()
+
+
+func start_practice() -> void:
+	_close_current_session()
+	bind_session(PracticeGameSession.new())
+	_session.start()
+
+
 func _begin_host_runtime(player_name: String) -> void:
+	_player_name = player_name
 	host_requested.emit(player_name)
 	_replace_runtime_session()
 	var error: Error = _session.start_host(_signaling_url(), player_name)
 	if error != OK:
+		_set_connection("idle", "")
 		_show_current_error("Could not start the room service (%d)." % error)
 
 
 func _begin_join_runtime(player_name: String, room_code: String, role: String) -> void:
+	_player_name = player_name
 	join_requested.emit(player_name, room_code, role)
 	_replace_runtime_session()
 	var error: Error = _session.start_join(
 		_signaling_url(), room_code, role, player_name
 	)
 	if error != OK:
+		_set_connection("idle", "")
 		_show_current_error("Could not contact that room (%d)." % error)
 
 
 func _replace_runtime_session() -> void:
-	if _session != null and _session.has_method("close"):
-		_session.close()
+	_close_current_session()
 	bind_session(RuntimeGameSession.new())
 
 
@@ -281,11 +342,17 @@ func _on_lobby_intent(kind: StringName, payload: Dictionary) -> void:
 
 
 func _return_to_menu() -> void:
-	if _session != null and _session.has_method("close"):
-		_session.close()
-	bind_session(null)
-	presentation_state.clear()
+	_close_current_session()
 	show_screen(&"menu")
+
+
+func _close_current_session() -> void:
+	var previous_session: Variant = _session
+	bind_session(null)
+	if previous_session != null and previous_session.has_method("close"):
+		previous_session.close()
+	presentation_queue.clear()
+	presentation_state.clear()
 
 
 func _signaling_url() -> String:
@@ -333,10 +400,18 @@ func _on_connection_action(action: StringName) -> void:
 
 func _on_rematch_requested(payload: Dictionary) -> void:
 	rematch_requested.emit(payload.duplicate(true))
-	show_screen(&"lobby", _lobby_from_result(payload))
+	if bool(payload.get("is_practice", false)):
+		start_practice()
+	else:
+		_on_return_to_lobby_requested(payload)
 
 
 func _on_return_to_lobby_requested(payload: Dictionary) -> void:
+	if _session != null and _session.has_method("reset_for_rematch"):
+		var result: Error = _session.reset_for_rematch()
+		if result != OK:
+			_show_current_error("Could not return to the lobby. Try again.")
+		return
 	show_screen(&"lobby", _lobby_from_result(payload))
 
 

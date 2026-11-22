@@ -226,6 +226,12 @@ func test_joker_draft_is_owner_only_and_resolved_view_is_public() -> void:
 		&"pass-two", &"two", CommandKinds.STAGE_HAND, {"cards": []}
 	), 1)
 	controller.submit(GameCommand.new(&"lock-one", &"one", CommandKinds.LOCK_HAND), 2)
+	var submitted := SnapshotProjector.for_recipient(
+		state, &"one", GameTypes.RecipientRole.ACTIVE_PLAYER
+	)
+	assert_eq(submitted.private_hand.size(), owner.private_hand.size() - 1)
+	assert_false(submitted.private_hand.any(func(card: Dictionary): return card.card_id == str(joker.card_id)))
+	assert_eq(submitted.private_staging.get("submitted_score", {}).get("base_value", -1), 0)
 	var between_locks := SnapshotProjector.for_recipient(
 		state, &"watcher", GameTypes.RecipientRole.SPECTATOR
 	)
@@ -243,6 +249,7 @@ func test_joker_draft_is_owner_only_and_resolved_view_is_public() -> void:
 	]:
 		var projected := SnapshotProjector.for_recipient(state, entry[0], entry[1])
 		var revealed: Dictionary = _player_view(projected.players, &"one").revealed_submission
+		assert_eq(_player_view(projected.players, &"one").hand_count, owner.private_hand.size() - 1)
 		revealed_views.append(revealed.cards)
 		assert_true(revealed.has("score_breakdown"))
 		assert_true(revealed.score_breakdown.has("card_hand_components"))

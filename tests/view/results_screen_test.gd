@@ -3,6 +3,21 @@ extends "res://tests/test_case.gd"
 const RESULTS_PATH := "res://src/view/results/results_screen.tscn"
 
 
+func test_results_reports_victory_or_defeat_for_the_local_player() -> void:
+	var results = await _mount()
+	var model := _result_model()
+	model["private_player_id"] = "p1"
+	results.render(model)
+	assert_eq(results.get_node("Layout/Eyebrow").text, "Victory")
+	model["private_player_id"] = "p2"
+	results.render(model)
+	assert_eq(results.get_node("Layout/Eyebrow").text, "Defeat")
+	model.erase("private_player_id")
+	results.render(model)
+	assert_eq(results.get_node("Layout/Eyebrow").text, "Match Complete")
+	await _unmount(results)
+
+
 func test_normal_winner_nil_note_and_final_standings_render() -> void:
 	var results = await _mount()
 	if results == null:

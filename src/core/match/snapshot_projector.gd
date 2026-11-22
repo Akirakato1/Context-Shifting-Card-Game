@@ -27,7 +27,8 @@ static func for_recipient(
 		var projected_player := {
 			"player_id": str(player.player_id), "seat_index": player.seat_index,
 			"spectator": player.spectator, "active": player.active, "pending": player.pending,
-			"connected": player.connected, "hand_count": player.hand.size(),
+			"connected": player.connected,
+			"hand_count": player.hand.size() - (player.submitted_cards.size() if player.submission_revealed else 0),
 			"ability_count": player.ability_hand.size(), "match_score": player.match_score,
 			"round_wins": player.round_wins, "ready": player.ready,
 		}
@@ -75,18 +76,28 @@ static func for_recipient(
 		for ability_id in recipient.completed_manipulation_ids:
 			completed_manipulations.append(str(ability_id))
 		snapshot["private_player_id"] = str(recipient_id)
+		# The submitted cards stay reserved until End discards them into their piles.
+		var available_hand: Array = recipient.hand.filter(func(card): return card not in recipient.submitted_cards)
 		snapshot["private_hand"] = _private_hand(
-			recipient.hand, active_contexts, recipient.submission_locked_card_ids
+			available_hand, active_contexts, recipient.submission_locked_card_ids
 		)
 		snapshot["private_abilities"] = _private_abilities(
 			recipient.ability_hand, state.phase
 		)
+		var modifiers: Array = []
+		for modifier in recipient.factor_modifiers:
+			modifiers.append(_project_modifier(modifier))
+		snapshot["private_score_modifiers"] = modifiers
 		snapshot["private_staging"] = {
 			"pending_manipulation": recipient.pending_manipulation.duplicate(true),
 			"completed_manipulation_ids": completed_manipulations,
 			"staged_submission": recipient.staged_submission.duplicate(true),
 			"hand_locked": recipient.hand_locked,
 		}
+		if recipient.hand_locked and recipient.provisional_score != null:
+			snapshot["private_staging"]["submitted_score"] = score_breakdown(
+				recipient.provisional_score, recipient.submitted_faces
+			)
 		snapshot["private_connection"] = {
 			"reconnect_token": recipient.reconnect_token,
 			"disconnect_deadline_msec": recipient.disconnect_deadline_msec,
@@ -97,12 +108,17 @@ static func for_recipient(
 static func _active_fields(state: MatchState) -> Array:
 	var result: Array = []
 	for field in state.ability_deck.active_fields():
-		result.append({
+		var parameters: Dictionary = field.ability.definition.effect_parameters
+		var projected := {
 			"ability_id": str(field.ability.definition.id),
 			"source_player_id": str(field.source_player_id),
 			"remaining_rounds": field.remaining_rounds,
 			"persistent": field.is_persistent(),
-		})
+		}
+		if parameters.has("field_rule"):
+			parameters["field_rule"] = str(parameters.field_rule)
+			projected["effect_parameters"] = parameters
+		result.append(projected)
 	return result
 
 
@@ -116,11 +132,14 @@ static func _revealed_submission(player) -> Dictionary:
 	if player.provisional_score != null:
 		result["base_value"] = player.provisional_score.base_value
 		result["provisional_score"] = player.provisional_score.final_score
-		result["score_breakdown"] = _public_score_breakdown(player.provisional_score)
+		result["score_breakdown"] = score_breakdown(player.provisional_score)
 	return result
 
 
-static func _public_score_breakdown(value) -> Dictionary:
+static func score_breakdown(value, selected_faces: Array = []) -> Dictionary:
+	var base_components: Array = []
+	for face in selected_faces:
+		base_components.append({"rank": face.rank, "suit": face.suit, "joker": face.rank == 0})
 	var card_components: Array = []
 	for component in value.card_hand_components: card_components.append(_public_component(component))
 	var context_components: Array = []
@@ -129,10 +148,9 @@ static func _public_score_breakdown(value) -> Dictionary:
 	for component in value.field_components: field_components.append(_public_component(component))
 	var modifiers: Array = []
 	for modifier in value.applied_modifiers:
-		modifiers.append({"factor_id": str(modifier.factor_id), "category_id": str(modifier.category_id),
-			"delta": _public_rational(modifier.delta), "source_definition_id": str(modifier.source_definition_id)})
+		modifiers.append(_project_modifier(modifier))
 	return {
-		"base_value": value.base_value,
+		"base_value": value.base_value, "base_components": base_components,
 		"card_hand_components": card_components, "context_hand_components": context_components,
 		"field_components": field_components, "applied_modifiers": modifiers,
 		"card_hand_unclamped": _public_rational(value.card_hand_unclamped),
@@ -143,6 +161,11 @@ static func _public_score_breakdown(value) -> Dictionary:
 		"field_factor": _public_rational(value.field_factor),
 		"raw_score": _public_rational(value.raw_score), "final_score": value.final_score,
 	}
+
+
+static func _project_modifier(modifier) -> Dictionary:
+	return {"factor_id": str(modifier.factor_id), "category_id": str(modifier.category_id),
+		"delta": _public_rational(modifier.delta), "source_definition_id": str(modifier.source_definition_id)}
 
 
 static func _public_component(component) -> Dictionary:

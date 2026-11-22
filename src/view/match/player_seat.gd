@@ -6,13 +6,50 @@ const CARD_SCENE := preload("res://src/view/match/card_widget.tscn")
 @export var seat_position: StringName = &"empty"
 
 var _hidden_cards := 0
+var show_placeholder_guides := true
+var seat_art: StyleBox
 
 @onready var _name: Label = $Info/Name
 @onready var _status: Label = $Info/Status
 @onready var _score: Label = $ScoreSummary
 @onready var _request: Label = $Request
 @onready var _hand_count: Label = $HandCount
-@onready var _hand: HBoxContainer = $Hand
+@onready var _hand: HFlowContainer = $Hand
+@onready var _seat_tally: Label = $SeatTally
+@onready var _ability_holder: HBoxContainer = $AbilityHolder
+
+
+func _ready() -> void:
+	resized.connect(queue_redraw)
+
+
+func _draw() -> void:
+	var frame := seat_art if seat_art != null else (get_theme_stylebox("panel") if show_placeholder_guides else null)
+	if frame != null:
+		draw_style_box(frame, Rect2(-10, -8, size.x + 20, size.y + 16))
+
+
+func render_table_seat(player: Dictionary, victory_mode: int) -> void:
+	_seat_tally.visible = not player.is_empty()
+	_ability_holder.visible = not player.is_empty()
+	for child in _ability_holder.get_children():
+		_ability_holder.remove_child(child)
+		child.queue_free()
+	if player.is_empty():
+		return
+	_seat_tally.text = "◉    %d %s" % [
+		int(player.get("round_wins" if victory_mode == 1 else "match_score", 0)),
+		"wins" if victory_mode == 1 else "pts",
+	]
+	var count := int(player.get("ability_count", 0))
+	for i in mini(count, 4):
+		var back := Label.new()
+		back.text = "◇"
+		back.modulate = Color("d1baed")
+		_ability_holder.add_child(back)
+	var amount := Label.new()
+	amount.text = "%d abilities" % count
+	_ability_holder.add_child(amount)
 
 
 func render(
@@ -49,13 +86,13 @@ func render(
 	else:
 		hidden = true
 		_hidden_cards = int(player.get("hand_count", 0))
-		var visible_backs := 0 if seat_position == &"top" else mini(_hidden_cards, 3)
+		var visible_backs := mini(_hidden_cards, 3)
 		for index in visible_backs:
 			cards.append({"card_id": "back_%d" % index})
 	_hand_count.visible = hidden
-	_hand_count.text = "%d cards" % _hidden_cards if hidden else ""
-	_hand_count.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT if seat_position == &"top" else HORIZONTAL_ALIGNMENT_CENTER
-	_hand.alignment = BoxContainer.ALIGNMENT_BEGIN if seat_position == &"top" else BoxContainer.ALIGNMENT_CENTER
+	_hand_count.text = "Private hand · %d %s" % [
+		_hidden_cards, "card" if _hidden_cards == 1 else "cards",
+	] if hidden else ""
 	_hand.visible = show_hand and (is_local or not cards.is_empty())
 	for card in cards:
 		var widget = CARD_SCENE.instantiate()
@@ -63,6 +100,7 @@ func render(
 		if not is_local:
 			widget.custom_minimum_size = Vector2(72, 58)
 		widget.render(card, active_context, hidden, {"active_contexts": active_contexts})
+		widget.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_score.text = _score_text(player, revealed)
 
 
@@ -104,6 +142,9 @@ func _request_text(request: Dictionary) -> String:
 
 func _score_text(player: Dictionary, revealed: Dictionary) -> String:
 	if not revealed.is_empty():
+		var cards: Array = revealed.get("cards", [])
+		if revealed.has("cards") and cards.is_empty():
+			return "Passed · 0 points"
 		if revealed.has("score_breakdown"):
 			return _factor_score_text(revealed.score_breakdown, "pts")
 		return "%s  ×  %s   ·   %d pts" % [

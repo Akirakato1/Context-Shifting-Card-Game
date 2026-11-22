@@ -3,12 +3,12 @@
 [ext_resource type="Script" path="res://src/view/match/player_seat.gd" id="1_script"]
 
 [sub_resource type="StyleBoxFlat" id="Style_seat"]
-bg_color = Color(0.045, 0.07, 0.098, 0.94)
+bg_color = Color(0.118, 0.153, 0.188, 1)
 border_width_left = 1
 border_width_top = 1
 border_width_right = 1
 border_width_bottom = 1
-border_color = Color(0.18, 0.3, 0.39, 1)
+border_color = Color(0.259, 0.325, 0.384, 1)
 corner_radius_top_left = 10
 corner_radius_top_right = 10
 corner_radius_bottom_right = 10
@@ -21,12 +21,8 @@ content_margin_bottom = 8.0
 [node name="PlayerSeat" type="VBoxContainer"]
 custom_minimum_size = Vector2(280, 142)
 theme_override_constants/separation = 5
-script = ExtResource("1_script")
-
-[node name="Background" type="Panel" parent="."]
-show_behind_parent = true
-layout_mode = 2
 theme_override_styles/panel = SubResource("Style_seat")
+script = ExtResource("1_script")
 
 [node name="Info" type="HBoxContainer" parent="."]
 layout_mode = 2
@@ -37,6 +33,7 @@ size_flags_horizontal = 3
 theme_override_colors/font_color = Color(0.93, 0.95, 0.98, 1)
 theme_override_font_sizes/font_size = 16
 text = "OPEN SEAT"
+text_overrun_behavior = 3
 
 [node name="Status" type="Label" parent="Info"]
 layout_mode = 2
@@ -48,6 +45,17 @@ layout_mode = 2
 theme_override_colors/font_color = Color(1, 0.82, 0.38, 1)
 text = ""
 horizontal_alignment = 1
+autowrap_mode = 2
+
+[node name="SeatTally" type="Label" parent="."]
+visible = false
+layout_mode = 2
+horizontal_alignment = 1
+
+[node name="AbilityHolder" type="HBoxContainer" parent="."]
+visible = false
+layout_mode = 2
+alignment = 1
 
 [node name="Request" type="Label" parent="."]
 visible = false
@@ -63,7 +71,8 @@ theme_override_colors/font_color = Color(0.52, 0.62, 0.72, 1)
 text = "0 cards"
 horizontal_alignment = 1
 
-[node name="Hand" type="HBoxContainer" parent="."]
+[node name="Hand" type="HFlowContainer" parent="."]
 layout_mode = 2
-size_flags_horizontal = 4
-theme_override_constants/separation = 6
+alignment = 1
+theme_override_constants/h_separation = 6
+theme_override_constants/v_separation = 6

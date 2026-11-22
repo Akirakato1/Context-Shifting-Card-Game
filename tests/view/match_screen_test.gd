@@ -17,12 +17,73 @@ func test_table_renders_four_fixed_seats_local_hand_and_hidden_opponents() -> vo
 	assert_eq(table.get_node("TableLayer/LeftSeat").seat_position, &"left")
 	assert_eq(table.get_node("TableLayer/RightSeat").seat_position, &"right")
 	assert_eq(table.get_node("TableLayer/BottomSeat").seat_position, &"bottom")
-	assert_eq(table.get_node("TableLayer/BottomSeat").visible_card_count(), 6)
+	assert_eq(table.get_node("PhaseControls/HandPlayControls/Hand/Cards").get_child_count(), 6)
 	assert_eq(table.get_node("TableLayer/LeftSeat").hidden_card_count(), 4)
 	assert_eq(table.get_node("TableLayer/TopSeat").hidden_card_count(), 6)
+	assert_eq(table.get_node("TableLayer/TopSeat/HandCount").text, "Private hand · 6 cards")
+	assert_eq(table.get_node("TableLayer/TopSeat/Hand").get_child_count(), 3)
 	assert_eq(table.get_node("TableLayer/RightSeat").hidden_card_count(), 5)
 	assert_eq(table.get_node("TableLayer/BottomSeat/Info/Name").text, "YOU  ·  Mira")
 	assert_eq(table.get_node("TableLayer/TopSeat/Info/Status").text, "READY")
+	await _unmount(table)
+
+
+func test_main_two_submissions_stay_available_and_update_from_public_snapshots() -> void:
+	var table = await _mount_match()
+	if table == null:
+		return
+	var model := _active_player_model()
+	model.phase = 4
+	model.private_hand = model.private_hand.slice(1)
+	model.players[0]["revealed_submission"] = {
+		"cards": [_revealed_card("c1", 2, 9, 1, 0, 4, 2, 1)], "provisional_score": 27,
+	}
+	model.players[1]["revealed_submission"] = {"cards": [], "provisional_score": 0}
+	var opponent_cards: Array = []
+	for index in 6:
+		opponent_cards.append(_revealed_card("opp%d" % index, 1, 8, 1, 0, 6, 2, 0))
+	model.players[2]["revealed_submission"] = {"cards": opponent_cards, "provisional_score": 55}
+	model.players[3]["revealed_submission"] = {
+		"cards": [_revealed_card("d1", 2, 9, 1, 0, 4, 2, 1)], "provisional_score": 27,
+	}
+	table.render(model)
+	var reveal: Control = table.get_node("RoundReveal")
+	var tabs: HBoxContainer = reveal.get_node("Content/Navigation/Players")
+	var cards: HBoxContainer = reveal.get_node("Content/Cards")
+	var score: Label = reveal.get_node("Content/Score")
+	await Engine.get_main_loop().create_timer(4.4).timeout
+	assert_true(reveal.visible)
+	assert_eq(tabs.get_child_count(), 4)
+	assert_eq(tabs.get_child(0).text, "Mira (You)")
+	assert_eq(cards.get_child_count(), 1)
+	assert_eq(cards.get_child(0).card_id, "c1")
+	assert_eq(cards.get_child(0).active_half_index, 1)
+	assert_true(cards.get_child(0).interaction_disabled)
+	assert_eq(table.get_node("PhaseControls").card_widget(&"c1"), null)
+	assert_true(reveal.get_global_rect().end.y < table.get_node("PhaseControls/MainControls").get_global_rect().position.y)
+	tabs.get_child(1).pressed.emit()
+	assert_eq(cards.get_child_count(), 0)
+	assert_eq(score.text, "Passed · 0 points")
+	tabs.get_child(2).pressed.emit()
+	assert_true(tabs.get_child(2).button_pressed)
+	assert_false(tabs.get_child(1).button_pressed)
+	assert_eq(cards.get_child_count(), 6)
+	assert_eq(score.text, "55 provisional points")
+	model.players[2].revealed_submission.provisional_score = 88
+	table.render(model)
+	assert_eq(cards.get_child_count(), 6)
+	assert_eq(score.text, "88 provisional points")
+	model.erase("private_player_id")
+	model.erase("private_hand")
+	table.render(model)
+	assert_true(reveal.visible)
+	assert_false(table.get_node("PhaseControls").visible)
+	assert_eq(tabs.get_child(0).text, "Mira")
+	tabs.get_child(3).pressed.emit()
+	assert_eq(cards.get_child(0).card_id, "d1")
+	model.phase = 5
+	table.render(model)
+	assert_false(reveal.visible)
 	await _unmount(table)
 
 
@@ -40,7 +101,7 @@ func test_local_and_revealed_cards_render_effective_faces_and_active_half() -> v
 		"finalized_score": 31,
 	}
 	table.render(model)
-	var local_card = table.get_node("TableLayer/BottomSeat").card_at(0)
+	var local_card = table.get_node("PhaseControls").card_widget(&"c1")
 	assert_eq(local_card.first_face_text(), "Rise  7  Mountain")
 	assert_eq(local_card.second_face_text(), "Flourish  4  Sea")
 	assert_eq(local_card.active_half_index, 1)
@@ -127,6 +188,10 @@ func test_context_score_progress_fields_and_nil_round_render_clearly() -> void:
 		{"ability_id": "reverse_cycle", "source_player_id": "p3", "remaining_rounds": -1, "persistent": true},
 		{"ability_id": "fall_resonance", "source_player_id": "p2", "remaining_rounds": 1, "persistent": false},
 	]
+	model["ability_catalog"] = {
+		"reverse_cycle": {"display_name": "Reverse Cycle", "rules_text": "Reverse the direction in which contexts cycle."},
+		"fall_resonance": {"display_name": "Fall Resonance", "rules_text": "Fall is also active this round."},
+	}
 	model["active_contexts"] = [1, 2]
 	model.players[0]["provisional_score"] = {
 		"score_breakdown": {
@@ -148,7 +213,7 @@ func test_context_score_progress_fields_and_nil_round_render_clearly() -> void:
 		},
 	}
 	table.render(model)
-	assert_eq(table.get_node("Header/Phase").text, "HAND PLAY")
+	assert_eq(table.get_node("PhaseBadge/Phase").text, "HAND PLAY")
 	assert_eq(table.get_node("Header/Round").text, "ROUND 4")
 	assert_eq(table.get_node("Header/Timer").text, "12.4s")
 	assert_eq(table.get_node("Center/ContextClock/Direction").text, "Fall  ←  Flourish  ←  Rise")
@@ -159,16 +224,22 @@ func test_context_score_progress_fields_and_nil_round_render_clearly() -> void:
 	assert_true(score_text.contains("Straight +3"))
 	assert_true(score_text.contains("Flush -2"))
 	assert_true(score_text.contains("550 provisional"))
-	assert_eq(table.get_node("Header/Progress").text, "SCORE RACE  ·  36 / 100")
-	assert_eq(table.get_node("Center/Fields/FieldRows").get_child_count(), 2)
-	assert_true(table.get_node("Center/Fields/FieldRows").get_child(0).text.contains("Persistent"))
-	assert_true(table.get_node("Center/Fields/FieldRows").get_child(1).text.contains("1 round"))
+	assert_eq(table.get_node("MatchScore/Progress").text, "SCORE RACE  ·  36 / 100")
+	var field_rows: VBoxContainer = table.get_node("Center/Fields/FieldScroll/FieldRows")
+	assert_eq(field_rows.get_child_count(), 2)
+	assert_true(field_rows.get_child(0).text.contains("Persistent"))
+	var field_info: Button = field_rows.get_child(1)
+	assert_true(field_info.text.contains("1 round"))
+	assert_true(field_info.tooltip_text.contains("Fall is also active this round."))
+	assert_true(field_info.text.contains(model.players[1].name))
+	field_info.pressed.emit()
+	assert_eq(table._field_details.dialog_text, "Fall is also active this round.")
 	assert_eq(table.get_node("Center/RoundResult").text, "NIL ROUND  ·  no progress awarded")
 
 	model["victory_mode"] = 1
 	model["victory_target"] = 5
 	table.render(model)
-	assert_eq(table.get_node("Header/Progress").text, "ROUND-WIN RACE  ·  2 / 5")
+	assert_eq(table.get_node("MatchScore/Progress").text, "ROUND-WIN RACE  ·  2 / 5")
 	await _unmount(table)
 
 

@@ -9,6 +9,7 @@ var _model: Dictionary = {}
 var _action_pending := false
 
 @onready var _title: Label = $Layout/Title
+@onready var _outcome: Label = $Layout/Eyebrow
 @onready var _summary: Label = $Layout/Summary
 @onready var _nil_note: Label = $Layout/NilNote
 @onready var _standings: VBoxContainer = $Layout/Standings
@@ -25,6 +26,17 @@ func render(model: Dictionary) -> void:
 	var reason := str(_model.get("end_reason", "victory_target"))
 	var winner_id := str(_model.get("winner_id", ""))
 	var winner := _player_by_id(winner_id)
+	var local_id := str(_model.get("private_player_id", ""))
+	var local_player := _player_by_id(local_id)
+	_outcome.text = "Match Complete"
+	_outcome.modulate = Color.WHITE
+	if not winner_id.is_empty() and not local_player.is_empty():
+		if local_id == winner_id:
+			_outcome.text = "Victory"
+			_outcome.modulate = Color("a7d8c4")
+		else:
+			_outcome.text = "Defeat"
+			_outcome.modulate = Color("ffb0a1")
 	_title.text = "%s WINS" % str(winner.get("name", winner_id)).to_upper() if not winner_id.is_empty() else "MATCH ENDED"
 	_summary.text = _summary_text(reason)
 	_nil_note.visible = bool(_model.get("last_round_nil", false))
@@ -34,11 +46,26 @@ func render(model: Dictionary) -> void:
 	_room.text = "ROOM %s  ·  occupants stay together for a rematch" % room_code
 	var host := bool(_model.get("is_host", false))
 	var host_loss := reason == "host_disconnect"
-	_rematch.visible = host and not host_loss
-	_lobby.visible = host and not host_loss
-	_menu.visible = host_loss
-	_waiting.visible = not host and not host_loss
+	var practice := bool(_model.get("is_practice", false))
+	_room.visible = not practice and not host_loss
+	_rematch.text = "Play Again" if practice else "Rematch"
+	_rematch.visible = practice or (host and not host_loss)
+	_lobby.visible = host and not host_loss and not practice
+	_menu.visible = true
+	_rematch.disabled = false
+	_lobby.disabled = false
+	_waiting.visible = not host and not host_loss and not practice
+	_waiting.modulate = Color.WHITE
 	_waiting.text = "Waiting for the host to return everyone to the lobby…" if _waiting.visible else ""
+
+
+func show_error(message: String) -> void:
+	_waiting.visible = true
+	_waiting.text = message
+	_waiting.modulate = Color("ffb0a1")
+	_action_pending = false
+	_rematch.disabled = false
+	_lobby.disabled = false
 
 
 func _render_standings() -> void:
@@ -63,6 +90,10 @@ func _render_standings() -> void:
 			int(player.get("match_score", 0)), int(player.get("round_wins", 0)),
 		]
 		row.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		row.custom_minimum_size.y = 48
+		row.add_theme_font_size_override("font_size", 24)
+		if str(player.get("player_id", "")) == str(_model.get("winner_id", "")):
+			row.add_theme_color_override("font_color", Color("ffda89"))
 		_standings.add_child(row)
 
 
@@ -92,6 +123,7 @@ func _transition_payload() -> Dictionary:
 		if player is Dictionary:
 			occupant_ids.append(str(player.get("player_id", "")))
 	return {
+		"is_practice": bool(_model.get("is_practice", false)),
 		"room_code": str(_model.get("room_code", "")),
 		"occupant_ids": occupant_ids,
 		"host_settings_unlocked": true,

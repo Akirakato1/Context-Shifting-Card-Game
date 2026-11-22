@@ -93,7 +93,23 @@ func test_host_runtime_builds_authority_after_first_active_peer_and_projects_nam
 	assert_eq(transport.signaling_reconnects, 1)
 	assert_true(failures.is_empty())
 
+	var opening_abilities: Array = snapshots[-1].private_abilities.map(func(ability): return ability.copy_id)
+	transport.clear_sent()
 	assert_eq(runtime.start_match(), OK)
+	assert_eq(snapshots[-1].phase, GameTypes.Phase.MAIN_1)
+	assert_eq(snapshots[-1].private_abilities.map(func(ability): return ability.copy_id), opening_abilities)
+	assert_eq(snapshots[-1].phase_deadline_msec, _now() + runtime._controller.state.config.public_hard_limit_msec)
+	var guest_opening := transport.sent.filter(
+		func(entry): return entry.peer_id == "peer-two"
+	)
+	var guest_snapshot = preload("res://src/network/game_protocol.gd").decode(
+		guest_opening[-1].bytes
+	).envelope.payload.state
+	assert_eq(guest_snapshot.phase, GameTypes.Phase.MAIN_1)
+	assert_eq(
+		guest_snapshot.private_abilities.map(func(ability): return ability.copy_id),
+		peer_two_snapshot.private_abilities.map(func(ability): return ability.copy_id)
+	)
 	assert_eq(runtime.submit_command("ready-host", {
 		"command_id": "ready-host-command",
 		"kind": "set_ready",
@@ -147,12 +163,93 @@ func test_runtime_config_uses_recipe_with_all_four_ability_categories() -> void:
 	runtime.close()
 
 
-func test_ability_catalog_projects_name_rules_text_timing_and_schema() -> void:
+func test_host_recipe_updates_existing_deck_and_public_catalog_before_start() -> void:
+	var transport := RuntimeTransport.new()
+	var clock_value := [1000]
+	var runtime = RuntimeGameSession.new(transport, func(): return clock_value[0])
+	var snapshots: Array[Dictionary] = []
+	runtime.snapshot_applied.connect(func(snapshot: Dictionary, _sequence: int):
+		snapshots.append(snapshot)
+	)
+	assert_eq(runtime.start_host("ws://127.0.0.1:8080", "Mira"), OK)
+	transport.lobby_created.emit("ABC234")
+	assert_eq(snapshots[-1].get("ability_catalog", {}).size(), 54)
+	var recipe := AbilityCatalog.provisional_deck_recipe()
+	recipe[&"context_exchange"] = 1
+	assert_eq(runtime.update_lobby_setting(&"ability_deck_recipe", recipe), &"")
+	transport.join_status.emit("approved", {
+		"peer_id": "peer-one", "role": "active", "display_name": "Noah",
+	})
+	transport.peer_connected.emit("peer-one")
+	assert_eq(snapshots[-1].get("ability_catalog", {}).get("context_exchange", {}).get("copies"), 1)
+	var previous_hand: Array = snapshots[-1].private_hand
+	var previous_connection: Dictionary = snapshots[-1].get("private_connection", {})
+	# A lobby can remain open past the round's Start timer while the host edits.
+	_transport_heartbeat(transport, 1000)
+	runtime.poll()
+	for step in range(1, 5):
+		clock_value[0] += 6000
+		_transport_heartbeat(transport, clock_value[0])
+		runtime.poll()
+	assert_eq(runtime._controller.state.phase, GameTypes.Phase.START)
+	transport.clear_sent()
+	recipe[&"context_exchange"] = 0
+	recipe[&"mirror_rank"] = 5
+	assert_eq(runtime.update_lobby_setting(&"ability_deck_recipe", recipe), &"")
+	var latest: Dictionary = snapshots[-1]
+	assert_eq(latest.get("ability_catalog", {}).get("context_exchange", {}).get("copies"), 0)
+	assert_eq(latest.get("ability_catalog", {}).get("mirror_rank", {}).get("copies"), 5)
+	assert_eq(latest.private_hand, previous_hand)
+	assert_eq(latest.get("private_connection", {}), previous_connection)
+	var deck_cards: Array = runtime._controller.state.ability_deck.to_dict().cards
+	assert_eq(deck_cards.size(), 89)
+	assert_eq(deck_cards.filter(func(card): return card.definition.id == "context_exchange").size(), 0)
+	assert_eq(deck_cards.filter(func(card): return card.definition.id == "mirror_rank").size(), 5)
+	var guest_received_recipe := false
+	for entry in transport.sent:
+		var decoded := preload("res://src/network/game_protocol.gd").decode(entry.bytes)
+		if decoded.envelope.get("kind") != "snapshot":
+			continue
+		var guest: Dictionary = decoded.envelope.payload.state
+		assert_eq(guest.get("ability_catalog", {}), latest.get("ability_catalog", {}))
+		assert_eq(guest.get("scoring_catalog", {}), latest.get("scoring_catalog", {}))
+		guest_received_recipe = true
+	assert_true(guest_received_recipe)
+
+	assert_eq(runtime.update_lobby_setting(&"ability_deck_recipe", {"unrecognized": 2}), &"invalid_ability_deck_recipe")
+	assert_eq(runtime.update_lobby_setting(&"ability_deck_recipe", {"mirror_rank": 2}), &"insufficient_ability_cards")
+	assert_eq(runtime._controller.state.ability_deck.to_dict().cards, deck_cards)
+	assert_eq(runtime.start_match(), OK)
+	assert_eq(runtime.update_lobby_setting(&"ability_deck_recipe", recipe), &"config_locked")
+
+	var guest_token: String = runtime._controller.state.players[&"peer-one"].reconnect_token
+	runtime._controller.state.match_complete = true
+	runtime._controller.state.phase = GameTypes.Phase.COMPLETE
+	assert_eq(runtime.reset_for_rematch(), OK)
+	assert_eq(snapshots[-1].screen_id, "lobby")
+	assert_eq(snapshots[-1].get("ability_catalog", {}).get("mirror_rank", {}).get("copies"), 5)
+	assert_eq(runtime._controller.state.players[&"peer-one"].reconnect_token, guest_token)
+	assert_eq(runtime.start_match(), OK)
+	assert_eq(snapshots[-1].phase, GameTypes.Phase.MAIN_1)
+	assert_eq(snapshots[-1].private_abilities.size(), 2)
+	runtime.close()
+
+
+func _transport_heartbeat(transport: RuntimeTransport, timestamp: int) -> void:
+	transport.inject_message("peer-one", preload("res://src/network/game_protocol.gd").encode({
+		"v": 1, "kind": "heartbeat_ack", "message_id": "ack-%d" % timestamp,
+		"match_id": "shift-match", "sender_id": "peer-one",
+		"payload": {"timestamp_msec": timestamp},
+	}))
+
+
+func test_ability_catalog_projects_card_text_timing_schema_and_fixed_context() -> void:
 	var definitions: Array = []
 	for definition in AbilityCatalog.manipulation_definitions(1):
 		definitions.append({
 			"id": str(definition.id), "timing": definition.timing,
 			"tags": definition.tags, "effect_id": str(definition.effect_id),
+			"effect_parameters": definition.effect_parameters,
 			"choice_schema": definition.choice_schema,
 			"display_name": definition.display_name,
 			"rules_text": definition.rules_text,
@@ -168,6 +265,8 @@ func test_ability_catalog_projects_name_rules_text_timing_and_schema() -> void:
 		preload("res://src/core/abilities/ability_definition.gd").Timing.HAND_MANIPULATION
 	)
 	assert_eq(catalog.context_exchange.choice_schema.steps[0].kind, "full_card")
+	assert_eq(catalog.context_exchange.context_emblem, -1)
+	assert_eq(catalog.flourish_infusion.context_emblem, 1)
 
 
 func test_join_runtime_uses_assigned_peer_id_for_authoritative_commands() -> void:
@@ -176,6 +275,7 @@ func test_join_runtime_uses_assigned_peer_id_for_authoritative_commands() -> voi
 	assert_eq(runtime.start_join(
 		"ws://127.0.0.1:8080", "abc234", "active", "Noah"
 	), OK)
+	assert_eq(runtime.update_lobby_setting(&"ability_deck_recipe", {"mirror_rank": 20}), &"host_only")
 	assert_eq(transport.joined, {
 		"url": "ws://127.0.0.1:8080", "code": "ABC234", "role": "active",
 		"display_name": "Noah", "reconnect_player_id": "",

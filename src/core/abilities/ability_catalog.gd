@@ -3,6 +3,8 @@ extends RefCounted
 
 const AbilityDefinition = preload("res://src/core/abilities/ability_definition.gd")
 const GameTypes = preload("res://src/core/common/game_types.gd")
+const MAX_RECIPE_COPIES_PER_ABILITY := 20
+const MIN_LOBBY_DECK_SIZE := 12
 
 
 static func manipulation_designs() -> Array[AbilityDefinition]:
@@ -219,6 +221,26 @@ static func all_designs() -> Array[AbilityDefinition]:
 	result.append_array(field_designs())
 	result.append_array(sabotage_designs())
 	return result
+
+
+static func public_catalog(recipe: Dictionary) -> Dictionary:
+	var catalog := {}
+	for definition in all_designs():
+		var id := str(definition.id)
+		catalog[id] = {
+			"id": id,
+			"label": definition.display_name,
+			"display_name": definition.display_name,
+			"rules_text": definition.rules_text,
+			"timing": definition.timing,
+			"tags": definition.tags.map(func(tag): return str(tag)),
+			"field_duration": definition.field_duration,
+			"effect_id": str(definition.effect_id),
+			"context_emblem": int(definition.effect_parameters.get("context", -1)),
+			"choice_schema": definition.choice_schema,
+			"copies": int(recipe.get(id, 0)),
+		}
+	return catalog
 
 
 static func provisional_deck_recipe() -> Dictionary:

@@ -8,11 +8,9 @@ signal session_failed(reason: String)
 signal connection_state_changed(state: Dictionary)
 
 const GameTypes = preload("res://src/core/common/game_types.gd")
-const Rational = preload("res://src/core/common/rational.gd")
 const AbilityCatalog = preload("res://src/core/abilities/ability_catalog.gd")
 const ContextHandCatalog = preload("res://src/core/scoring/context_hand_catalog.gd")
-const AbilityDefinition = preload("res://src/core/abilities/ability_definition.gd")
-const NormalHandDefinition = preload("res://src/core/scoring/normal_hand_definition.gd")
+const ScoringReference = preload("res://src/view/app/scoring_reference.gd")
 const GameCommand = preload("res://src/core/commands/game_command.gd")
 const MatchConfig = preload("res://src/core/match/match_config.gd")
 const MatchState = preload("res://src/core/match/match_state.gd")
@@ -166,25 +164,81 @@ func submit_command(message_id: String, command: Dictionary) -> Error:
 func update_lobby_setting(key: StringName, value: Variant) -> StringName:
 	if _mode != "host":
 		return &"host_only"
-	var error := _apply_setting(_settings, key, value)
+	if _controller != null and (
+		_controller.state.config.match_started or _controller.state.phase != GameTypes.Phase.START
+	):
+		return &"config_locked"
+	if key == &"ability_deck_recipe":
+		return _update_ability_deck_recipe(value)
+	var updated_settings := _settings.duplicate()
+	var error := _apply_setting(updated_settings, key, value)
 	if not error.is_empty():
 		return error
 	if _controller != null:
 		error = _apply_config_setting(_controller.state.config, key, value)
 		if not error.is_empty():
 			return error
+	_settings = updated_settings
+	_publish_lobby_settings()
+	return &""
+
+
+func _update_ability_deck_recipe(value: Variant) -> StringName:
+	if not value is Dictionary:
+		return &"invalid_ability_deck_recipe"
+	var known_ids := AbilityCatalog.provisional_deck_recipe()
+	var recipe := {}
+	var total := 0
+	for id in value:
+		var copies: Variant = value[id]
+		if (not id is String and not id is StringName) or not known_ids.has(id):
+			return &"invalid_ability_deck_recipe"
+		if not copies is int or copies < 0 or copies > AbilityCatalog.MAX_RECIPE_COPIES_PER_ABILITY:
+			return &"invalid_ability_deck_recipe"
+		if copies > 0:
+			recipe[str(id)] = copies
+			total += copies
+	if total < AbilityCatalog.MIN_LOBBY_DECK_SIZE:
+		return &"insufficient_ability_cards"
+	if recipe == _settings.ability_deck_recipe:
+		return &""
+	if _controller != null:
+		var error: StringName = _controller.state.replace_lobby_ability_deck(AbilityCatalog.build_deck(recipe))
+		if not error.is_empty():
+			return error
+	_settings["ability_deck_recipe"] = recipe
+	_publish_lobby_settings()
+	return &""
+
+
+func _publish_lobby_settings() -> void:
+	if _host_session != null:
 		_host_session.publish_state_change([])
 	else:
 		_emit_lobby_snapshot()
-	return &""
 
 
 func start_match() -> Error:
 	if _mode != "host" or _controller == null or _host_session == null:
 		return ERR_UNCONFIGURED
-	if _controller.state.active_player_ids().size() < 2:
+	var state: MatchState = _controller.state
+	if state.config.match_started or state.phase != GameTypes.Phase.START or state.match_complete:
 		return ERR_UNAVAILABLE
-	_controller.state.config.match_started = true
+	if not state.config.validate().is_empty():
+		return ERR_UNAVAILABLE
+	_host_session.publish_state_change(_controller.begin_opening_round(_now_msec()))
+	return OK
+
+
+func reset_for_rematch() -> Error:
+	if _mode != "host" or _controller == null or _host_session == null:
+		return ERR_UNCONFIGURED
+	var state: MatchState = _controller.state
+	if state.phase != GameTypes.Phase.COMPLETE or not state.config.validate().is_empty():
+		return ERR_UNAVAILABLE
+	_controller.reset_for_rematch(Time.get_ticks_usec(), GameTypes.Phase.START)
+	for player_id in _controller.state.active_player_ids():
+		_host_session.sync_player_activation(player_id)
 	_host_session.publish_state_change([])
 	return OK
 
@@ -429,13 +483,13 @@ func _decorate_snapshot(
 	recipient_id: StringName,
 	recipient_role: int
 ) -> Dictionary:
-	var settings: Dictionary = snapshot.get(
-		"lobby_settings", _controller.state.config.to_dict()
-	)
+	var settings: Dictionary = snapshot.get("lobby_settings", {})
+	if settings.is_empty() and _controller != null:
+		settings = _controller.state.config.to_dict()
 	var started := bool(settings.get("match_started", false))
 	if int(snapshot.get("phase", GameTypes.Phase.START)) != GameTypes.Phase.START:
 		started = true
-		snapshot["lobby_settings"]["match_started"] = true
+		settings["match_started"] = true
 	var players: Array = snapshot.get("players", [])
 	var active_count := 0
 	var spectator_count := 0
@@ -462,7 +516,20 @@ func _decorate_snapshot(
 	snapshot["settings"] = _flatten_settings(settings)
 	snapshot["victory_mode"] = int(settings.get("victory_mode", 0))
 	snapshot["victory_target"] = int(settings.get("victory_target", 10))
-	snapshot["ability_catalog"] = _ability_catalog(settings.get("ability_definitions", []))
+	var active_catalog := _ability_catalog(settings.get("ability_definitions", []))
+	var recipe := {}
+	for id in active_catalog:
+		recipe[id] = active_catalog[id].copies
+	var catalog := AbilityCatalog.public_catalog(recipe)
+	# Preserve the actual definition metadata when a match supplies custom definitions.
+	catalog.merge(active_catalog, true)
+	snapshot["ability_catalog"] = catalog
+	snapshot["scoring_catalog"] = ScoringReference.catalog_from_config(settings)
+	snapshot["settings"]["ability_deck_recipe"] = recipe
+	# The catalogue and recipe carry the public deck composition in one entry per design.
+	settings.erase("ability_definitions")
+	settings["ability_deck_recipe"] = recipe
+	snapshot["lobby_settings"] = settings
 	snapshot["required_half_count"] = maxi(
 		0, 6 - snapshot.get("private_hand", []).size()
 	) * 2
@@ -493,6 +560,8 @@ func _emit_lobby_snapshot() -> void:
 		"match_started": false, "players": players,
 		"active_player_count": active_count, "spectator_count": spectator_count,
 		"settings": _settings.duplicate(true),
+		"ability_catalog": AbilityCatalog.public_catalog(_settings.ability_deck_recipe),
+		"scoring_catalog": ScoringReference.default_catalog(),
 		"connection": {"status": "connected", "reason": ""},
 	}, _local_sequence)
 
@@ -544,7 +613,8 @@ func _build_config(active_ids: Array) -> MatchConfig:
 			GameTypes.Phase.END: int(_settings.end_timer_msec),
 		}, int(_settings.reaction_window_msec),
 		int(_settings.public_hard_limit_msec), int(_settings.reconnect_grace_msec),
-		_default_abilities(), _placeholder_normal_hands(), ContextHandCatalog.definitions()
+		AbilityCatalog.build_deck(_settings.ability_deck_recipe),
+		ScoringReference.normal_definitions(), ContextHandCatalog.definitions()
 	)
 
 
@@ -560,6 +630,7 @@ func _default_settings() -> Dictionary:
 		"reaction_window_msec": 2_000,
 		"public_hard_limit_msec": 30_000,
 		"reconnect_grace_msec": 30_000,
+		"ability_deck_recipe": AbilityCatalog.provisional_deck_recipe(),
 	}
 
 
@@ -615,33 +686,24 @@ func _ability_catalog(definitions: Array) -> Dictionary:
 		if not definition is Dictionary:
 			continue
 		var id := str(definition.get("id", ""))
+		if result.has(id):
+			result[id].copies += 1
+			continue
 		var display_name := str(definition.get("display_name", ""))
 		result[id] = {
+			"id": id,
 			"label": display_name if not display_name.is_empty() else id.replace("_", " ").capitalize(),
+			"display_name": display_name if not display_name.is_empty() else id.replace("_", " ").capitalize(),
 			"rules_text": str(definition.get("rules_text", "")),
 			"timing": int(definition.get("timing", -1)),
 			"tags": definition.get("tags", []).duplicate(true),
+			"field_duration": int(definition.get("field_duration", 0)),
 			"effect_id": str(definition.get("effect_id", "noop")),
+			"context_emblem": int(definition.get("effect_parameters", {}).get("context", -1)),
 			"choice_schema": definition.get("choice_schema", {}).duplicate(true),
+			"copies": 1,
 		}
 	return result
-
-
-func _default_abilities() -> Array[AbilityDefinition]:
-	return AbilityCatalog.build_deck(AbilityCatalog.provisional_deck_recipe())
-
-
-func _placeholder_normal_hands() -> Array[NormalHandDefinition]:
-	return [
-		NormalHandDefinition.new(&"high_card", 10, 1, &"high_card", Rational.new(1, 1)),
-		NormalHandDefinition.new(&"pair", 20, 2, &"pair", Rational.new(1, 1)),
-		NormalHandDefinition.new(&"three_kind", 30, 3, &"three_kind", Rational.new(1, 1)),
-		NormalHandDefinition.new(&"straight_three", 40, 3, &"straight", Rational.new(1, 1)),
-		NormalHandDefinition.new(&"straight_four", 41, 4, &"straight", Rational.new(1, 1)),
-		NormalHandDefinition.new(&"straight_five", 42, 5, &"straight", Rational.new(1, 1)),
-		NormalHandDefinition.new(&"straight_six", 43, 6, &"straight", Rational.new(1, 1)),
-		NormalHandDefinition.new(&"full_house", 50, 5, &"full_house", Rational.new(1, 1)),
-	]
 
 
 func _fallback_name(player: Dictionary) -> String:

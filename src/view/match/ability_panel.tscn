@@ -13,40 +13,45 @@ corner_radius_top_left = 10
 corner_radius_top_right = 10
 corner_radius_bottom_right = 10
 corner_radius_bottom_left = 10
-content_margin_left = 10.0
-content_margin_top = 10.0
-content_margin_right = 10.0
-content_margin_bottom = 10.0
+content_margin_left = 8.0
+content_margin_top = 8.0
+content_margin_right = 8.0
+content_margin_bottom = 8.0
 
 [node name="AbilityPanel" type="Control"]
 custom_minimum_size = Vector2(250, 350)
+mouse_filter = 2
 script = ExtResource("1_script")
 
 [node name="Drawer" type="PanelContainer" parent="."]
 visible = false
-layout_mode = 1
-anchors_preset = 12
-anchor_right = 1.0
-anchor_bottom = 1.0
-offset_top = -350.0
-offset_bottom = -56.0
-grow_horizontal = 2
-grow_vertical = 0
+layout_mode = 0
+offset_left = -26.0
+offset_top = -215.0
+offset_right = 248.0
+offset_bottom = 294.0
 theme_override_styles/panel = SubResource("Style_drawer")
 
 [node name="Layout" type="VBoxContainer" parent="Drawer"]
 layout_mode = 2
-theme_override_constants/separation = 6
+theme_override_constants/separation = 5
 
 [node name="Heading" type="Label" parent="Drawer/Layout"]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.76, 0.62, 1, 1)
+theme_override_font_sizes/font_size = 15
 text = "RIGHT-CLICK TO PLAY"
 horizontal_alignment = 1
 
-[node name="Cards" type="VBoxContainer" parent="Drawer/Layout"]
+[node name="Scroll" type="ScrollContainer" parent="Drawer/Layout"]
 layout_mode = 2
-theme_override_constants/separation = 5
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="Cards" type="VBoxContainer" parent="Drawer/Layout/Scroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 7
 
 [node name="ToggleButton" type="Button" parent="."]
 custom_minimum_size = Vector2(250, 48)

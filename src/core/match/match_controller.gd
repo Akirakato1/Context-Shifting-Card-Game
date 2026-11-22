@@ -29,17 +29,20 @@ var _effect_registry: EffectRegistry
 var _end_transaction_active := false
 var _queued_disconnects: Array[Dictionary] = []
 var _reconnect_token_provider: Callable
+var _phase_deadlines_enabled: bool
 var end_transaction_probe: Callable
 
 
 func _init(
 	match_state: MatchState,
 	effects: EffectRegistry = null,
-	reconnect_token_provider: Callable = Callable()
+	reconnect_token_provider: Callable = Callable(),
+	phase_deadlines_enabled: bool = true
 ) -> void:
 	state = match_state
 	_effect_registry = effects if effects != null else EffectRegistry.new()
 	_reconnect_token_provider = reconnect_token_provider
+	_phase_deadlines_enabled = phase_deadlines_enabled
 	_accepted_command_ids = state.accepted_command_ids
 	_start_requests = state.start_requests
 	for player_id in state.players:
@@ -47,6 +50,14 @@ func _init(
 			_accepted_command_ids[player_id] = {}
 	if state.phase == GameTypes.Phase.START:
 		_prepare_start_phase()
+
+
+func begin_opening_round(now_msec: int) -> Array[DomainEvent]:
+	assert(state.round_number == 1 and state.phase == GameTypes.Phase.START)
+	state.config.lock_for_match()
+	state.start_ability_drawn_round = state.round_number
+	var clock_start := state.freeze_started_msec if state.frozen else now_msec
+	return _record_events([_begin_main_one(clock_start)])
 
 
 func submit(command: GameCommand, now_msec: int) -> CommandResult:
@@ -101,12 +112,14 @@ func tick(now_msec: int) -> Array[DomainEvent]:
 	if state.match_complete and state.phase != GameTypes.Phase.END:
 		return []
 	if state.phase == GameTypes.Phase.START:
+		if not state.config.match_started:
+			return []
 		_ensure_phase_clock(now_msec)
-		if now_msec >= state.phase_deadline_msec:
+		if _phase_deadline_reached(now_msec):
 			return _record_events(_finish_start(now_msec))
 	elif state.phase == GameTypes.Phase.MAIN_1:
 		_ensure_phase_clock(now_msec)
-		if now_msec >= state.phase_deadline_msec:
+		if _phase_deadline_reached(now_msec):
 			return _record_events(_finish_main_one(now_msec))
 		if (
 			_all_active_ready()
@@ -115,11 +128,11 @@ func tick(now_msec: int) -> Array[DomainEvent]:
 			return _record_events(_finish_main_one(now_msec))
 	elif state.phase == GameTypes.Phase.HAND_PLAY:
 		_ensure_phase_clock(now_msec)
-		if now_msec >= state.phase_deadline_msec:
+		if _phase_deadline_reached(now_msec):
 			return _record_events(_finish_hand_play(now_msec))
 	elif state.phase == GameTypes.Phase.MAIN_2:
 		_ensure_phase_clock(now_msec)
-		if now_msec >= state.phase_deadline_msec:
+		if _phase_deadline_reached(now_msec):
 			return _record_events(_finish_main_two(now_msec))
 		if (
 			_all_active_ready()
@@ -128,9 +141,17 @@ func tick(now_msec: int) -> Array[DomainEvent]:
 			return _record_events(_finish_main_two(now_msec))
 	elif state.phase == GameTypes.Phase.END:
 		_ensure_phase_clock(now_msec)
-		if now_msec >= state.phase_deadline_msec:
+		if _phase_deadline_reached(now_msec):
 			return _record_events(_finish_end_discards(now_msec))
 	return []
+
+
+func _phase_deadline_reached(now_msec: int) -> bool:
+	return state.phase_deadline_msec >= 0 and now_msec >= state.phase_deadline_msec
+
+
+func _phase_deadline_after(now_msec: int, duration_msec: int) -> int:
+	return now_msec + duration_msec if _phase_deadlines_enabled else -1
 
 
 func _record_events(events: Array[DomainEvent]) -> Array[DomainEvent]:
@@ -199,6 +220,8 @@ func _submit_start(command: GameCommand, now_msec: int) -> CommandResult:
 			if not command.payload.has("ready") or not command.payload.ready is bool:
 				return CommandResult.new(false, &"malformed_command")
 			state.players[command.player_id].ready = command.payload.ready
+			if not state.config.match_started:
+				return CommandResult.new(true)
 			_ensure_phase_clock(now_msec)
 			var events: Array[DomainEvent] = []
 			if _all_active_ready():
@@ -249,9 +272,9 @@ func _ensure_phase_clock(now_msec: int) -> void:
 		return
 	state.phase_started_msec = now_msec
 	if state.phase == GameTypes.Phase.MAIN_1 or state.phase == GameTypes.Phase.MAIN_2:
-		state.phase_deadline_msec = now_msec + state.config.public_hard_limit_msec
+		state.phase_deadline_msec = _phase_deadline_after(now_msec, state.config.public_hard_limit_msec)
 	else:
-		state.phase_deadline_msec = now_msec + state.config.phase_timers[state.phase]
+		state.phase_deadline_msec = _phase_deadline_after(now_msec, state.config.phase_timers[state.phase])
 
 
 func _finish_start(now_msec: int) -> Array[DomainEvent]:
@@ -311,17 +334,21 @@ func _finish_start(now_msec: int) -> Array[DomainEvent]:
 				&"player", player_id
 			))
 	state.start_ability_drawn_round = state.round_number
+	events.append(_begin_main_one(now_msec))
+	return events
+
+
+func _begin_main_one(now_msec: int) -> DomainEvent:
 	for player_id in state.seat_order:
 		state.players[player_id].ready = false
 	state.phase = GameTypes.Phase.MAIN_1
 	state.phase_started_msec = now_msec
-	state.phase_deadline_msec = now_msec + state.config.public_hard_limit_msec
+	state.phase_deadline_msec = _phase_deadline_after(now_msec, state.config.public_hard_limit_msec)
 	state.reaction_deadline_msec = -1
-	events.append(DomainEvent.new(
-		EventKinds.PHASE_CHANGED, {"phase": GameTypes.Phase.MAIN_1}, &"public"
-	))
 	_start_requests.clear()
-	return events
+	return DomainEvent.new(
+		EventKinds.PHASE_CHANGED, {"phase": GameTypes.Phase.MAIN_1}, &"public"
+	)
 
 
 func _submit_main_one(command: GameCommand, now_msec: int) -> CommandResult:
@@ -330,7 +357,7 @@ func _submit_main_one(command: GameCommand, now_msec: int) -> CommandResult:
 			if not command.payload.has("ready") or not command.payload.ready is bool:
 				return CommandResult.new(false, &"malformed_command")
 			_ensure_phase_clock(now_msec)
-			if now_msec > state.phase_deadline_msec:
+			if state.phase_deadline_msec >= 0 and now_msec > state.phase_deadline_msec:
 				return CommandResult.new(false, &"phase_deadline_passed")
 			state.players[command.player_id].ready = command.payload.ready
 			var ready_events: Array[DomainEvent] = []
@@ -351,7 +378,7 @@ func _submit_main_two(command: GameCommand, now_msec: int) -> CommandResult:
 			if not command.payload.has("ready") or not command.payload.ready is bool:
 				return CommandResult.new(false, &"malformed_command")
 			_ensure_phase_clock(now_msec)
-			if now_msec > state.phase_deadline_msec:
+			if state.phase_deadline_msec >= 0 and now_msec > state.phase_deadline_msec:
 				return CommandResult.new(false, &"phase_deadline_passed")
 			state.players[command.player_id].ready = command.payload.ready
 			var ready_events: Array[DomainEvent] = []
@@ -408,7 +435,7 @@ func _play_public_ability(command: GameCommand, now_msec: int) -> CommandResult:
 	if not effect_error.is_empty():
 		return CommandResult.new(false, effect_error)
 	_ensure_phase_clock(now_msec)
-	if now_msec > state.phase_deadline_msec:
+	if state.phase_deadline_msec >= 0 and now_msec > state.phase_deadline_msec:
 		return CommandResult.new(false, &"phase_deadline_passed")
 
 	var events: Array[DomainEvent] = [DomainEvent.new(
@@ -449,10 +476,10 @@ func _play_public_ability(command: GameCommand, now_msec: int) -> CommandResult:
 	for player_id in state.seat_order:
 		if state.players[player_id].active:
 			state.players[player_id].ready = false
-	state.reaction_deadline_msec = min(
-		now_msec + state.config.reaction_window_msec, state.phase_deadline_msec
-	)
-	if now_msec >= state.phase_deadline_msec:
+	state.reaction_deadline_msec = now_msec + state.config.reaction_window_msec
+	if state.phase_deadline_msec >= 0:
+		state.reaction_deadline_msec = mini(state.reaction_deadline_msec, state.phase_deadline_msec)
+	if _phase_deadline_reached(now_msec):
 		if state.phase == GameTypes.Phase.MAIN_1:
 			events.append_array(_finish_main_one(now_msec))
 		else:
@@ -465,7 +492,7 @@ func _finish_main_one(now_msec: int) -> Array[DomainEvent]:
 		state.players[player_id].ready = false
 	state.phase = GameTypes.Phase.HAND_PLAY
 	state.phase_started_msec = now_msec
-	state.phase_deadline_msec = now_msec + state.config.phase_timers[GameTypes.Phase.HAND_PLAY]
+	state.phase_deadline_msec = _phase_deadline_after(now_msec, state.config.phase_timers[GameTypes.Phase.HAND_PLAY])
 	state.reaction_deadline_msec = -1
 	return [DomainEvent.new(
 		EventKinds.PHASE_CHANGED, {"phase": GameTypes.Phase.HAND_PLAY}, &"public"
@@ -492,6 +519,7 @@ func _begin_end(now_msec: int) -> Array[DomainEvent]:
 	state.last_round_winner_id = state.resolve_round(final_scores)
 	events.append(DomainEvent.new(EventKinds.ROUND_FINALIZED, {
 		"scores": _string_key_scores(final_scores),
+		"round_number": state.round_number,
 		"winner_id": str(state.last_round_winner_id),
 	}, &"public"))
 	if end_transaction_probe.is_valid():
@@ -534,7 +562,7 @@ func _begin_end(now_msec: int) -> Array[DomainEvent]:
 	else:
 		state.phase = GameTypes.Phase.END
 		state.phase_started_msec = now_msec
-		state.phase_deadline_msec = now_msec + state.config.phase_timers[GameTypes.Phase.END]
+		state.phase_deadline_msec = _phase_deadline_after(now_msec, state.config.phase_timers[GameTypes.Phase.END])
 		state.reaction_deadline_msec = -1
 	return events
 
@@ -688,18 +716,29 @@ func _new_reconnect_token(player_id: StringName) -> String:
 	return crypto.generate_random_bytes(32).hex_encode()
 
 
-func reset_for_rematch(new_seed: int) -> void:
+func reset_for_rematch(new_seed: int, lobby_phase: int = GameTypes.Phase.SETUP) -> void:
 	assert(state.match_complete, "only a completed match can reset for rematch")
+	var previous := state
 	state.config.match_started = false
 	var fresh := MatchState.create(state.config, new_seed)
 	fresh.config.match_started = false
-	fresh.phase = GameTypes.Phase.SETUP
+	fresh.phase = lobby_phase
+	fresh.frozen = previous.frozen
+	fresh.freeze_started_msec = previous.freeze_started_msec
 	state = fresh
 	_accepted_command_ids = state.accepted_command_ids
 	_start_requests = state.start_requests
 	for player_id in state.players:
+		if previous.players.has(player_id):
+			var player: PlayerState = state.players[player_id]
+			var old_player: PlayerState = previous.players[player_id]
+			player.reconnect_token = old_player.reconnect_token
+			player.connected = old_player.connected
+			player.disconnect_deadline_msec = old_player.disconnect_deadline_msec
 		if not _accepted_command_ids.has(player_id):
 			_accepted_command_ids[player_id] = {}
+	if state.phase == GameTypes.Phase.START:
+		_prepare_start_phase()
 
 
 func _all_end_discards_complete() -> bool:
@@ -1113,7 +1152,7 @@ func _resolve_hand_play(now_msec: int) -> Array[DomainEvent]:
 		player.ready = false
 	state.phase = GameTypes.Phase.MAIN_2
 	state.phase_started_msec = now_msec
-	state.phase_deadline_msec = now_msec + state.config.public_hard_limit_msec
+	state.phase_deadline_msec = _phase_deadline_after(now_msec, state.config.public_hard_limit_msec)
 	state.reaction_deadline_msec = -1
 	events.append(DomainEvent.new(
 		EventKinds.PHASE_CHANGED, {"phase": GameTypes.Phase.MAIN_2}, &"public"

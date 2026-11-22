@@ -45,7 +45,8 @@ mouse_filter = 1
 
 [node name="ConnectionBanner" type="PanelContainer" parent="SafeArea"]
 visible = false
-layout_mode = 2
+top_level = true
+layout_mode = 1
 anchors_preset = 10
 anchor_right = 1.0
 offset_bottom = 44.0

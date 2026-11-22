@@ -1,4 +1,4 @@
-[gd_scene load_steps=7 format=3]
+[gd_scene load_steps=12 format=3]
 
 [ext_resource type="Script" path="res://src/view/match/match_screen.gd" id="1_script"]
 [ext_resource type="PackedScene" path="res://src/view/match/player_seat.tscn" id="2_seat"]
@@ -6,6 +6,12 @@
 [ext_resource type="PackedScene" path="res://src/view/match/phase_controls.tscn" id="4_phase"]
 [ext_resource type="PackedScene" path="res://src/view/match/ability_panel.tscn" id="5_ability"]
 [ext_resource type="PackedScene" path="res://src/view/match/targeting_overlay.tscn" id="6_targeting"]
+[ext_resource type="Script" path="res://src/view/match/table_scenery.gd" id="7_scenery"]
+[ext_resource type="Texture2D" path="res://assets/artwork/board/figma/sort_button.svg" id="8_sort"]
+[ext_resource type="Script" path="res://src/view/match/round_reveal.gd" id="9_reveal"]
+[ext_resource type="StyleBox" path="res://themes/shift_panel.tres" id="10_panel"]
+
+[sub_resource type="ButtonGroup" id="ButtonGroup_sort"]
 
 [node name="MatchScreen" type="Control"]
 layout_mode = 3
@@ -25,24 +31,26 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
-color = Color(0.025, 0.045, 0.062, 1)
+color = Color(0.078, 0.102, 0.129, 1)
+
+[node name="TableScenery" type="Control" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+script = ExtResource("7_scenery")
 
 [node name="Header" type="HBoxContainer" parent="."]
 layout_mode = 1
 anchors_preset = 10
 anchor_right = 1.0
-offset_left = 24.0
-offset_top = 16.0
-offset_right = -24.0
-offset_bottom = 58.0
+offset_left = 245.0
+offset_top = 26.0
+offset_right = -42.0
+offset_bottom = 78.0
 grow_horizontal = 2
 theme_override_constants/separation = 20
-
-[node name="Phase" type="Label" parent="Header"]
-layout_mode = 2
-theme_override_colors/font_color = Color(0.35, 0.78, 0.93, 1)
-theme_override_font_sizes/font_size = 23
-text = "START"
 
 [node name="Round" type="Label" parent="Header"]
 layout_mode = 2
@@ -53,11 +61,9 @@ layout_mode = 2
 theme_override_colors/font_color = Color(1, 0.82, 0.38, 1)
 text = "0.0s"
 
-[node name="Progress" type="Label" parent="Header"]
+[node name="Spacer" type="Control" parent="Header"]
 layout_mode = 2
 size_flags_horizontal = 3
-text = "SCORE RACE  ·  0 / 10"
-horizontal_alignment = 1
 
 [node name="Spectators" type="Label" parent="Header"]
 layout_mode = 2
@@ -69,7 +75,7 @@ anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 offset_left = 20.0
-offset_top = 68.0
+offset_top = 90.0
 offset_right = -20.0
 offset_bottom = -20.0
 grow_horizontal = 2
@@ -80,30 +86,33 @@ layout_mode = 1
 anchors_preset = 10
 anchor_left = 0.5
 anchor_right = 0.5
-offset_left = -190.0
-offset_right = 190.0
-offset_bottom = 116.0
+offset_left = -248.0
+offset_right = 248.0
+offset_top = 6.0
+offset_bottom = 162.0
 grow_horizontal = 2
 seat_position = &"top"
 
 [node name="LeftSeat" parent="TableLayer" instance=ExtResource("2_seat")]
 layout_mode = 1
-anchor_top = 0.25
-anchor_bottom = 0.25
-offset_top = -60.0
-offset_right = 270.0
-offset_bottom = 70.0
+anchor_top = 0.35
+anchor_bottom = 0.35
+offset_left = 16.0
+offset_top = -38.0
+offset_right = 312.0
+offset_bottom = 123.0
 seat_position = &"left"
 
 [node name="RightSeat" parent="TableLayer" instance=ExtResource("2_seat")]
 layout_mode = 1
 anchor_left = 1.0
 anchor_right = 1.0
-anchor_top = 0.25
-anchor_bottom = 0.25
-offset_left = -270.0
-offset_top = -60.0
-offset_bottom = 70.0
+anchor_top = 0.35
+anchor_bottom = 0.35
+offset_left = -312.0
+offset_right = -16.0
+offset_top = -38.0
+offset_bottom = 123.0
 grow_horizontal = 0
 seat_position = &"right"
 
@@ -115,26 +124,29 @@ anchor_top = 1.0
 anchor_right = 0.5
 anchor_bottom = 1.0
 offset_left = -430.0
-offset_top = -180.0
+offset_top = -300.0
 offset_right = 430.0
+offset_bottom = -44.0
 grow_horizontal = 2
 grow_vertical = 0
 seat_position = &"bottom"
 
-[node name="Center" type="VBoxContainer" parent="."]
+[node name="Center" type="Control" parent="."]
 layout_mode = 1
-anchors_preset = 10
-anchor_left = 0.5
-anchor_right = 0.5
-offset_left = -210.0
-offset_top = 105.0
-offset_right = 210.0
-offset_bottom = 330.0
+anchor_left = 0.28
+anchor_top = 0.2
+anchor_right = 0.72
+anchor_bottom = 0.2
+offset_top = 104.0
+offset_bottom = 306.0
 grow_horizontal = 2
-theme_override_constants/separation = 10
+mouse_filter = 2
 
 [node name="ContextClock" type="VBoxContainer" parent="Center"]
-layout_mode = 2
+visible = false
+layout_mode = 1
+anchor_right = 0.46
+offset_bottom = 87.0
 
 [node name="Direction" type="Label" parent="Center/ContextClock"]
 layout_mode = 2
@@ -151,9 +163,12 @@ text = "ACTIVE  Rise"
 horizontal_alignment = 1
 
 [node name="Piles" type="HBoxContainer" parent="Center"]
-layout_mode = 2
+layout_mode = 1
+anchor_left = 0.0
+anchor_right = 1.0
+offset_bottom = 71.0
 alignment = 1
-theme_override_constants/separation = 16
+theme_override_constants/separation = 28
 
 [node name="PileRise" type="VBoxContainer" parent="Center/Piles"]
 layout_mode = 2
@@ -198,7 +213,10 @@ layout_mode = 2
 text = "Hidden"
 
 [node name="Fields" type="VBoxContainer" parent="Center"]
-layout_mode = 2
+layout_mode = 1
+anchor_right = 1.0
+offset_top = 55.0
+offset_bottom = 164.0
 
 [node name="Heading" type="Label" parent="Center/Fields"]
 layout_mode = 2
@@ -206,29 +224,29 @@ theme_override_colors/font_color = Color(0.63, 0.71, 0.8, 1)
 text = "ACTIVE FIELDS"
 horizontal_alignment = 1
 
-[node name="FieldRows" type="VBoxContainer" parent="Center/Fields"]
+[node name="FieldScroll" type="ScrollContainer" parent="Center/Fields"]
+custom_minimum_size = Vector2(0, 65)
 layout_mode = 2
+horizontal_scroll_mode = 0
+
+[node name="FieldRows" type="VBoxContainer" parent="Center/Fields/FieldScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 0
 
 [node name="RoundResult" type="Label" parent="Center"]
 visible = false
-layout_mode = 2
+layout_mode = 1
+anchor_right = 1.0
+offset_top = 78.0
+offset_bottom = 102.0
 theme_override_colors/font_color = Color(1, 0.65, 0.45, 1)
 text = "NIL ROUND  ·  no progress awarded"
 horizontal_alignment = 1
 
 [node name="PhaseControls" parent="." instance=ExtResource("4_phase")]
-layout_mode = 1
-anchors_preset = 12
-anchor_left = 0.5
-anchor_top = 1.0
-anchor_right = 0.5
-anchor_bottom = 1.0
-offset_left = -510.0
-offset_top = -375.0
-offset_right = 510.0
-offset_bottom = -8.0
-grow_horizontal = 2
-grow_vertical = 0
+layout_mode = 0
+table_cockpit = true
 
 [node name="AbilityHistory" type="VBoxContainer" parent="."]
 visible = false
@@ -252,18 +270,200 @@ horizontal_alignment = 2
 layout_mode = 2
 
 [node name="AbilityPanel" parent="." instance=ExtResource("5_ability")]
+layout_mode = 0
+offset_right = 250.0
+offset_bottom = 350.0
+mouse_filter = 2
+
+[node name="SortControls" type="Control" parent="."]
 layout_mode = 1
-anchors_preset = 3
+anchor_left = 0.855
+anchor_right = 0.984
+anchor_top = 0.795
+anchor_bottom = 0.96
+mouse_filter = 2
+
+[node name="Rise" type="Button" parent="SortControls"]
+layout_mode = 0
+offset_right = 65.0
+offset_bottom = 67.0
+toggle_mode = true
+button_group = SubResource("ButtonGroup_sort")
+tooltip_text = "Sort to the left with Rise facing up"
+text = "Rise"
+flat = true
+
+[node name="Flourish" type="Button" parent="SortControls"]
+layout_mode = 1
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -33.0
+offset_right = 33.0
+offset_bottom = 67.0
+toggle_mode = true
+button_group = SubResource("ButtonGroup_sort")
+tooltip_text = "Sort to the left with Flourish facing up"
+text = "Flourish"
+flat = true
+
+[node name="Fall" type="Button" parent="SortControls"]
+layout_mode = 1
 anchor_left = 1.0
-anchor_top = 1.0
 anchor_right = 1.0
-anchor_bottom = 1.0
-offset_left = -280.0
-offset_top = -370.0
-offset_right = -22.0
-offset_bottom = -18.0
-grow_horizontal = 0
-grow_vertical = 0
+offset_left = -65.0
+offset_bottom = 67.0
+toggle_mode = true
+button_group = SubResource("ButtonGroup_sort")
+tooltip_text = "Sort to the left with Fall facing up"
+text = "Fall"
+flat = true
+
+[node name="Rank" type="Button" parent="SortControls"]
+layout_mode = 1
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -82.0
+offset_right = 82.0
+offset_top = 95.0
+offset_bottom = 156.0
+tooltip_text = "Top-half rank: low to high"
+text = "RANK ↑"
+
+[node name="RoundReveal" type="PanelContainer" parent="."]
+visible = false
+layout_mode = 1
+anchor_left = 0.26
+anchor_right = 0.74
+anchor_top = 0.44
+anchor_bottom = 0.608
+mouse_filter = 2
+theme_override_styles/panel = ExtResource("10_panel")
+script = ExtResource("9_reveal")
+
+[node name="Content" type="VBoxContainer" parent="RoundReveal"]
+layout_mode = 2
+mouse_filter = 2
+alignment = 1
+theme_override_constants/separation = 6
+
+[node name="Headline" type="Label" parent="RoundReveal/Content"]
+visible = false
+layout_mode = 2
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 29
+
+[node name="Navigation" type="HBoxContainer" parent="RoundReveal/Content"]
+visible = false
+layout_mode = 2
+mouse_filter = 2
+theme_override_constants/separation = 12
+
+[node name="LeftInset" type="Control" parent="RoundReveal/Content/Navigation"]
+layout_mode = 2
+mouse_filter = 2
+
+[node name="Heading" type="Label" parent="RoundReveal/Content/Navigation"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.68, 0.86, 1, 1)
+theme_override_font_sizes/font_size = 20
+text = "SUBMITTED HANDS"
+
+[node name="Players" type="HBoxContainer" parent="RoundReveal/Content/Navigation"]
+layout_mode = 2
+size_flags_horizontal = 3
+mouse_filter = 2
+theme_override_constants/separation = 6
+
+[node name="RightInset" type="Control" parent="RoundReveal/Content/Navigation"]
+layout_mode = 2
+mouse_filter = 2
+
+[node name="Cards" type="HBoxContainer" parent="RoundReveal/Content"]
+custom_minimum_size = Vector2(0, 104)
+layout_mode = 2
+mouse_filter = 2
+alignment = 1
+
+[node name="Score" type="Label" parent="RoundReveal/Content"]
+layout_mode = 2
+horizontal_alignment = 1
+theme_override_colors/font_color = Color(1, 0.82, 0.38, 1)
+theme_override_font_sizes/font_size = 22
+
+[node name="MenuButton" type="Button" parent="."]
+layout_mode = 0
+offset_left = 12.0
+offset_top = 12.0
+offset_right = 160.0
+offset_bottom = 64.0
+text = "MENU"
+
+[node name="PhaseBadge" type="PanelContainer" parent="."]
+layout_mode = 0
+offset_left = 12.0
+offset_top = 75.0
+offset_right = 227.0
+offset_bottom = 124.0
+mouse_filter = 2
+theme_override_styles/panel = ExtResource("10_panel")
+
+[node name="Phase" type="Label" parent="PhaseBadge"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.68, 0.86, 1, 1)
+theme_override_font_sizes/font_size = 25
+horizontal_alignment = 1
+text = "START"
+
+[node name="MatchScore" type="PanelContainer" parent="."]
+layout_mode = 1
+anchor_top = 0.613
+anchor_right = 0.179
+anchor_bottom = 0.657
+mouse_filter = 2
+theme_override_styles/panel = ExtResource("10_panel")
+
+[node name="Progress" type="Label" parent="MatchScore"]
+layout_mode = 2
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 21
+text = "SCORE RACE  ·  0 / 10"
+
+[node name="HelpButton" type="Button" parent="."]
+layout_mode = 0
+offset_left = 170.0
+offset_top = 12.0
+offset_right = 222.0
+offset_bottom = 64.0
+tooltip_text = "Rules & Cards"
+text = "?"
+
+[node name="MatchMenu" type="PanelContainer" parent="."]
+visible = false
+z_index = 10
+layout_mode = 0
+offset_left = 12.0
+offset_top = 72.0
+offset_right = 232.0
+offset_bottom = 182.0
+
+[node name="Options" type="VBoxContainer" parent="MatchMenu"]
+layout_mode = 2
+
+[node name="Settings" type="Button" parent="MatchMenu/Options"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 46)
+text = "SETTINGS"
+
+[node name="Leave" type="Button" parent="MatchMenu/Options"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 46)
+text = "LEAVE LOBBY"
+
+[node name="ConfirmLeave" type="ConfirmationDialog" parent="."]
+title = "Leave the match?"
+initial_position = 2
+dialog_text = "Leave this match and return to the main menu?"
+ok_button_text = "Leave"
 
 [node name="ConnectionOverlay" type="Control" parent="."]
 visible = false

@@ -1,0 +1,79 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://src/view/help/rules_and_cards_modal.gd" id="1_modal"]
+[ext_resource type="Theme" path="res://themes/placeholder_theme.tres" id="2_theme"]
+
+[sub_resource type="StyleBoxFlat" id="Style_modal"]
+content_margin_left = 32.0
+content_margin_top = 25.0
+content_margin_right = 32.0
+content_margin_bottom = 28.0
+bg_color = Color(0.055, 0.082, 0.118, 1)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.27, 0.51, 0.65, 1)
+corner_radius_top_left = 12
+corner_radius_top_right = 12
+corner_radius_bottom_right = 12
+corner_radius_bottom_left = 12
+
+[node name="RulesAndCardsModal" type="Control"]
+visible = false
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_force_pass_scroll_events = false
+theme = ExtResource("2_theme")
+script = ExtResource("1_modal")
+
+[node name="Backdrop" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.014, 0.023, 0.04, 0.79)
+
+[node name="Panel" type="PanelContainer" parent="."]
+layout_mode = 1
+anchor_left = 0.08
+anchor_top = 0.06
+anchor_right = 0.92
+anchor_bottom = 0.94
+theme_override_styles/panel = SubResource("Style_modal")
+
+[node name="Layout" type="VBoxContainer" parent="Panel"]
+layout_mode = 2
+theme_override_constants/separation = 17
+
+[node name="Header" type="HBoxContainer" parent="Panel/Layout"]
+layout_mode = 2
+theme_override_constants/separation = 22
+
+[node name="Title" type="Label" parent="Panel/Layout/Header"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 43
+text = "Rules & Cards"
+
+[node name="Close" type="Button" parent="Panel/Layout/Header"]
+custom_minimum_size = Vector2(105, 50)
+layout_mode = 2
+theme_override_font_sizes/font_size = 22
+text = "Close  ×"
+tooltip_text = "Close rules and cards (Esc)"
+
+[node name="RulesTabs" type="TabContainer" parent="Panel/Layout"]
+layout_mode = 2
+size_flags_vertical = 3
+tabs_position = 0
+clip_tabs = false
+
+[connection signal="pressed" from="Panel/Layout/Header/Close" to="." method="close"]

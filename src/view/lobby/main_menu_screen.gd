@@ -3,28 +3,86 @@ extends Control
 
 signal host_requested(player_name: String)
 signal join_requested(player_name: String, room_code: String, role: String)
+signal screen_requested(screen_id: StringName)
+signal settings_requested
+signal practice_requested
 
 var _busy := false
 
+@onready var _title: Label = $Content/Title
+@onready var _name_label: Label = $Content/PlayerNameLabel
 @onready var _name_input: LineEdit = $Content/PlayerName
 @onready var _host_button: Button = $Content/HostButton
+@onready var _join_panel: PanelContainer = $Content/JoinPanel
 @onready var _code_input: LineEdit = $Content/JoinPanel/JoinFields/Code
 @onready var _role_input: OptionButton = $Content/JoinPanel/JoinFields/Role
 @onready var _join_button: Button = $Content/JoinPanel/JoinFields/JoinButton
 @onready var _status: Label = $Content/Status
+@onready var _back: Button = $Content/BackButton
 
 
 func _ready() -> void:
 	if _role_input.item_count == 0:
 		_role_input.add_item("Active player", 0)
 		_role_input.add_item("Spectator", 1)
+	$Content/CreateLobbyButton.pressed.connect(func(): screen_requested.emit(&"create_lobby"))
+	$Content/JoinLobbyButton.pressed.connect(func(): screen_requested.emit(&"join_lobby"))
+	$Content/PracticeButton.pressed.connect(func(): practice_requested.emit())
+	$Content/SettingsButton.pressed.connect(func(): settings_requested.emit())
+	$Content/QuitButton.pressed.connect(func(): get_tree().quit())
+	_back.pressed.connect(func(): screen_requested.emit(&"menu"))
+	_name_input.text_submitted.connect(func(_text: String):
+		if _host_button.visible and not _host_button.disabled:
+			_on_host_pressed()
+		elif _join_panel.visible:
+			_code_input.grab_focus()
+	)
+	_code_input.text_submitted.connect(func(_text: String): _on_join_pressed())
+	set_page(&"menu")
+
+
+func set_page(page: StringName, name_prefill: String = "") -> void:
+	var main := page == &"menu"
+	_title.text = "SHIFT"
+	if page == &"create_lobby":
+		_title.text = "Create Lobby"
+	elif page == &"join_lobby":
+		_title.text = "Join Lobby"
+	for button in [
+		$Content/CreateLobbyButton, $Content/JoinLobbyButton, $Content/PracticeButton,
+		$Content/SettingsButton, $Content/QuitButton,
+	]:
+		button.visible = main
+	_name_label.visible = not main
+	_name_input.visible = not main
+	_host_button.visible = page == &"create_lobby"
+	_join_panel.visible = page == &"join_lobby"
+	_back.visible = not main
+	_status.visible = not main
+	_status.text = ""
+	_name_input.text = name_prefill
 	_update_buttons()
+	if main:
+		$Content/CreateLobbyButton.grab_focus()
+	else:
+		_name_input.grab_focus()
+
+
+func player_name() -> String:
+	return _name_input.text.strip_edges()
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if _back.visible and event.is_action_pressed("ui_cancel"):
+		get_viewport().set_input_as_handled()
+		screen_requested.emit(&"menu")
 
 
 func set_busy(busy: bool, message: String = "") -> void:
 	_busy = busy
 	if not message.is_empty():
 		_status.text = message
+		_status.modulate = Color("b8c8da")
 	_update_buttons()
 
 
@@ -36,7 +94,7 @@ func show_error(message: String) -> void:
 
 
 func clear_error() -> void:
-	_status.text = "Host a new table or join your friends with a room code."
+	_status.text = ""
 	_status.modulate = Color("b8c8da")
 
 
@@ -78,5 +136,8 @@ func _update_buttons() -> void:
 	if not is_node_ready():
 		return
 	var has_name := not _name_input.text.strip_edges().is_empty()
+	_name_input.editable = not _busy
+	_code_input.editable = not _busy
+	_role_input.disabled = _busy
 	_host_button.disabled = _busy or not has_name
 	_join_button.disabled = _busy or not has_name or normalized_code().length() != 6

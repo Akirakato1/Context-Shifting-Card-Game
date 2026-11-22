@@ -245,7 +245,7 @@ Keep music optional for the jam if time is tight. Functional sound feedback is m
 
 - Keep editable source files for every asset; export PNG/WebP for raster art and SVG where Godot imports it cleanly.
 - Export transparent elements with clean alpha and no baked background fringe.
-- Author at 2× the intended 1280×720 display size when practical, then test downscaling.
+- Author at 2× the intended size on the 1920×1080 design canvas when practical, then test downscaling in a 1280×720 window. See the [Figma texture handoff](../design/shift-figma/README.md) for component sizes and Godot integration points.
 - Mark nine-slice margins for panels, buttons, banners, input fields, and nameplates.
 - Keep dynamic names, room codes, scores, timers, hand names, multipliers, and ability rules as live text; do not bake them into art.
 - Leave safe space for long player names and later localization.

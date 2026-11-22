@@ -19,6 +19,43 @@ class FakeSession extends RefCounted:
 		pass
 
 
+func test_menu_opens_separate_create_and_join_forms_and_returns() -> void:
+	var app = await _mount_app()
+	var host: Control = app.get_node("SafeArea/ScreenHost")
+	var button := host.get_node_or_null("MainMenuScreen/Content/CreateLobbyButton") as Button
+	assert_true(button != null, "The main menu must expose Create Lobby")
+	if button != null:
+		button.pressed.emit()
+		assert_eq(app.current_screen_id(), &"create_lobby")
+		assert_true(host.get_child(0).get_node("Content/PlayerName").visible)
+		assert_false(host.get_child(0).get_node("Content/JoinPanel").visible)
+		var back: Button = host.get_child(0).get_node("Content/BackButton")
+		back.pressed.emit()
+		assert_eq(app.current_screen_id(), &"menu")
+		host.get_child(0).get_node("Content/JoinLobbyButton").pressed.emit()
+		assert_eq(app.current_screen_id(), &"join_lobby")
+		assert_true(host.get_child(0).get_node("Content/JoinPanel").visible)
+		assert_false(host.get_child(0).get_node("Content/HostButton").visible)
+	await _unmount(app)
+
+
+func test_general_settings_opens_and_closes_without_replacing_the_menu() -> void:
+	var app = await _mount_app()
+	var host: Control = app.get_node("SafeArea/ScreenHost")
+	var menu := host.get_child(0)
+	var button := menu.get_node_or_null("Content/SettingsButton") as Button
+	assert_true(button != null, "The main menu must expose Settings")
+	if button != null:
+		button.pressed.emit()
+		assert_eq(host.get_child(0), menu)
+		var settings := host.get_node_or_null("GeneralSettingsScreen")
+		assert_true(settings != null)
+		if settings != null:
+			settings.get_node("Content/BackButton").pressed.emit()
+			assert_eq(host.get_child_count(), 1)
+	await _unmount(app)
+
+
 func test_app_starts_on_menu_and_can_present_each_mock_screen() -> void:
 	var app = await _mount_app()
 	if app == null:
@@ -43,6 +80,23 @@ func test_app_starts_on_menu_and_can_present_each_mock_screen() -> void:
 	app.present_state(complete)
 	assert_eq(app.current_screen_id(), &"results")
 	assert_eq(app.get_node("SafeArea/ScreenHost").get_child(0).get_node("Layout/Title").text, "MIRA WINS")
+	await _unmount(app)
+
+
+func test_practice_button_starts_a_match_and_can_open_settings_or_return() -> void:
+	var app = await _mount_app()
+	var host: Control = app.get_node("SafeArea/ScreenHost")
+	host.get_child(0).get_node("Content/PracticeButton").pressed.emit()
+	assert_eq(app.current_screen_id(), &"match")
+	if app.current_screen_id() == &"match":
+		var table := host.get_child(0)
+		table.settings_requested.emit()
+		assert_eq(host.get_child(0), table)
+		assert_true(host.has_node("GeneralSettingsScreen"))
+		host.get_node("GeneralSettingsScreen/Content/BackButton").pressed.emit()
+		table.leave_requested.emit()
+		assert_eq(app.current_screen_id(), &"menu")
+		assert_false(host.has_node("GeneralSettingsScreen"))
 	await _unmount(app)
 
 

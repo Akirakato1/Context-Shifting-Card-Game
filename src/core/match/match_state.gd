@@ -7,6 +7,7 @@ const HalfCardState = preload("res://src/core/cards/half_card_state.gd")
 const FullCardState = preload("res://src/core/cards/full_card_state.gd")
 const ContextPile = preload("res://src/core/cards/context_pile.gd")
 const CardFactory = preload("res://src/core/cards/card_factory.gd")
+const AbilityDefinition = preload("res://src/core/abilities/ability_definition.gd")
 const AbilityState = preload("res://src/core/abilities/ability_state.gd")
 const AbilityDeckState = preload("res://src/core/abilities/ability_deck_state.gd")
 const MatchConfig = preload("res://src/core/match/match_config.gd")
@@ -51,14 +52,7 @@ static func create(match_config: MatchConfig, match_seed: int) -> MatchState:
 	state.seed = match_seed
 	state.rng = RandomSource.new(match_seed)
 	state.piles = state._build_piles()
-	var ability_cards: Array[AbilityState] = []
-	var definitions := match_config.ability_definitions
-	for index in range(definitions.size()):
-		ability_cards.append(AbilityState.new(
-			StringName("ability-copy-%03d" % index), definitions[index]
-		))
-	ability_cards.assign(state.rng.shuffle(ability_cards))
-	state.ability_deck = AbilityDeckState.new(ability_cards)
+	state.ability_deck = state._build_ability_deck()
 	state.seat_order = match_config.active_player_ids
 	state.host_player_id = state.seat_order[0]
 	for index in range(state.seat_order.size()):
@@ -77,6 +71,29 @@ static func create(match_config: MatchConfig, match_seed: int) -> MatchState:
 		state.accepted_command_ids[spectator_id] = {}
 	match_config.lock_for_match()
 	return state
+
+
+func replace_lobby_ability_deck(definitions: Array[AbilityDefinition]) -> StringName:
+	if phase != GameTypes.Phase.START or match_complete:
+		return &"config_locked"
+	var error := config.set_ability_definitions(definitions)
+	if not error.is_empty():
+		return error
+	ability_deck = _build_ability_deck()
+	for player_id in seat_order:
+		var player: PlayerState = players[player_id]
+		player.ability_hand.clear()
+		if player.active and not player.pending:
+			player.ability_hand = ability_deck.draw(player_id, ability_deck.starting_hand_size, rng)
+	return &""
+
+
+func _build_ability_deck() -> AbilityDeckState:
+	var cards: Array[AbilityState] = []
+	var definitions := config.ability_definitions
+	for index in range(definitions.size()):
+		cards.append(AbilityState.new(StringName("ability-copy-%03d" % index), definitions[index]))
+	return AbilityDeckState.new(rng.shuffle(cards))
 
 
 func deal_start_abilities() -> void:

@@ -4,6 +4,22 @@ const MAIN_MENU_PATH := "res://src/view/lobby/main_menu_screen.tscn"
 const LOBBY_PATH := "res://src/view/lobby/lobby_screen.tscn"
 
 
+func test_lobby_settings_page_stays_open_when_roster_snapshot_updates() -> void:
+	var lobby = await _mount(LOBBY_PATH)
+	lobby.render(_lobby_model(true, false, 2, 0))
+	var settings := lobby.get_node_or_null("Layout/Footer/SettingsButton") as Button
+	assert_true(settings != null, "The lobby must expose Lobby Settings")
+	if settings != null:
+		settings.pressed.emit()
+		lobby.render(_lobby_model(true, false, 3, 0))
+		assert_true(lobby.get_node("Layout/Body/Settings").visible)
+		assert_false(lobby.get_node("Layout/Body/Roster").visible)
+		settings.pressed.emit()
+		assert_true(lobby.get_node("Layout/Body/Roster").visible)
+		assert_false(lobby.get_node("Layout/Body/Settings").visible)
+	await _unmount(lobby)
+
+
 func test_main_menu_normalizes_join_code_and_blocks_duplicate_confirmation() -> void:
 	var menu = await _mount(MAIN_MENU_PATH)
 	if menu == null:

@@ -102,6 +102,7 @@ The model, authoritative controller, network transport, and View are intentional
 - [Game design](docs/superpowers/specs/2026-11-15-shift-card-game-design.md)
 - [Functional 2D table and Joker design](docs/superpowers/specs/2026-11-15-functional-2d-table-joker-design.md)
 - [Networking architecture](docs/networking.md)
+- [Figma component kit and texture handoff](design/shift-figma/README.md)
 - [Signaling and Cloudflare TURN setup](service/signaling/README.md)
 - [Art, UI, animation, and audio checklist](docs/art-ui-audio-asset-checklist.md)
 - [Asset organization](assets/README.md)

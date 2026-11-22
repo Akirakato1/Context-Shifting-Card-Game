@@ -1,0 +1,35 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://src/view/lobby/ability_deck_editor.gd" id="1_script"]
+[ext_resource type="Theme" path="res://themes/placeholder_theme.tres" id="2_theme"]
+
+[node name="AbilityDeckEditor" type="VBoxContainer"]
+script = ExtResource("1_script")
+
+[node name="Open" type="Button" parent="."]
+layout_mode = 2
+text = "Ability Deck"
+
+[node name="DeckDialog" type="ConfirmationDialog" parent="."]
+title = "Ability Deck"
+theme = ExtResource("2_theme")
+ok_button_text = "Apply"
+
+[node name="Content" type="VBoxContainer" parent="DeckDialog"]
+custom_minimum_size = Vector2(520, 370)
+theme_override_constants/separation = 12
+
+[node name="DeckTabs" type="TabContainer" parent="DeckDialog/Content"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="Footer" type="HBoxContainer" parent="DeckDialog/Content"]
+layout_mode = 2
+
+[node name="Total" type="Label" parent="DeckDialog/Content/Footer"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="RestoreDefaults" type="Button" parent="DeckDialog/Content/Footer"]
+layout_mode = 2
+text = "Restore defaults"
