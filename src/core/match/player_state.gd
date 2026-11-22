@@ -30,6 +30,7 @@ var locked_normal: Variant = null
 var locked_context: Variant = null
 var provisional_score: Variant = null
 var completed_manipulation_ids: Array[StringName] = []
+var submission_locked_card_ids: Array[StringName] = []
 var finalized_score := 0
 var end_discard_complete := false
 var activation_round := 0

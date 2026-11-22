@@ -153,10 +153,67 @@ static func field_designs() -> Array[AbilityDefinition]:
 	return result
 
 
+static func sabotage_designs() -> Array[AbilityDefinition]:
+	return [
+		_sabotage_definition(
+			&"forced_mulligan", "Forced Mulligan",
+			"Target opponent replaces 1 random full card. The game randomly chooses both replacement context piles; both choices may be the same.",
+			&"force_redraw"
+		),
+		_sabotage_definition(
+			&"crossed_wires", "Crossed Wires",
+			"The game chooses 2 distinct random full cards in the target's hand. On each card, swap the contexts of its two halves.",
+			&"sabotage_cards", {"operation": &"exchange_contexts", "card_count": 2}
+		),
+		_sabotage_definition(
+			&"suit_scramble", "Suit Scramble",
+			"Randomize the suit of 1 random non-Joker half in the target's hand. Its current suit can be rolled again.",
+			&"sabotage_cards", {"operation": &"randomize_suit", "half_count": 1}
+		),
+		_sabotage_definition(
+			&"rank_scramble", "Rank Scramble",
+			"Randomize the rank of 1 random non-Joker half in the target's hand from 1–10. Its current rank can be rolled again.",
+			&"sabotage_cards", {"operation": &"randomize_rank", "half_count": 1,
+			"ranks": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]}
+		),
+		_sabotage_definition(
+			&"context_scramble", "Context Scramble",
+			"Randomize the context of 1 random non-Joker half in the target's hand. Its current context can be rolled again.",
+			&"sabotage_cards", {"operation": &"randomize_context", "half_count": 1,
+			"contexts": [GameTypes.Context.RISE, GameTypes.Context.FLOURISH, GameTypes.Context.FALL]}
+		),
+		_sabotage_definition(
+			&"rank_nudge", "Rank Nudge",
+			"Move the rank of 1 random non-Joker half up or down by 1 at random. Rank movement wraps between 1 and 10.",
+			&"sabotage_cards", {"operation": &"nudge_rank", "amount": 1,
+			"wrap_min": 1, "wrap_max": 10}
+		),
+		_sabotage_definition(
+			&"context_nudge", "Context Nudge",
+			"Move the context of 1 random non-Joker half one step with or against the current context-clock direction, chosen at random.",
+			&"sabotage_cards", {"operation": &"nudge_context", "amount": 1,
+			"direction_mode": &"random_relative"}
+		),
+		_sabotage_definition(
+			&"loose_pairing", "Loose Pairing",
+			"The game chooses 2 distinct random full cards in the target's hand and swaps 1 random complete half-card between them.",
+			&"sabotage_cards", {"operation": &"swap_halves", "card_count": 2,
+			"half_from_each": 1}
+		),
+		_sabotage_definition(
+			&"momentary_lock", "Momentary Lock",
+			"Lock 1 random full card in the target's hand. That card cannot be submitted this round.",
+			&"sabotage_cards", {"operation": &"lock_card", "card_count": 1,
+			"expires": &"round_end"}
+		),
+	]
+
+
 static func all_designs() -> Array[AbilityDefinition]:
 	var result := manipulation_designs()
 	result.append_array(hand_shape_designs())
 	result.append_array(field_designs())
+	result.append_array(sabotage_designs())
 	return result
 
 
@@ -166,6 +223,7 @@ static func provisional_deck_recipe() -> Dictionary:
 	for definition in hand_shape_designs(): recipe[definition.id] = 1
 	for definition in field_designs():
 		recipe[definition.id] = 4 if str(definition.id).ends_with("_resonance") else 1
+	for definition in sabotage_designs(): recipe[definition.id] = 1
 	return recipe
 
 
@@ -234,6 +292,30 @@ static func _field_definition(
 		conflict_group,
 		parameters,
 		{"steps": []},
+		display_name,
+		rules_text
+	)
+
+
+static func _sabotage_definition(
+	id: StringName,
+	display_name: String,
+	rules_text: String,
+	effect_id: StringName,
+	parameters: Dictionary = {}
+) -> AbilityDefinition:
+	return AbilityDefinition.new(
+		id,
+		AbilityDefinition.Timing.SABOTAGE,
+		[&"sabotage", &"single_target"],
+		effect_id,
+		0,
+		&"",
+		parameters,
+		{"steps": [{
+			"key": "target_player_id", "kind": "player", "count": 1,
+			"prompt": "Select an opponent",
+		}]},
 		display_name,
 		rules_text
 	)

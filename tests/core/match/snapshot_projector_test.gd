@@ -40,12 +40,15 @@ func test_public_and_spectator_snapshots_recursively_omit_private_state() -> voi
 	assert_false(JSON.stringify(public_snapshot).contains(str(state.players[&"one"].hand[0].card_id)))
 
 
-func test_private_visibility_omits_exact_pile_counts() -> void:
+func test_all_visibility_modes_expose_live_draw_pile_counts_only() -> void:
 	var state := _state(GameTypes.InformationVisibility.PRIVATE)
 	var snapshot := SnapshotProjector.for_recipient(
 		state, &"", GameTypes.RecipientRole.SPECTATOR
 	)
-	assert_false(snapshot.has("pile_counts"))
+	assert_true(snapshot.has("pile_counts"))
+	for pile in snapshot.pile_counts.values():
+		assert_true(pile.has("draw_count"))
+		assert_false(pile.has("used_count"))
 
 
 func test_replacement_context_requests_follow_lobby_visibility_setting() -> void:

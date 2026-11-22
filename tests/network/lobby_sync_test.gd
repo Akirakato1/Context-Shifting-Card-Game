@@ -138,6 +138,22 @@ func test_mid_phase_spectator_gets_public_snapshot_and_never_private_or_ready() 
 	assert_eq(_event_kinds(fixture.transport, "peer-watch"), ["public_update"])
 
 
+func test_late_spectator_and_active_resync_receive_same_authoritative_public_history() -> void:
+	var fixture := _session([&"one", &"two"], [])
+	fixture.state.record_public_events([
+		DomainEvent.new(&"public_update", {"ability_id": "safe"}, &"public"),
+		DomainEvent.new(&"private_update", {"card_id": "secret"}, &"player", &"two"),
+	])
+	fixture.host.register_peer("peer-one", &"one", GameTypes.RecipientRole.ACTIVE_PLAYER)
+	assert_true(fixture.host.admit_peer("peer-watch", &"watch", "spectator").accepted)
+	fixture.host.send_snapshot("peer-one")
+	var active: Dictionary = _last_kind(fixture.transport, "peer-one", "snapshot").payload.state
+	var spectator: Dictionary = _last_kind(fixture.transport, "peer-watch", "snapshot").payload.state
+	assert_eq(active.public_history, spectator.public_history)
+	assert_eq(active.public_history.size(), 1)
+	assert_false(JSON.stringify(spectator.public_history).contains("secret"))
+
+
 func test_owner_resync_keeps_joker_choices_private() -> void:
 	var fixture := _session([&"one", &"two"], [&"watcher"])
 	fixture.host.register_peer("peer-one", &"one", GameTypes.RecipientRole.ACTIVE_PLAYER)

@@ -81,19 +81,46 @@ func test_field_catalog_has_fifteen_valid_main_one_designs_without_prime_favor()
 		assert_eq(by_id[id].effect_id, &"field_rule")
 
 
+func test_sabotage_catalog_has_nine_single_opponent_main_one_designs() -> void:
+	var by_id := _definitions_by_id(AbilityCatalog.sabotage_designs())
+	assert_eq(by_id.size(), 9)
+	for id in [
+		&"forced_mulligan", &"crossed_wires", &"suit_scramble",
+		&"rank_scramble", &"context_scramble", &"rank_nudge",
+		&"context_nudge", &"loose_pairing", &"momentary_lock",
+	]:
+		assert_true(by_id.has(id))
+		var definition: AbilityDefinition = by_id[id]
+		assert_eq(definition.timing, AbilityDefinition.Timing.SABOTAGE)
+		assert_true(&"sabotage" in definition.tags)
+		assert_true(&"single_target" in definition.tags)
+		assert_true(definition.allows_phase(GameTypes.Phase.MAIN_1))
+		assert_false(definition.allows_phase(GameTypes.Phase.MAIN_2))
+		assert_false(definition.display_name.is_empty())
+		assert_false(definition.rules_text.is_empty())
+		assert_eq(definition.choice_schema.steps.size(), 1)
+		assert_eq(definition.choice_schema.steps[0].kind, "player")
+	assert_eq(by_id.forced_mulligan.effect_id, &"force_redraw")
+	for id in by_id:
+		if id != &"forced_mulligan":
+			assert_eq(by_id[id].effect_id, &"sabotage_cards")
+
+
 func test_definition_data_is_independent_from_physical_copy_recipe() -> void:
 	var designs := AbilityCatalog.all_designs()
 	var recipe := AbilityCatalog.provisional_deck_recipe()
-	assert_eq(designs.size(), 45)
-	assert_eq(recipe.size(), 45)
+	assert_eq(designs.size(), 54)
+	assert_eq(recipe.size(), 54)
 	for definition in designs:
 		assert_false(definition.effect_parameters.has("copy_count"))
-	assert_eq(AbilityCatalog.build_deck(recipe).size(), 68)
+	assert_eq(AbilityCatalog.build_deck(recipe).size(), 77)
 	for definition in AbilityCatalog.field_designs():
 		assert_eq(
 			recipe[definition.id],
 			4 if str(definition.id).ends_with("_resonance") else 1
 		)
+	for definition in AbilityCatalog.sabotage_designs():
+		assert_eq(recipe[definition.id], 1)
 
 
 func test_custom_recipe_supports_different_counts_per_definition() -> void:

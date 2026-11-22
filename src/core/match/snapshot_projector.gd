@@ -48,15 +48,15 @@ static func for_recipient(
 		"phase_started_msec": state.phase_started_msec,
 		"phase_deadline_msec": state.phase_deadline_msec,
 		"reaction_deadline_msec": state.reaction_deadline_msec,
+		"public_history": state.public_history.duplicate(true),
 	}
+	var pile_counts := {}
+	for context in state.piles:
+		pile_counts[str(context)] = {
+			"draw_count": state.piles[context].draw_count(),
+		}
+	snapshot["pile_counts"] = pile_counts
 	if state.config.information_visibility == GameTypes.InformationVisibility.PUBLIC:
-		var pile_counts := {}
-		for context in state.piles:
-			pile_counts[str(context)] = {
-				"draw_count": state.piles[context].draw_count(),
-				"used_count": state.piles[context].used_count(),
-			}
-		snapshot["pile_counts"] = pile_counts
 		var replacement_requests := {}
 		for player_id in state.start_requests:
 			var request := {}
@@ -75,7 +75,9 @@ static func for_recipient(
 		for ability_id in recipient.completed_manipulation_ids:
 			completed_manipulations.append(str(ability_id))
 		snapshot["private_player_id"] = str(recipient_id)
-		snapshot["private_hand"] = _private_hand(recipient.hand, active_contexts)
+		snapshot["private_hand"] = _private_hand(
+			recipient.hand, active_contexts, recipient.submission_locked_card_ids
+		)
 		snapshot["private_abilities"] = _private_abilities(
 			recipient.ability_hand, state.phase
 		)
@@ -151,7 +153,11 @@ static func _public_component(component) -> Dictionary:
 static func _public_rational(value) -> Dictionary:
 	return {"numerator": value.numerator, "denominator": value.denominator}
 
-static func _private_hand(hand: Array, active_contexts: PackedInt32Array) -> Array:
+static func _private_hand(
+	hand: Array,
+	active_contexts: PackedInt32Array,
+	locked_card_ids: Array[StringName]
+) -> Array:
 	var result: Array = []
 	for card in hand:
 		var eligible_indexes: Array = []
@@ -161,6 +167,7 @@ static func _private_hand(hand: Array, active_contexts: PackedInt32Array) -> Arr
 			"card_id": str(card.card_id),
 			"first": _private_half(card.first), "second": _private_half(card.second),
 			"eligible_half_indexes": eligible_indexes,
+			"submission_locked": locked_card_ids.has(card.card_id),
 		})
 	return result
 

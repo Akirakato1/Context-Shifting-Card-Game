@@ -51,13 +51,13 @@ func _init(
 
 func submit(command: GameCommand, now_msec: int) -> CommandResult:
 	if command != null and command.kind == CommandKinds.JOIN_ACTIVE:
-		return _join_active(command)
+		return _record_result(_join_active(command))
 	if command != null and command.kind == CommandKinds.JOIN_SPECTATOR:
-		return _join_spectator(command)
+		return _record_result(_join_spectator(command))
 	if command != null and command.kind == CommandKinds.RECONNECT:
-		return _submit_reconnect(command, now_msec)
+		return _record_result(_submit_reconnect(command, now_msec))
 	if command != null and command.kind == CommandKinds.FORFEIT:
-		return _forfeit_command(command, now_msec)
+		return _record_result(_forfeit_command(command, now_msec))
 	if state.frozen:
 		return CommandResult.new(false, &"match_frozen")
 	var common_error := _validate_common(command)
@@ -85,45 +85,57 @@ func submit(command: GameCommand, now_msec: int) -> CommandResult:
 		result = CommandResult.new(false, &"command_not_allowed_in_phase")
 	if result.accepted:
 		_accepted_command_ids[command.player_id][command.command_id] = true
+		state.record_public_events(result.events)
+	return result
+
+
+func _record_result(result: CommandResult) -> CommandResult:
+	if result.accepted:
+		state.record_public_events(result.events)
 	return result
 
 
 func tick(now_msec: int) -> Array[DomainEvent]:
 	if state.frozen:
-		return _tick_disconnects(now_msec)
+		return _record_events(_tick_disconnects(now_msec))
 	if state.match_complete and state.phase != GameTypes.Phase.END:
 		return []
 	if state.phase == GameTypes.Phase.START:
 		_ensure_phase_clock(now_msec)
 		if now_msec >= state.phase_deadline_msec:
-			return _finish_start(now_msec)
+			return _record_events(_finish_start(now_msec))
 	elif state.phase == GameTypes.Phase.MAIN_1:
 		_ensure_phase_clock(now_msec)
 		if now_msec >= state.phase_deadline_msec:
-			return _finish_main_one(now_msec)
+			return _record_events(_finish_main_one(now_msec))
 		if (
 			_all_active_ready()
 			and (state.reaction_deadline_msec < 0 or now_msec >= state.reaction_deadline_msec)
 		):
-			return _finish_main_one(now_msec)
+			return _record_events(_finish_main_one(now_msec))
 	elif state.phase == GameTypes.Phase.HAND_PLAY:
 		_ensure_phase_clock(now_msec)
 		if now_msec >= state.phase_deadline_msec:
-			return _finish_hand_play(now_msec)
+			return _record_events(_finish_hand_play(now_msec))
 	elif state.phase == GameTypes.Phase.MAIN_2:
 		_ensure_phase_clock(now_msec)
 		if now_msec >= state.phase_deadline_msec:
-			return _finish_main_two(now_msec)
+			return _record_events(_finish_main_two(now_msec))
 		if (
 			_all_active_ready()
 			and (state.reaction_deadline_msec < 0 or now_msec >= state.reaction_deadline_msec)
 		):
-			return _finish_main_two(now_msec)
+			return _record_events(_finish_main_two(now_msec))
 	elif state.phase == GameTypes.Phase.END:
 		_ensure_phase_clock(now_msec)
 		if now_msec >= state.phase_deadline_msec:
-			return _finish_end_discards(now_msec)
+			return _record_events(_finish_end_discards(now_msec))
 	return []
+
+
+func _record_events(events: Array[DomainEvent]) -> Array[DomainEvent]:
+	state.record_public_events(events)
+	return events
 
 
 func _validate_common(command: GameCommand) -> StringName:
@@ -503,6 +515,7 @@ func _begin_end(now_msec: int) -> Array[DomainEvent]:
 		player.has_staged_submission = false
 		player.hand_locked = false
 		player.completed_manipulation_ids.clear()
+		player.submission_locked_card_ids.clear()
 		player.ready = false
 		player.end_discard_complete = player.ability_hand.size() <= state.ability_deck.end_hand_limit
 
@@ -826,6 +839,7 @@ func _forfeit_player(player_id: StringName) -> Array[DomainEvent]:
 	events.append_array(_discard_abilities(player_id, discarded))
 	player.pending_manipulation.clear()
 	player.staged_submission.clear()
+	player.submission_locked_card_ids.clear()
 	player.submitted_cards.clear()
 	player.submitted_faces.clear()
 	player.submitted_card_views.clear()
@@ -962,6 +976,9 @@ func _stage_hand(command: GameCommand, now_msec: int) -> CommandResult:
 			normalized["joker_choices"] = []
 		candidate.append(normalized)
 	var player = state.players[command.player_id]
+	for selection: Dictionary in candidate:
+		if player.submission_locked_card_ids.has(StringName(selection.card_id)):
+			return CommandResult.new(false, &"card_submission_locked")
 	var evaluation := SubmissionEvaluator.evaluate(
 		player.hand,
 		candidate,
@@ -1000,6 +1017,14 @@ func _lock_player_hand(
 ) -> StringName:
 	var player = state.players[player_id]
 	var selections: Array = player.staged_submission if player.has_staged_submission else []
+	for selection: Dictionary in selections:
+		if player.submission_locked_card_ids.has(StringName(selection.card_id)):
+			if not default_invalid_to_pass:
+				return &"card_submission_locked"
+			selections = []
+			player.staged_submission.clear()
+			player.has_staged_submission = true
+			break
 	var evaluation := SubmissionEvaluator.evaluate(
 		player.hand,
 		selections,

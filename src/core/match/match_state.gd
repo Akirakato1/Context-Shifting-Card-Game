@@ -39,6 +39,9 @@ var freeze_started_msec := -1
 var next_full_card_sequence := 1
 var accepted_command_ids: Dictionary = {}
 var start_requests: Dictionary = {}
+var public_history: Array[Dictionary] = []
+
+const PUBLIC_HISTORY_LIMIT := 32
 
 
 static func create(match_config: MatchConfig, match_seed: int) -> MatchState:
@@ -158,6 +161,20 @@ func allocate_card_id() -> StringName:
 	return result
 
 
+func record_public_events(events: Array) -> void:
+	for event in events:
+		if event == null or event.audience != &"public":
+			continue
+		public_history.append({
+			"kind": str(event.kind),
+			"payload": event.payload.duplicate(true),
+			"round_number": round_number,
+			"phase": phase,
+		})
+	while public_history.size() > PUBLIC_HISTORY_LIMIT:
+		public_history.pop_front()
+
+
 func to_dict() -> Dictionary:
 	var player_ids := ordered_player_ids()
 	var serialized_players: Array = []
@@ -178,6 +195,9 @@ func to_dict() -> Dictionary:
 		var completed_manipulations: Array = []
 		for ability_id in player.completed_manipulation_ids:
 			completed_manipulations.append(str(ability_id))
+		var submission_locks: Array = []
+		for card_id in player.submission_locked_card_ids:
+			submission_locks.append(str(card_id))
 		var submitted_faces: Array = []
 		for face in player.submitted_faces:
 			submitted_faces.append(_serialize_face(face))
@@ -200,6 +220,7 @@ func to_dict() -> Dictionary:
 			"locked_context": _serialize_context_result(player.locked_context),
 			"provisional_score": _serialize_score_breakdown(player.provisional_score),
 			"completed_manipulation_ids": completed_manipulations,
+			"submission_locked_card_ids": submission_locks,
 			"finalized_score": player.finalized_score,
 			"end_discard_complete": player.end_discard_complete,
 			"activation_round": player.activation_round,
@@ -244,6 +265,7 @@ func to_dict() -> Dictionary:
 		"next_full_card_sequence": next_full_card_sequence,
 		"accepted_command_ids": serialized_accepted,
 		"start_requests": serialized_requests,
+		"public_history": public_history.duplicate(true),
 	}
 
 
@@ -309,6 +331,8 @@ static func from_dict(data: Dictionary) -> MatchState:
 		player.provisional_score = state._deserialize_score_breakdown(player_data.get("provisional_score"))
 		for ability_id: String in player_data.get("completed_manipulation_ids", []):
 			player.completed_manipulation_ids.append(StringName(ability_id))
+		for card_id: String in player_data.get("submission_locked_card_ids", []):
+			player.submission_locked_card_ids.append(StringName(card_id))
 		player.finalized_score = player_data.get("finalized_score", 0)
 		player.end_discard_complete = player_data.get("end_discard_complete", false)
 		player.activation_round = player_data.get("activation_round", 0)
@@ -344,6 +368,9 @@ static func from_dict(data: Dictionary) -> MatchState:
 		for context: String in data.start_requests[player_id]:
 			request[int(context)] = data.start_requests[player_id][context]
 		state.start_requests[StringName(player_id)] = request
+	state.public_history.assign(data.get("public_history", []).duplicate(true))
+	while state.public_history.size() > PUBLIC_HISTORY_LIMIT:
+		state.public_history.pop_front()
 	return state
 
 
