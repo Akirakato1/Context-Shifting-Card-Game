@@ -1,6 +1,6 @@
 # Art, UI, animation, and audio asset checklist
 
-The context names are finalized as Rise / `興`, Flourish / `盛`, and Fall / `衰`. Use the English names for development identifiers and placeholder UI; use the traditional Chinese concepts to inspire visual motifs. Suits, hand catalogues, ability cards, and multiplier values remain under design.
+The context names are finalized as Rise / `興`, Flourish / `盛`, and Fall / `衰`; the suits are finalized as Mountain, Cloud, and Sea. Use the English names for development identifiers and placeholder UI, and use the traditional Chinese context concepts to inspire visual motifs. The initial context-hand priorities and multipliers are implemented; normal-hand definitions and balance, ability copy counts, and final art treatments remain open to iteration.
 
 ## Priority key
 

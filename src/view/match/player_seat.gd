@@ -134,8 +134,11 @@ func _factor_score_text(breakdown: Dictionary, suffix: String) -> String:
 func _factor_summary(breakdown: Dictionary, factor_id: String) -> String:
 	var terms: Array[String] = []
 	for component in breakdown.get(factor_id + "_components", []):
-		terms.append("%s %s" % [str(component.get("category_id", "")).replace("_", " ").capitalize(),
-			_rational_text(component.get("value", {}))])
+		var component_name := str(component.get("category_id", "")).replace("_", " ").capitalize()
+		var source_id := str(component.get("source_definition_id", ""))
+		if factor_id == "context_hand" and not source_id.is_empty():
+			component_name = _context_name(source_id)
+		terms.append("%s %s" % [component_name, _rational_text(component.get("value", {}))])
 	for modifier in breakdown.get("applied_modifiers", []):
 		if str(modifier.get("factor_id", "")) != factor_id: continue
 		terms.append("%s %s" % [str(modifier.get("category_id", "")).replace("_", " ").capitalize(),
@@ -173,4 +176,15 @@ func _context_name(id: String) -> String:
 		return "No Context Pattern ×1"
 	if id.begins_with("all_contexts_"):
 		return "All Contexts ×%s" % id.trim_prefix("all_contexts_")
+	var parts := id.split("_")
+	if parts.size() >= 2 and parts[-1].is_valid_int():
+		var context_names: Array[String] = []
+		for index in range(parts.size() - 1):
+			var context_name: String = {
+				"rise": "Rise", "flourish": "Flourish", "fall": "Fall",
+			}.get(parts[index], "")
+			if context_name.is_empty():
+				return id.replace("_", " ").capitalize()
+			context_names.append(context_name)
+		return "%s ×%s" % [" + ".join(context_names), parts[-1]]
 	return id.replace("_", " ").capitalize()

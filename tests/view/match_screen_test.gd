@@ -51,6 +51,42 @@ func test_local_and_revealed_cards_render_effective_faces_and_active_half() -> v
 	await _unmount(table)
 
 
+func test_context_hand_names_and_exact_multipliers_are_readable() -> void:
+	var table = await _mount_match()
+	if table == null:
+		return
+	var model := _active_player_model()
+	var score: Label = table.get_node("TableLayer/TopSeat/ScoreSummary")
+	for expected in [
+		["all_contexts_2", "All Contexts ×2"],
+		["fall_7", "Fall ×7"],
+		["rise_flourish_5", "Rise + Flourish ×5"],
+	]:
+		model.players[1]["revealed_submission"] = {
+			"normal_category": "pair", "context_category": expected[0],
+			"finalized_score": 31,
+		}
+		table.render(model)
+		assert_true(score.text.contains(expected[1]))
+	model.players[1]["revealed_submission"] = {
+		"context_category": "rise_flourish_5",
+		"score_breakdown": {
+			"base_value": 10, "card_hand_components": [],
+			"context_hand_components": [{
+				"category_id": "two_context", "source_definition_id": "rise_flourish_5",
+				"value": {"numerator": 5, "denominator": 2},
+			}],
+			"field_components": [], "applied_modifiers": [],
+			"context_hand_unclamped": {"numerator": 5, "denominator": 2},
+			"context_hand_factor": {"numerator": 5, "denominator": 2},
+			"final_score": 25,
+		},
+	}
+	table.render(model)
+	assert_true(score.text.contains("Rise + Flourish ×5 5/2"))
+	await _unmount(table)
+
+
 func test_public_information_shows_piles_requests_and_spectator_has_no_local_hand() -> void:
 	var table = await _mount_match()
 	if table == null:

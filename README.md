@@ -21,7 +21,7 @@ The English names are used in code and the current placeholder interface. The tr
 - Persistent card modifications, Joker half-cards, normal-hand evaluation, context-hand evaluation, abilities, fields, and two victory modes.
 - Windows x64 as the initial game-jam and itch.io target.
 
-Final suits, hand catalogues, ability definitions, scoring multipliers, artwork, animation, sound, and music are still being developed.
+The suits are finalized as Mountain, Cloud, and Sea. The initial 40-pattern context-hand catalogue now has production priorities and exact multipliers derived from relative rarity. Normal-hand definitions and balance, ability copy-count tuning, artwork, animation, sound, and music are still being developed.
 
 ## Technology
 
