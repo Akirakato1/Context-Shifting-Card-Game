@@ -1,24 +1,15 @@
 extends RefCounted
 
 const GameTypes = preload("res://src/core/common/game_types.gd")
-const Rational = preload("res://src/core/common/rational.gd")
 const MatchConfig = preload("res://src/core/match/match_config.gd")
 const NormalHandDefinition = preload("res://src/core/scoring/normal_hand_definition.gd")
+const NormalHandCatalog = preload("res://src/core/scoring/normal_hand_catalog.gd")
 const ContextHandDefinition = preload("res://src/core/scoring/context_hand_definition.gd")
 const ContextHandCatalog = preload("res://src/core/scoring/context_hand_catalog.gd")
 
 
 static func normal_definitions() -> Array[NormalHandDefinition]:
-	return [
-		NormalHandDefinition.new(&"high_card", 10, 1, &"high_card", Rational.new(1, 1)),
-		NormalHandDefinition.new(&"pair", 20, 2, &"pair", Rational.new(1, 1)),
-		NormalHandDefinition.new(&"three_kind", 30, 3, &"three_kind", Rational.new(1, 1)),
-		NormalHandDefinition.new(&"straight_three", 40, 3, &"straight", Rational.new(1, 1)),
-		NormalHandDefinition.new(&"straight_four", 41, 4, &"straight", Rational.new(1, 1)),
-		NormalHandDefinition.new(&"straight_five", 42, 5, &"straight", Rational.new(1, 1)),
-		NormalHandDefinition.new(&"straight_six", 43, 6, &"straight", Rational.new(1, 1)),
-		NormalHandDefinition.new(&"full_house", 50, 5, &"full_house", Rational.new(1, 1)),
-	]
+	return NormalHandCatalog.definitions()
 
 
 static func context_definitions() -> Array[ContextHandDefinition]:
