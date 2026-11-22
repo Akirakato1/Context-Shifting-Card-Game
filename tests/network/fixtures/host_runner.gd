@@ -40,7 +40,9 @@ func _initialize() -> void:
 		return
 
 	var state := MatchState.create(_config(), 9001)
+	state.config.match_started = false
 	_controller = MatchController.new(state)
+	_controller.begin_match(Time.get_ticks_msec())
 	_controller.state.players[&"host"].ready = true
 	_signaling = SignalingClient.new()
 	_transport = WebRTCPeerTransport.new(_signaling, [], Callable(), 15_000)
