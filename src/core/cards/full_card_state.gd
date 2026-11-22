@@ -22,10 +22,14 @@ func half_at(index: int) -> HalfCardState:
 
 
 func eligible_half_indexes(active_context: int) -> PackedInt32Array:
+	return eligible_half_indexes_for_contexts(PackedInt32Array([active_context]))
+
+
+func eligible_half_indexes_for_contexts(active_contexts: PackedInt32Array) -> PackedInt32Array:
 	var result := PackedInt32Array()
-	if first.is_joker() or first.effective_context() == active_context:
+	if first.is_joker() or first.effective_context() in active_contexts:
 		result.append(0)
-	if second.is_joker() or second.effective_context() == active_context:
+	if second.is_joker() or second.effective_context() in active_contexts:
 		result.append(1)
 	return result
 

@@ -35,6 +35,12 @@ func test_full_card_exposes_eligible_effective_halves_and_resets_them() -> void:
 	assert_eq(card.half_at(1), second)
 	assert_eq(card.eligible_half_indexes(GameTypes.Context.RISE), PackedInt32Array([0]))
 	assert_eq(card.eligible_half_indexes(GameTypes.Context.FALL), PackedInt32Array())
+	assert_eq(
+		card.eligible_half_indexes_for_contexts(PackedInt32Array([
+			GameTypes.Context.RISE, GameTypes.Context.FLOURISH,
+		])),
+		PackedInt32Array([0, 1])
+	)
 
 	second.apply_overrides(GameTypes.Context.RISE, 10, GameTypes.Suit.THREE)
 	assert_eq(card.eligible_half_indexes(GameTypes.Context.RISE), PackedInt32Array([0, 1]))
