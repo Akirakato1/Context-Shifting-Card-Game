@@ -75,6 +75,8 @@ func test_end_rounds_once_cleans_played_cards_preserves_kept_overrides_and_ticks
 		assert_true(returned != null)
 		assert_eq(returned.effective_rank(), returned.base_rank)
 	assert_true(_first_event(result.events, EventKinds.ROUND_FINALIZED) != null)
+	for player_id in state.seat_order:
+		assert_eq(state.players[player_id].factor_modifiers.size(), 0)
 
 
 func test_end_uses_one_final_ceiling_factor_floor_and_nil_tie() -> void:

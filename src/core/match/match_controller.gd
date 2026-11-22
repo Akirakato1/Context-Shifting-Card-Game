@@ -353,6 +353,9 @@ func _submit_main_two(command: GameCommand, now_msec: int) -> CommandResult:
 
 
 func _play_public_ability(command: GameCommand, now_msec: int) -> CommandResult:
+	for key in command.payload:
+		if key not in ["copy_id", "target_player_id", "choices"]:
+			return CommandResult.new(false, &"unexpected_effect_payload")
 	if not command.payload.has("copy_id") or not _is_identifier(command.payload.copy_id):
 		return CommandResult.new(false, &"malformed_command")
 	if command.payload.has("effect"):
@@ -1102,6 +1105,7 @@ func _validate_public_ability_choices(
 		if not raw_step is Dictionary:
 			return &"invalid_choice_schema"
 		var key := str(raw_step.get("key", ""))
+		var kind := StringName(str(raw_step.get("kind", "")))
 		var eligible: Variant = raw_step.get("eligible", [])
 		var count := int(raw_step.get("count", 1))
 		if key.is_empty() or not eligible is Array or count <= 0:
@@ -1112,7 +1116,12 @@ func _validate_public_ability_choices(
 			return &"incomplete_ability_choices"
 		var unique: Array = []
 		for value in selected:
-			if value not in eligible:
+			if kind == &"player":
+				if not _is_identifier(value): return &"invalid_ability_choice"
+				var selected_player = state.players.get(StringName(str(value)))
+				if selected_player == null or not selected_player.active or selected_player.pending or selected_player.spectator:
+					return &"invalid_ability_choice"
+			elif value not in eligible:
 				return &"invalid_ability_choice"
 			if value in unique:
 				return &"duplicate_ability_choice"

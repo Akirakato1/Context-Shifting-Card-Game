@@ -2,6 +2,7 @@ extends "res://tests/test_case.gd"
 
 const GameTypes = preload("res://src/core/common/game_types.gd")
 const AbilityDefinition = preload("res://src/core/abilities/ability_definition.gd")
+const AbilityCatalog = preload("res://src/core/abilities/ability_catalog.gd")
 const CommandKinds = preload("res://src/core/commands/command_kinds.gd")
 const GameCommand = preload("res://src/core/commands/game_command.gd")
 const EventKinds = preload("res://src/core/events/event_kinds.gd")
@@ -87,6 +88,76 @@ func test_public_actions_resolve_in_host_receipt_order_and_modifiers_stack() -> 
 	assert_eq(state.players[&"one"].factor_modifiers.size(), 2)
 	assert_eq(state.players[&"one"].factor_modifiers[0].factor_id, &"card_hand")
 	assert_eq(state.players[&"one"].factor_modifiers[1].category_id, &"high_card")
+
+
+func test_hand_shape_modifier_targets_self_or_active_opponent_with_dynamic_player_choice() -> void:
+	var state := _main_one_state(351)
+	var definition: AbilityDefinition = AbilityCatalog.hand_shape_designs()[0]
+	_set_ability(state, &"one", 0, definition)
+	_set_ability(state, &"one", 1, definition)
+	var controller := MatchController.new(state)
+	controller.tick(0)
+	for target in [&"one", &"two"]:
+		var ability = state.players[&"one"].ability_hand[0]
+		var result := controller.submit(GameCommand.new(
+			StringName("dynamic-%s" % target), &"one", CommandKinds.PLAY_PUBLIC_ABILITY,
+			{"copy_id": ability.copy_id, "target_player_id": target,
+			"choices": {"target_player_id": [target]}}
+		), 100)
+		assert_true(result.accepted)
+		assert_eq(state.players[target].factor_modifiers.size(), 1)
+
+
+func test_forged_factor_fields_or_inactive_player_choice_reject_without_mutation() -> void:
+	var state := _main_one_state(352)
+	_set_ability(state, &"one", 0, AbilityCatalog.hand_shape_designs()[0])
+	state.players[&"two"].pending = true
+	var controller := MatchController.new(state)
+	controller.tick(0)
+	var before := state.to_dict()
+	var ability = state.players[&"one"].ability_hand[0]
+	var inactive := controller.submit(GameCommand.new(
+		&"inactive", &"one", CommandKinds.PLAY_PUBLIC_ABILITY,
+		{"copy_id": ability.copy_id, "target_player_id": &"two",
+		"choices": {"target_player_id": [&"two"]}}
+	), 10)
+	assert_eq(inactive.error_code, &"invalid_ability_choice")
+	assert_eq(state.to_dict(), before)
+	for forged_key in ["factor_id", "category_id", "numerator", "applicable"]:
+		var payload := {"copy_id": ability.copy_id, "target_player_id": &"one",
+			"choices": {"target_player_id": [&"one"]}}
+		payload[forged_key] = 999
+		var forged := controller.submit(GameCommand.new(
+			StringName("forged-%s" % forged_key), &"one", CommandKinds.PLAY_PUBLIC_ABILITY, payload
+		), 11)
+		assert_eq(forged.error_code, &"unexpected_effect_payload")
+		assert_eq(state.to_dict(), before)
+
+
+func test_main_one_pass_consumes_modifier_card_and_contributes_zero() -> void:
+	var state := _main_one_state(353)
+	_set_ability(state, &"one", 0, AbilityCatalog.hand_shape_designs()[0])
+	var controller := MatchController.new(state)
+	controller.tick(0)
+	var copy_id: StringName = state.players[&"one"].ability_hand[0].copy_id
+	assert_true(controller.submit(GameCommand.new(
+		&"play-before-pass", &"one", CommandKinds.PLAY_PUBLIC_ABILITY,
+		{"copy_id": copy_id, "target_player_id": &"one",
+		"choices": {"target_player_id": [&"one"]}}
+	), 100).accepted)
+	assert_true(_held_copy(state.players[&"one"].ability_hand, copy_id) == null)
+	controller.submit(_ready(&"pass-ready-one", &"one"), 110)
+	controller.submit(_ready(&"pass-ready-two", &"two"), 120)
+	controller.tick(1100)
+	assert_eq(state.phase, GameTypes.Phase.HAND_PLAY)
+	assert_true(controller.submit(GameCommand.new(
+		&"stage-pass", &"one", CommandKinds.STAGE_HAND, {"cards": []}
+	), 1101).accepted)
+	assert_true(controller.submit(GameCommand.new(
+		&"lock-pass", &"one", CommandKinds.LOCK_HAND, {}
+	), 1102).accepted)
+	assert_eq(state.players[&"one"].provisional_score.final_score, 0)
+	assert_eq(state.players[&"one"].provisional_score.applied_modifiers.size(), 0)
 
 
 func test_fields_coexist_conflicts_replace_and_clock_effects_are_immediate() -> void:
@@ -235,3 +306,9 @@ func _hand_ids(hand: Array) -> Dictionary:
 	var result := {}
 	for card in hand: result[card.card_id] = true
 	return result
+
+
+func _held_copy(hand: Array, copy_id: StringName):
+	for ability in hand:
+		if ability.copy_id == copy_id: return ability
+	return null

@@ -7,6 +7,7 @@ const Rational = preload("res://src/core/common/rational.gd")
 const CardFactory = preload("res://src/core/cards/card_factory.gd")
 const FullCardState = preload("res://src/core/cards/full_card_state.gd")
 const ScoringTypes = preload("res://src/core/scoring/scoring_types.gd")
+const ScoringCategories = preload("res://src/core/scoring/scoring_categories.gd")
 const EventKinds = preload("res://src/core/events/event_kinds.gd")
 
 var _handlers: Dictionary = {}
@@ -53,17 +54,23 @@ class FactorModifierHandler extends RefCounted:
 		if not context.state.players.has(context.target_player_id):
 			return &"unknown_target"
 		var target = context.state.players[context.target_player_id]
-		if not target.active:
+		if not target.active or target.pending or target.spectator:
 			return &"invalid_target"
 		var effect: Dictionary = context.effect
 		if not effect.get("factor_id") is StringName and not effect.get("factor_id") is String:
 			return &"invalid_effect_payload"
 		if not effect.get("category_id") is StringName and not effect.get("category_id") is String:
 			return &"invalid_effect_payload"
+		var factor_id := StringName(effect.factor_id)
+		var category_id := StringName(effect.category_id)
+		if not ScoringCategories.category_allowed(factor_id, category_id):
+			return &"invalid_factor_category"
 		if not effect.get("numerator") is int or not effect.get("denominator") is int:
 			return &"invalid_effect_payload"
 		if effect.denominator == 0:
 			return &"zero_denominator"
+		if effect.numerator == 0:
+			return &"zero_modifier_delta"
 		return &""
 
 	func apply(context: Dictionary) -> Array[DomainEvent]:
