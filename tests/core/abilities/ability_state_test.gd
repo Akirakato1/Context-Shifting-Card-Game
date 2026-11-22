@@ -41,6 +41,56 @@ func test_four_timing_categories_allow_only_their_legal_phases() -> void:
 	assert_false(sabotage.allows_phase(GameTypes.Phase.HAND_PLAY))
 
 
+func test_field_definition_accepts_instant_timed_and_persistent_modes() -> void:
+	var instant := _definition(
+		&"instant", AbilityDefinition.Timing.FIELD,
+		AbilityDefinition.FIELD_DURATION_INSTANT
+	)
+	var one_round := _definition(&"one-round", AbilityDefinition.Timing.FIELD, 1)
+	var three_rounds := _definition(&"three-rounds", AbilityDefinition.Timing.FIELD, 3)
+	var persistent := _definition(
+		&"persistent", AbilityDefinition.Timing.FIELD,
+		AbilityDefinition.FIELD_DURATION_PERSISTENT
+	)
+
+	assert_true(instant.is_instant_field())
+	assert_false(instant.is_persistent_field())
+	assert_false(one_round.is_instant_field())
+	assert_false(one_round.is_persistent_field())
+	assert_false(three_rounds.is_instant_field())
+	assert_false(three_rounds.is_persistent_field())
+	assert_false(persistent.is_instant_field())
+	assert_true(persistent.is_persistent_field())
+
+
+func test_persistent_field_never_ticks_and_round_trips() -> void:
+	var definition := _definition(
+		&"persistent", AbilityDefinition.Timing.FIELD,
+		AbilityDefinition.FIELD_DURATION_PERSISTENT
+	)
+	var card := AbilityState.new(&"persistent-copy", definition)
+	var deck := AbilityDeckState.new([card])
+	var drawn: Array[AbilityState] = deck.draw(&"owner", 1, RandomSource.new(1))
+	var played: FieldState = deck.play_field(drawn[0], &"owner").field
+
+	for _round in range(5):
+		assert_eq(deck.tick_fields_end(), [])
+		assert_eq(played.remaining_rounds, AbilityDefinition.FIELD_DURATION_PERSISTENT)
+	assert_true(played.is_persistent())
+	assert_eq(deck.active_fields().size(), 1)
+	assert_eq(deck.used_count(), 0)
+
+	var restored := AbilityDeckState.new([])
+	restored.load_dict(deck.to_dict())
+	var restored_field: FieldState = restored.active_fields()[0]
+	assert_true(restored_field.is_persistent())
+	assert_eq(
+		restored_field.remaining_rounds,
+		AbilityDefinition.FIELD_DURATION_PERSISTENT
+	)
+	assert_eq(restored.tick_fields_end(), [])
+
+
 func test_shared_deck_recycles_used_cards_and_short_draws_held_cards() -> void:
 	var cards: Array[AbilityState] = [
 		_state(&"copy-1"), _state(&"copy-2"), _state(&"copy-3"),

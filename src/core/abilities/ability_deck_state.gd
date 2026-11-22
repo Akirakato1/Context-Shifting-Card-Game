@@ -55,6 +55,7 @@ func play_field(card: AbilityState, source_player_id: StringName) -> Dictionary:
 	assert(card.zone == AbilityState.Zone.HAND, "field ability must be in a player hand")
 	assert(card.owner_id == source_player_id, "only the owner can play a field ability")
 	assert(card.definition.timing == AbilityDefinition.Timing.FIELD)
+	assert(not card.definition.is_instant_field(), "instant fields do not enter active state")
 	var replaced: FieldState = null
 	if not card.definition.conflict_group.is_empty():
 		for index in range(_active_fields.size() - 1, -1, -1):

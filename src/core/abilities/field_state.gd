@@ -16,6 +16,12 @@ func _init(field_ability: AbilityState, source_id: StringName) -> void:
 	remaining_rounds = field_ability.definition.field_duration
 
 
+func is_persistent() -> bool:
+	return ability.definition.is_persistent_field()
+
+
 func tick_end() -> bool:
+	if is_persistent():
+		return false
 	remaining_rounds = max(remaining_rounds - 1, 0)
 	return remaining_rounds == 0
