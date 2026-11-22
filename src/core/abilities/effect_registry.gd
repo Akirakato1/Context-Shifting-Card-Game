@@ -48,7 +48,7 @@ class ReverseDirectionHandler extends RefCounted:
 		)]
 
 
-class ScoreModifierHandler extends RefCounted:
+class FactorModifierHandler extends RefCounted:
 	func validate(context: Dictionary) -> StringName:
 		if not context.state.players.has(context.target_player_id):
 			return &"unknown_target"
@@ -56,8 +56,10 @@ class ScoreModifierHandler extends RefCounted:
 		if not target.active:
 			return &"invalid_target"
 		var effect: Dictionary = context.effect
-		if not effect.has("operation") or effect.operation not in [&"add", &"multiply"]:
-			return &"invalid_modifier_operation"
+		if not effect.get("factor_id") is StringName and not effect.get("factor_id") is String:
+			return &"invalid_effect_payload"
+		if not effect.get("category_id") is StringName and not effect.get("category_id") is String:
+			return &"invalid_effect_payload"
 		if not effect.get("numerator") is int or not effect.get("denominator") is int:
 			return &"invalid_effect_payload"
 		if effect.denominator == 0:
@@ -65,16 +67,18 @@ class ScoreModifierHandler extends RefCounted:
 		return &""
 
 	func apply(context: Dictionary) -> Array[DomainEvent]:
-		var modifier := ScoringTypes.ScoreModifier.new(
-			context.effect.operation,
+		var modifier := ScoringTypes.FactorModifier.new(
+			StringName(context.effect.factor_id), StringName(context.effect.category_id),
 			Rational.new(context.effect.numerator, context.effect.denominator),
-			context.ability.copy_id
+			context.ability.copy_id, context.ability.definition.id
 		)
-		context.state.players[context.target_player_id].score_modifiers.append(modifier)
+		context.state.players[context.target_player_id].factor_modifiers.append(modifier)
 		return [DomainEvent.new(
-			EventKinds.SCORE_MODIFIER_APPLIED,
-			{"target_player_id": str(context.target_player_id), "operation": str(modifier.operation),
-			"numerator": modifier.value.numerator, "denominator": modifier.value.denominator},
+			EventKinds.FACTOR_MODIFIER_APPLIED,
+			{"target_player_id": str(context.target_player_id),
+			"factor_id": str(modifier.factor_id), "category_id": str(modifier.category_id),
+			"numerator": modifier.delta.numerator, "denominator": modifier.delta.denominator,
+			"source_definition_id": str(modifier.source_definition_id)},
 			&"public"
 		)]
 
@@ -125,7 +129,7 @@ func _init() -> void:
 	register(&"noop", NoopHandler.new())
 	register(&"context_jump", ContextJumpHandler.new())
 	register(&"reverse_direction", ReverseDirectionHandler.new())
-	register(&"score_modifier", ScoreModifierHandler.new())
+	register(&"factor_modifier", FactorModifierHandler.new())
 	register(&"force_redraw", ForceRedrawHandler.new())
 
 

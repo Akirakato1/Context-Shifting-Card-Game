@@ -41,10 +41,10 @@ func test_category_priority_beats_contained_categories_and_multiplier_size() -> 
 	assert_true(result.multiplier.equals(Rational.new(5, 2)))
 	assert_eq(result.matched_faces.size(), 5)
 
-	var post_classification_buff := ScoringTypes.ScoreModifier.new(
-		&"multiply_normal", Rational.new(1, 100), &"fixture_nerf"
+	var post_classification_buff := ScoringTypes.FactorModifier.new(
+		&"card_hand", &"group", Rational.new(-1, 1), &"fixture_nerf", &"fixture_nerf"
 	)
-	assert_eq(post_classification_buff.operation, &"multiply_normal")
+	assert_eq(post_classification_buff.factor_id, &"card_hand")
 	assert_eq(result.category_id, &"full_house", "later score effects must not reclassify")
 
 

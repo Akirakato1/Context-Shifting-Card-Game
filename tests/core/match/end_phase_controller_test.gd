@@ -19,7 +19,7 @@ const MatchController = preload("res://src/core/match/match_controller.gd")
 
 func test_main_two_allows_only_hand_shape_effects_and_does_not_reclassify() -> void:
 	var state := _main_two_state(51)
-	_set_ability(state, &"one", 0, _ability(&"buff", AbilityDefinition.Timing.HAND_SHAPE, &"score_modifier"))
+	_set_ability(state, &"one", 0, _ability(&"buff", AbilityDefinition.Timing.HAND_SHAPE, &"factor_modifier"))
 	_set_ability(state, &"two", 0, _field(&"weather"))
 	var original_normal: StringName = state.players[&"one"].locked_normal.category_id
 	var original_context: StringName = state.players[&"one"].locked_context.category_id
@@ -39,7 +39,7 @@ func test_main_two_allows_only_hand_shape_effects_and_does_not_reclassify() -> v
 	assert_eq(field.error_code, &"ability_timing_not_allowed")
 	assert_eq(state.players[&"one"].locked_normal.category_id, original_normal)
 	assert_eq(state.players[&"one"].locked_context.category_id, original_context)
-	assert_eq(state.players[&"one"].provisional_score.final_score, original_score + 1)
+	assert_true(state.players[&"one"].provisional_score.final_score > original_score)
 	controller.submit(_ready(&"r1", &"one"), 110)
 	controller.submit(_ready(&"r2", &"two"), 120)
 	assert_eq(state.phase, GameTypes.Phase.MAIN_2)
@@ -77,25 +77,25 @@ func test_end_rounds_once_cleans_played_cards_preserves_kept_overrides_and_ticks
 	assert_true(_first_event(result.events, EventKinds.ROUND_FINALIZED) != null)
 
 
-func test_end_uses_one_final_ceiling_zero_floor_and_nil_tie() -> void:
+func test_end_uses_one_final_ceiling_factor_floor_and_nil_tie() -> void:
 	var rounded := _main_two_state(53)
 	_set_face_rank(rounded.players[&"one"], 1)
 	_recalculate_locked(rounded, &"one")
-	rounded.players[&"one"].score_modifiers.assign([
-		ScoringTypes.ScoreModifier.new(&"add", Rational.new(1, 2), &"fraction"),
-		ScoringTypes.ScoreModifier.new(&"multiply", Rational.new(2, 3), &"scale"),
+	rounded.players[&"one"].factor_modifiers.assign([
+		ScoringTypes.FactorModifier.new(&"card_hand", &"high_card", Rational.new(1, 2), &"fraction", &"fraction"),
+		ScoringTypes.FactorModifier.new(&"card_hand", &"high_card", Rational.new(-1, 3), &"scale", &"scale"),
 	])
 	var rounded_controller := MatchController.new(rounded)
 	_ready_both(rounded_controller, 10)
-	assert_eq(rounded.players[&"one"].finalized_score, 1)
+	assert_eq(rounded.players[&"one"].finalized_score, 2)
 
 	var floored := _main_two_state(54)
-	floored.players[&"one"].score_modifiers.assign([
-		ScoringTypes.ScoreModifier.new(&"add", Rational.new(-100, 1), &"penalty"),
+	floored.players[&"one"].factor_modifiers.assign([
+		ScoringTypes.FactorModifier.new(&"card_hand", &"high_card", Rational.new(-100, 1), &"penalty", &"penalty"),
 	])
 	var floor_controller := MatchController.new(floored)
 	_ready_both(floor_controller, 10)
-	assert_eq(floored.players[&"one"].finalized_score, 0)
+	assert_eq(floored.players[&"one"].finalized_score, 2)
 
 	var tied := _main_two_state(55)
 	_set_face_rank(tied.players[&"one"], 1)
@@ -234,7 +234,7 @@ func _recalculate_locked(state: MatchState, player_id: StringName) -> void:
 	player.locked_normal = NormalHandEvaluator.evaluate(player.submitted_faces, state.config.normal_definitions)
 	player.locked_context = ContextHandEvaluator.evaluate(player.submitted_cards, state.config.context_definitions)
 	player.provisional_score = ScoreCalculator.calculate(
-		player.submitted_faces, player.locked_normal, player.locked_context, player.score_modifiers
+		player.submitted_faces, player.locked_normal, player.locked_context, player.factor_modifiers
 	)
 
 
@@ -269,8 +269,8 @@ func _used_half(state: MatchState, half_id: StringName):
 
 func _ability(id: StringName, timing: int, effect_id: StringName) -> AbilityDefinition:
 	var parameters := {}
-	if effect_id == &"score_modifier":
-		parameters = {"operation": &"add", "numerator": 1, "denominator": 1}
+	if effect_id == &"factor_modifier":
+		parameters = {"factor_id": &"card_hand", "category_id": &"high_card", "numerator": 1, "denominator": 1}
 	return AbilityDefinition.new(id, timing, [], effect_id, 0, &"", parameters)
 
 

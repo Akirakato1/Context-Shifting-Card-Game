@@ -12,7 +12,7 @@ const MatchController = preload("res://src/core/match/match_controller.gd")
 
 func test_public_action_clears_readiness_and_grace_delays_all_ready_close() -> void:
 	var state := _main_one_state(31)
-	_set_ability(state, &"one", 0, _ability(&"buff", AbilityDefinition.Timing.HAND_SHAPE, &"score_modifier"))
+	_set_ability(state, &"one", 0, _ability(&"buff", AbilityDefinition.Timing.HAND_SHAPE, &"factor_modifier"))
 	var controller := MatchController.new(state)
 	controller.tick(0)
 	controller.submit(_ready(&"r1", &"one"), 10)
@@ -21,7 +21,7 @@ func test_public_action_clears_readiness_and_grace_delays_all_ready_close() -> v
 
 	# Re-open a fresh Main 1 to exercise an action before all-ready closes it.
 	state = _main_one_state(32)
-	_set_ability(state, &"one", 0, _ability(&"buff", AbilityDefinition.Timing.HAND_SHAPE, &"score_modifier"))
+	_set_ability(state, &"one", 0, _ability(&"buff", AbilityDefinition.Timing.HAND_SHAPE, &"factor_modifier"))
 	controller = MatchController.new(state)
 	controller.tick(0)
 	controller.submit(_ready(&"r1", &"one"), 10)
@@ -43,7 +43,7 @@ func test_public_action_clears_readiness_and_grace_delays_all_ready_close() -> v
 
 func test_actions_at_hard_deadline_resolve_before_close_and_late_actions_reject() -> void:
 	var at_limit := _main_one_state(33)
-	_set_ability(at_limit, &"one", 0, _ability(&"buff", AbilityDefinition.Timing.HAND_SHAPE, &"score_modifier"))
+	_set_ability(at_limit, &"one", 0, _ability(&"buff", AbilityDefinition.Timing.HAND_SHAPE, &"factor_modifier"))
 	var controller := MatchController.new(at_limit)
 	controller.tick(0)
 	var accepted := controller.submit(_play(
@@ -51,12 +51,12 @@ func test_actions_at_hard_deadline_resolve_before_close_and_late_actions_reject(
 		{"operation": &"add", "numerator": 2, "denominator": 1}
 	), 5000)
 	assert_true(accepted.accepted)
-	assert_eq(at_limit.players[&"one"].score_modifiers.size(), 1)
+	assert_eq(at_limit.players[&"one"].factor_modifiers.size(), 1)
 	assert_eq(at_limit.phase, GameTypes.Phase.HAND_PLAY)
 	assert_true(_first_event(accepted.events, EventKinds.PHASE_CHANGED) != null)
 
 	var late := _main_one_state(34)
-	_set_ability(late, &"one", 0, _ability(&"buff", AbilityDefinition.Timing.HAND_SHAPE, &"score_modifier"))
+	_set_ability(late, &"one", 0, _ability(&"buff", AbilityDefinition.Timing.HAND_SHAPE, &"factor_modifier"))
 	controller = MatchController.new(late)
 	controller.tick(0)
 	var rejected := controller.submit(_play(
@@ -65,13 +65,13 @@ func test_actions_at_hard_deadline_resolve_before_close_and_late_actions_reject(
 	), 5001)
 	assert_false(rejected.accepted)
 	assert_eq(rejected.error_code, &"phase_deadline_passed")
-	assert_eq(late.players[&"one"].score_modifiers.size(), 0)
+	assert_eq(late.players[&"one"].factor_modifiers.size(), 0)
 
 
 func test_public_actions_resolve_in_host_receipt_order_and_modifiers_stack() -> void:
 	var state := _main_one_state(35)
-	_set_ability(state, &"one", 0, _ability(&"add", AbilityDefinition.Timing.HAND_SHAPE, &"score_modifier"))
-	_set_ability(state, &"two", 0, _ability(&"multiply", AbilityDefinition.Timing.HAND_SHAPE, &"score_modifier"))
+	_set_ability(state, &"one", 0, _ability(&"add", AbilityDefinition.Timing.HAND_SHAPE, &"factor_modifier"))
+	_set_ability(state, &"two", 0, _ability(&"multiply", AbilityDefinition.Timing.HAND_SHAPE, &"factor_modifier"))
 	var controller := MatchController.new(state)
 	controller.tick(0)
 
@@ -84,9 +84,9 @@ func test_public_actions_resolve_in_host_receipt_order_and_modifiers_stack() -> 
 		{"operation": &"multiply", "numerator": 2, "denominator": 1}
 	), 101)
 
-	assert_eq(state.players[&"one"].score_modifiers.size(), 2)
-	assert_eq(state.players[&"one"].score_modifiers[0].operation, &"add")
-	assert_eq(state.players[&"one"].score_modifiers[1].operation, &"multiply")
+	assert_eq(state.players[&"one"].factor_modifiers.size(), 2)
+	assert_eq(state.players[&"one"].factor_modifiers[0].factor_id, &"card_hand")
+	assert_eq(state.players[&"one"].factor_modifiers[1].category_id, &"high_card")
 
 
 func test_fields_coexist_conflicts_replace_and_clock_effects_are_immediate() -> void:
@@ -177,9 +177,9 @@ func _main_one_state(seed_value: int) -> MatchState:
 
 func _ability(id: StringName, timing: int, effect_id: StringName) -> AbilityDefinition:
 	var parameters := {}
-	if effect_id == &"score_modifier":
+	if effect_id == &"factor_modifier":
 		parameters = {
-			"operation": &"multiply" if id == &"multiply" else &"add",
+			"factor_id": &"card_hand", "category_id": &"high_card",
 			"numerator": 2 if id == &"multiply" or id == &"buff" else 3,
 			"denominator": 1,
 		}

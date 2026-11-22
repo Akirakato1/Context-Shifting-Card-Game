@@ -3,6 +3,8 @@ extends "res://tests/test_case.gd"
 const GameTypes = preload("res://src/core/common/game_types.gd")
 const HalfCardState = preload("res://src/core/cards/half_card_state.gd")
 const FullCardState = preload("res://src/core/cards/full_card_state.gd")
+const Rational = preload("res://src/core/common/rational.gd")
+const ScoringTypes = preload("res://src/core/scoring/scoring_types.gd")
 const AbilityCatalog = preload("res://src/core/abilities/ability_catalog.gd")
 const AbilityDefinition = preload("res://src/core/abilities/ability_definition.gd")
 const CommandKinds = preload("res://src/core/commands/command_kinds.gd")
@@ -49,8 +51,8 @@ func test_public_card_ids_are_opaque_and_reveals_use_sanitized_effective_faces()
 func test_public_abilities_use_definition_parameters_and_reject_client_authored_effects() -> void:
 	var state := _main_one_state(102)
 	state.players[&"one"].ability_hand[0].definition = AbilityDefinition.new(
-		&"fixed-buff", AbilityDefinition.Timing.HAND_SHAPE, [], &"score_modifier",
-		0, &"", {"operation": &"add", "numerator": 2, "denominator": 1}
+		&"fixed-buff", AbilityDefinition.Timing.HAND_SHAPE, [], &"factor_modifier",
+		0, &"", {"factor_id": &"card_hand", "category_id": &"high_card", "numerator": 2, "denominator": 1}
 	)
 	var controller := MatchController.new(state)
 	controller.tick(0)
@@ -63,7 +65,7 @@ func test_public_abilities_use_definition_parameters_and_reject_client_authored_
 	), 10)
 	assert_false(malicious.accepted)
 	assert_eq(malicious.error_code, &"unexpected_effect_payload")
-	assert_eq(state.players[&"two"].score_modifiers.size(), 0)
+	assert_eq(state.players[&"two"].factor_modifiers.size(), 0)
 
 	var accepted := controller.submit(GameCommand.new(
 		&"fixed", &"one", CommandKinds.PLAY_PUBLIC_ABILITY, {
@@ -72,8 +74,8 @@ func test_public_abilities_use_definition_parameters_and_reject_client_authored_
 		}
 	), 11)
 	assert_true(accepted.accepted)
-	assert_eq(state.players[&"two"].score_modifiers.size(), 1)
-	assert_eq(state.players[&"two"].score_modifiers[0].value.numerator, 2)
+	assert_eq(state.players[&"two"].factor_modifiers.size(), 1)
+	assert_eq(state.players[&"two"].factor_modifiers[0].delta.numerator, 2)
 
 
 func test_manipulation_choice_schema_and_malformed_values_reject_without_mutation() -> void:
@@ -196,6 +198,9 @@ func test_end_transaction_disconnect_uses_full_disconnect_path_for_player_and_ho
 func test_phase_state_round_trip_and_public_projection_preserve_resync_information() -> void:
 	var state := _resolved_main_two_state(110)
 	state.reaction_deadline_msec = 4444
+	state.players[&"one"].factor_modifiers.append(ScoringTypes.FactorModifier.new(
+		&"card_hand", &"high_card", Rational.new(3, 1), &"copy-roundtrip", &"definition-roundtrip"
+	))
 	var snapshot := state.to_dict()
 	var restored := MatchState.from_dict(snapshot)
 	assert_eq(restored.to_dict(), snapshot)
@@ -203,6 +208,9 @@ func test_phase_state_round_trip_and_public_projection_preserve_resync_informati
 	assert_true(restored.players[&"one"].locked_normal != null)
 	assert_true(restored.players[&"one"].locked_context != null)
 	assert_true(restored.players[&"one"].provisional_score != null)
+	assert_eq(restored.players[&"one"].factor_modifiers[0].category_id, &"high_card")
+	assert_true(restored.players[&"one"].locked_normal.components.size() > 0)
+	assert_true(restored.players[&"one"].provisional_score.card_hand_factor.compare_to(Rational.new(1, 1)) >= 0)
 
 	var projected := SnapshotProjector.for_recipient(
 		state, &"watcher", GameTypes.RecipientRole.SPECTATOR
@@ -366,8 +374,8 @@ func test_replenishment_context_counts_private_cards_and_context_advance_are_eve
 func test_main_two_score_recalculation_emits_authoritative_public_update() -> void:
 	var state := _resolved_main_two_state(117)
 	state.players[&"one"].ability_hand[0].definition = AbilityDefinition.new(
-		&"late-buff", AbilityDefinition.Timing.HAND_SHAPE, [], &"score_modifier",
-		0, &"", {"operation": &"add", "numerator": 3, "denominator": 1}
+		&"late-buff", AbilityDefinition.Timing.HAND_SHAPE, [], &"factor_modifier",
+		0, &"", {"factor_id": &"card_hand", "category_id": &"high_card", "numerator": 3, "denominator": 1}
 	)
 	var controller := MatchController.new(state)
 	var result := controller.submit(GameCommand.new(

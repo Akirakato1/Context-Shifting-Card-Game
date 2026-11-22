@@ -18,17 +18,6 @@ class SelectedCardFace extends RefCounted:
 		suit = face_suit
 
 
-class ScoreModifier extends RefCounted:
-	var operation: StringName
-	var value: Rational
-	var source_id: StringName
-
-	func _init(modifier_operation: StringName, modifier_value: Rational, source: StringName) -> void:
-		operation = modifier_operation
-		value = modifier_value
-		source_id = source
-
-
 class MultiplierComponent extends RefCounted:
 	var factor_id: StringName
 	var category_id: StringName
@@ -124,31 +113,46 @@ class ContextHandResult extends RefCounted:
 
 class ScoreBreakdown extends RefCounted:
 	var base_value: int
-	var normal_multiplier: Rational
-	var context_multiplier: Rational
-	var before_modifiers: Rational
-	var after_each_modifier: Array[Rational]
-	var unclamped_raw_score: Rational
+	var card_hand_components: Array[MultiplierComponent]
+	var context_hand_components: Array[MultiplierComponent]
+	var field_components: Array[MultiplierComponent]
+	var applied_modifiers: Array[FactorModifier]
+	var card_hand_unclamped: Rational
+	var card_hand_factor: Rational
+	var context_hand_unclamped: Rational
+	var context_hand_factor: Rational
+	var field_unclamped: Rational
+	var field_factor: Rational
 	var raw_score: Rational
 	var final_score: int
 
 	func _init(
 		base: int,
-		normal_value: Rational,
-		context_value: Rational,
-		before: Rational,
-		modifier_results: Array[Rational],
-		unclamped: Rational,
-		clamped: Rational,
+		card_components: Array[MultiplierComponent],
+		context_components: Array[MultiplierComponent],
+		active_field_components: Array[MultiplierComponent],
+		active_modifiers: Array[FactorModifier],
+		card_unclamped: Rational,
+		card_clamped: Rational,
+		context_unclamped: Rational,
+		context_clamped: Rational,
+		field_unclamped_value: Rational,
+		field_clamped: Rational,
+		raw: Rational,
 		final_value: int
 	) -> void:
 		base_value = base
-		normal_multiplier = normal_value
-		context_multiplier = context_value
-		before_modifiers = before
-		after_each_modifier = modifier_results.duplicate()
-		unclamped_raw_score = unclamped
-		raw_score = clamped
+		card_hand_components = card_components.duplicate()
+		context_hand_components = context_components.duplicate()
+		field_components = active_field_components.duplicate()
+		applied_modifiers = active_modifiers.duplicate()
+		card_hand_unclamped = card_unclamped
+		card_hand_factor = card_clamped
+		context_hand_unclamped = context_unclamped
+		context_hand_factor = context_clamped
+		field_unclamped = field_unclamped_value
+		field_factor = field_clamped
+		raw_score = raw
 		final_score = final_value
 
 

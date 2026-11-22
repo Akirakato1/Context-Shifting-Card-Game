@@ -421,7 +421,7 @@ func _play_public_ability(command: GameCommand, now_msec: int) -> CommandResult:
 		if target != null and target.locked_normal != null and target.locked_context != null:
 			target.provisional_score = ScoreCalculator.calculate(
 				target.submitted_faces, target.locked_normal, target.locked_context,
-				target.score_modifiers
+				target.factor_modifiers
 			)
 			events.append(DomainEvent.new(
 				EventKinds.PROVISIONAL_SCORE_UPDATED,
@@ -470,7 +470,7 @@ func _begin_end(now_msec: int) -> Array[DomainEvent]:
 			continue
 		player.provisional_score = ScoreCalculator.calculate(
 			player.submitted_faces, player.locked_normal, player.locked_context,
-			player.score_modifiers
+			player.factor_modifiers
 		)
 		player.finalized_score = player.provisional_score.final_score
 		final_scores[player_id] = player.finalized_score
@@ -494,7 +494,7 @@ func _begin_end(now_msec: int) -> Array[DomainEvent]:
 		player.submitted_faces.clear()
 		player.submitted_card_views.clear()
 		player.submission_revealed = false
-		player.score_modifiers.clear()
+		player.factor_modifiers.clear()
 		player.pending_manipulation.clear()
 		player.staged_submission.clear()
 		player.has_staged_submission = false
@@ -965,7 +965,7 @@ func _stage_hand(command: GameCommand, now_msec: int) -> CommandResult:
 		state.active_context,
 		state.config.normal_definitions,
 		state.config.context_definitions,
-		player.score_modifiers
+		player.factor_modifiers
 	)
 	if not evaluation.is_valid:
 		return CommandResult.new(false, evaluation.error_code)
@@ -1002,7 +1002,7 @@ func _lock_player_hand(
 		state.active_context,
 		state.config.normal_definitions,
 		state.config.context_definitions,
-		player.score_modifiers
+		player.factor_modifiers
 	)
 	if not evaluation.is_valid:
 		if not default_invalid_to_pass:
@@ -1015,7 +1015,7 @@ func _lock_player_hand(
 			state.active_context,
 			state.config.normal_definitions,
 			state.config.context_definitions,
-			player.score_modifiers
+			player.factor_modifiers
 		)
 	player.submitted_cards.assign(evaluation.submitted_cards)
 	player.submitted_faces.assign(evaluation.selected_faces)

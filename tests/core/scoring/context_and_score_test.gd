@@ -122,52 +122,129 @@ func test_no_context_fallback_is_neutral_and_has_no_buffable_category() -> void:
 	assert_eq(result.component, null)
 
 
-func test_score_uses_all_faces_ordered_modifiers_and_one_final_ceiling() -> void:
-	var faces: Array[ScoringTypes.SelectedCardFace] = [
-		ScoringTypes.SelectedCardFace.new(&"three", 0, 3, GameTypes.Suit.ONE),
-		ScoringTypes.SelectedCardFace.new(&"eight", 0, 8, GameTypes.Suit.TWO),
-		ScoringTypes.SelectedCardFace.new(&"nine", 0, 9, GameTypes.Suit.THREE),
-	]
-	var normal := ScoringTypes.NormalHandResult.new(
-		true, &"high_card", 10, Rational.new(3, 2), [faces[2]], faces, PackedInt32Array([9])
+func test_score_adds_components_and_matching_modifiers_inside_each_factor() -> void:
+	var faces := _score_faces([4, 6])
+	var result := ScoreCalculator.calculate(
+		faces,
+		_normal(faces, [_component(&"card_hand", &"straight", &"straight", 6), _component(&"card_hand", &"flush", &"flush", 4)]),
+		_context([_component(&"context_hand", &"three_context", &"abc", 5)]),
+		[
+			_modifier(&"card_hand", &"straight", 3, &"buff"),
+			_modifier(&"card_hand", &"flush", -2, &"nerf"),
+			_modifier(&"context_hand", &"three_context", -3, &"context-nerf"),
+		]
 	)
-	var context := ScoringTypes.ContextHandResult.new(
-		&"all_contexts_1", 10, Rational.new(4, 3), {},
-	)
-	var modifiers: Array[ScoringTypes.ScoreModifier] = [
-		ScoringTypes.ScoreModifier.new(&"add", Rational.new(1, 2), &"bonus"),
-		ScoringTypes.ScoreModifier.new(&"multiply", Rational.new(2, 3), &"scale"),
+	assert_true(result.card_hand_factor.equals(Rational.new(11, 1)))
+	assert_true(result.context_hand_factor.equals(Rational.new(2, 1)))
+	assert_eq(result.final_score, 220)
+
+
+func test_straight_flush_uses_sum_of_both_normal_components() -> void:
+	var faces := _score_faces([2, 3, 4])
+	var result := ScoreCalculator.calculate(faces, _normal(faces, [
+		_component(&"card_hand", &"straight", &"straight", 4),
+		_component(&"card_hand", &"flush", &"flush", 2),
+	]), _context([]), [])
+	assert_true(result.card_hand_factor.equals(Rational.new(6, 1)))
+
+
+func test_one_modifier_hits_matching_group_once_even_with_several_rank_groups() -> void:
+	var faces := _score_faces([2, 2, 8, 8])
+	var duplicate_groups := [
+		_component(&"card_hand", &"group", &"two_pairs", 5),
+		_component(&"card_hand", &"group", &"malformed_duplicate", 7),
 	]
-
-	var result := ScoreCalculator.calculate(faces, normal, context, modifiers)
-
-	assert_eq(result.base_value, 20)
-	assert_true(result.before_modifiers.equals(Rational.new(40, 1)))
-	assert_true(result.after_each_modifier[0].equals(Rational.new(81, 2)))
-	assert_true(result.after_each_modifier[1].equals(Rational.new(27, 1)))
-	assert_true(result.raw_score.equals(Rational.new(27, 1)))
-	assert_eq(result.final_score, 27)
-
-
-func test_score_floors_negative_raw_values_at_zero() -> void:
-	var faces: Array[ScoringTypes.SelectedCardFace] = [
-		ScoringTypes.SelectedCardFace.new(&"one", 0, 1, GameTypes.Suit.ONE),
-	]
-	var normal := ScoringTypes.NormalHandResult.new(
-		true, &"high_card", 10, Rational.new(1, 1), faces, faces, PackedInt32Array([1])
+	var result := ScoreCalculator.calculate(
+		faces, _normal(faces, duplicate_groups), _context([]),
+		[_modifier(&"card_hand", &"group", 3, &"once")]
 	)
-	var context := ScoringTypes.ContextHandResult.new(
-		&"no_context", -1, Rational.new(1, 1), {},
-	)
-	var modifiers: Array[ScoringTypes.ScoreModifier] = [
-		ScoringTypes.ScoreModifier.new(&"add", Rational.new(-2, 1), &"penalty"),
+	assert_true(result.card_hand_factor.equals(Rational.new(15, 1)))
+	assert_eq(result.applied_modifiers.size(), 1)
+
+
+func test_multiple_same_category_modifiers_stack_once_each() -> void:
+	var faces := _score_faces([5])
+	var modifiers: Array[ScoringTypes.FactorModifier] = [
+		_modifier(&"card_hand", &"high_card", 3, &"first"),
+		_modifier(&"card_hand", &"high_card", 3, &"second"),
 	]
+	var result := ScoreCalculator.calculate(faces, _normal(faces, [
+		_component(&"card_hand", &"high_card", &"high", 1)
+	]), _context([]), modifiers)
+	assert_true(result.card_hand_factor.equals(Rational.new(7, 1)))
+	assert_eq(result.applied_modifiers.size(), 2)
 
-	var result := ScoreCalculator.calculate(faces, normal, context, modifiers)
 
-	assert_true(result.unclamped_raw_score.equals(Rational.new(-1, 1)))
-	assert_true(result.raw_score.equals(Rational.new(0, 1)))
+func test_opposing_modifiers_are_order_independent() -> void:
+	var faces := _score_faces([5])
+	var normal := _normal(faces, [_component(&"card_hand", &"high_card", &"high", 2)])
+	var buff := _modifier(&"card_hand", &"high_card", 3, &"buff")
+	var nerf := _modifier(&"card_hand", &"high_card", -4, &"nerf")
+	var first := ScoreCalculator.calculate(faces, normal, _context([]), [buff, nerf])
+	var second := ScoreCalculator.calculate(faces, normal, _context([]), [nerf, buff])
+	assert_true(first.card_hand_factor.equals(second.card_hand_factor))
+	assert_eq(first.final_score, second.final_score)
+
+
+func test_each_multiplier_factor_floors_to_one_independently() -> void:
+	var faces := _score_faces([10])
+	var result := ScoreCalculator.calculate(
+		faces,
+		_normal(faces, [_component(&"card_hand", &"high_card", &"high", 2)]),
+		_context([_component(&"context_hand", &"single_context", &"single", 5)]),
+		[
+			_modifier(&"card_hand", &"high_card", -9, &"card-nerf"),
+			_modifier(&"context_hand", &"single_context", -2, &"context-nerf"),
+		]
+	)
+	assert_true(result.card_hand_unclamped.equals(Rational.new(-7, 1)))
+	assert_true(result.card_hand_factor.equals(Rational.new(1, 1)))
+	assert_true(result.context_hand_factor.equals(Rational.new(3, 1)))
+	assert_eq(result.final_score, 30)
+
+
+func test_pass_stays_zero_with_neutral_factor_floors() -> void:
+	var no_faces: Array[ScoringTypes.SelectedCardFace] = []
+	var result := ScoreCalculator.calculate(no_faces, _normal(no_faces, []), _context([]), [])
+	assert_eq(result.base_value, 0)
 	assert_eq(result.final_score, 0)
+
+
+func test_exact_rationals_receive_one_final_ceiling_only() -> void:
+	var faces := _score_faces([1])
+	var result := ScoreCalculator.calculate(faces, _normal(faces, [
+		ScoringTypes.MultiplierComponent.new(&"card_hand", &"high_card", &"fraction", Rational.new(4, 3))
+	]), _context([ScoringTypes.MultiplierComponent.new(
+		&"context_hand", &"single_context", &"fraction-context", Rational.new(5, 4)
+	)]), [])
+	assert_true(result.raw_score.equals(Rational.new(5, 3)))
+	assert_eq(result.final_score, 2)
+
+
+func _score_faces(ranks: Array) -> Array[ScoringTypes.SelectedCardFace]:
+	var result: Array[ScoringTypes.SelectedCardFace] = []
+	for index in range(ranks.size()):
+		result.append(ScoringTypes.SelectedCardFace.new(StringName("score-%d" % index), 0, ranks[index], 0))
+	return result
+
+
+func _component(factor: StringName, category: StringName, source: StringName, value: int) -> ScoringTypes.MultiplierComponent:
+	return ScoringTypes.MultiplierComponent.new(factor, category, source, Rational.new(value, 1))
+
+
+func _modifier(factor: StringName, category: StringName, value: int, copy_id: StringName) -> ScoringTypes.FactorModifier:
+	return ScoringTypes.FactorModifier.new(factor, category, Rational.new(value, 1), copy_id, copy_id)
+
+
+func _normal(faces: Array[ScoringTypes.SelectedCardFace], components: Array) -> ScoringTypes.NormalHandResult:
+	var typed: Array[ScoringTypes.MultiplierComponent] = []
+	typed.assign(components)
+	return ScoringTypes.NormalHandResult.new(not faces.is_empty(), &"fixture", 1, Rational.new(1, 1), faces, faces, PackedInt32Array(), typed)
+
+
+func _context(components: Array) -> ScoringTypes.ContextHandResult:
+	var component: ScoringTypes.MultiplierComponent = components[0] if not components.is_empty() else null
+	return ScoringTypes.ContextHandResult.new(&"fixture", 1, Rational.new(1, 1), {}, component.category_id if component else &"", component)
 
 
 func _card(id: StringName, first_context: int, second_context: int) -> FullCardState:

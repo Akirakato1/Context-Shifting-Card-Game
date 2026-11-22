@@ -20,7 +20,7 @@ static func evaluate(
 	active_context: int,
 	normal_definitions: Array[NormalHandDefinition],
 	context_definitions: Array[ContextHandDefinition],
-	modifiers: Array[ScoringTypes.ScoreModifier]
+	modifiers: Array[ScoringTypes.FactorModifier]
 ) -> ScoringTypes.SubmissionResult:
 	if selections.size() > MAX_SUBMITTED_CARDS:
 		return _invalid(&"submission_size_out_of_range")

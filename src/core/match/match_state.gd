@@ -168,10 +168,12 @@ func to_dict() -> Dictionary:
 		var ability_ids: Array = []
 		for ability in player.ability_hand: ability_ids.append(str(ability.copy_id))
 		var modifiers: Array = []
-		for modifier in player.score_modifiers:
+		for modifier in player.factor_modifiers:
 			modifiers.append({
-				"operation": str(modifier.operation), "numerator": modifier.value.numerator,
-				"denominator": modifier.value.denominator, "source_id": str(modifier.source_id),
+				"factor_id": str(modifier.factor_id), "category_id": str(modifier.category_id),
+				"numerator": modifier.delta.numerator, "denominator": modifier.delta.denominator,
+				"source_copy_id": str(modifier.source_copy_id),
+				"source_definition_id": str(modifier.source_definition_id),
 			})
 		var completed_manipulations: Array = []
 		for ability_id in player.completed_manipulation_ids:
@@ -185,7 +187,7 @@ func to_dict() -> Dictionary:
 			"connected": player.connected, "ready": player.ready, "hand": serialized_hand,
 			"ability_hand": ability_ids, "match_score": player.match_score,
 			"round_wins": player.round_wins, "replenishment_needed": player.replenishment_needed,
-			"score_modifiers": modifiers,
+			"factor_modifiers": modifiers,
 			"pending_manipulation": player.pending_manipulation.duplicate(true),
 			"staged_submission": player.staged_submission.duplicate(true),
 			"has_staged_submission": player.has_staged_submission,
@@ -276,11 +278,12 @@ static func from_dict(data: Dictionary) -> MatchState:
 		player.match_score = player_data.match_score
 		player.round_wins = player_data.round_wins
 		player.replenishment_needed = player_data.replenishment_needed
-		for modifier_data: Dictionary in player_data.get("score_modifiers", []):
-			player.score_modifiers.append(ScoringTypes.ScoreModifier.new(
-				StringName(modifier_data.operation),
+		for modifier_data: Dictionary in player_data.get("factor_modifiers", []):
+			player.factor_modifiers.append(ScoringTypes.FactorModifier.new(
+				StringName(modifier_data.factor_id), StringName(modifier_data.category_id),
 				Rational.new(modifier_data.numerator, modifier_data.denominator),
-				StringName(modifier_data.source_id)
+				StringName(modifier_data.source_copy_id),
+				StringName(modifier_data.source_definition_id)
 			))
 		player.pending_manipulation = player_data.get("pending_manipulation", {}).duplicate(true)
 		for raw_selection: Dictionary in player_data.get("staged_submission", []):
@@ -366,12 +369,14 @@ func _serialize_normal_result(value: Variant) -> Variant:
 	var submitted: Array = []
 	for face in value.submitted_faces:
 		submitted.append(_serialize_face(face))
+	var components: Array = []
+	for component in value.components: components.append(_serialize_component(component))
 	return {
 		"is_valid": value.is_valid, "category_id": str(value.category_id),
 		"priority": value.priority, "multiplier_numerator": value.multiplier.numerator,
 		"multiplier_denominator": value.multiplier.denominator,
 		"matched_faces": matched, "submitted_faces": submitted,
-		"tie_break": Array(value.tie_break),
+		"tie_break": Array(value.tie_break), "components": components,
 	}
 
 
@@ -385,10 +390,13 @@ func _deserialize_normal_result(value: Variant) -> Variant:
 	var submitted: Array[ScoringTypes.SelectedCardFace] = []
 	for face: Dictionary in data.submitted_faces:
 		submitted.append(_deserialize_face(face))
+	var components: Array[ScoringTypes.MultiplierComponent] = []
+	for component: Dictionary in data.get("components", []):
+		components.append(_deserialize_component(component))
 	return ScoringTypes.NormalHandResult.new(
 		data.is_valid, StringName(data.category_id), data.priority,
 		Rational.new(data.multiplier_numerator, data.multiplier_denominator),
-		matched, submitted, PackedInt32Array(data.tie_break)
+		matched, submitted, PackedInt32Array(data.tie_break), components
 	)
 
 
@@ -402,6 +410,8 @@ func _serialize_context_result(value: Variant) -> Variant:
 		"category_id": str(value.category_id), "priority": value.priority,
 		"multiplier_numerator": value.multiplier.numerator,
 		"multiplier_denominator": value.multiplier.denominator, "counts": counts,
+		"broad_category_id": str(value.broad_category_id),
+		"component": _serialize_component(value.component) if value.component != null else null,
 	}
 
 
@@ -412,25 +422,35 @@ func _deserialize_context_result(value: Variant) -> Variant:
 	var counts := {}
 	for context: String in data.counts:
 		counts[int(context)] = data.counts[context]
+	var component = _deserialize_component(data.component) if data.get("component") != null else null
 	return ScoringTypes.ContextHandResult.new(
 		StringName(data.category_id), data.priority,
-		Rational.new(data.multiplier_numerator, data.multiplier_denominator), counts
+		Rational.new(data.multiplier_numerator, data.multiplier_denominator), counts,
+		StringName(data.get("broad_category_id", "")), component
 	)
 
 
 func _serialize_score_breakdown(value: Variant) -> Variant:
 	if value == null:
 		return null
-	var modifier_results: Array = []
-	for result in value.after_each_modifier:
-		modifier_results.append({"numerator": result.numerator, "denominator": result.denominator})
+	var card_components: Array = []
+	for component in value.card_hand_components: card_components.append(_serialize_component(component))
+	var context_components: Array = []
+	for component in value.context_hand_components: context_components.append(_serialize_component(component))
+	var field_components: Array = []
+	for component in value.field_components: field_components.append(_serialize_component(component))
+	var modifiers: Array = []
+	for modifier in value.applied_modifiers: modifiers.append(_serialize_factor_modifier(modifier))
 	return {
 		"base_value": value.base_value,
-		"normal_multiplier": _serialize_rational(value.normal_multiplier),
-		"context_multiplier": _serialize_rational(value.context_multiplier),
-		"before_modifiers": _serialize_rational(value.before_modifiers),
-		"after_each_modifier": modifier_results,
-		"unclamped_raw_score": _serialize_rational(value.unclamped_raw_score),
+		"card_hand_components": card_components, "context_hand_components": context_components,
+		"field_components": field_components, "applied_modifiers": modifiers,
+		"card_hand_unclamped": _serialize_rational(value.card_hand_unclamped),
+		"card_hand_factor": _serialize_rational(value.card_hand_factor),
+		"context_hand_unclamped": _serialize_rational(value.context_hand_unclamped),
+		"context_hand_factor": _serialize_rational(value.context_hand_factor),
+		"field_unclamped": _serialize_rational(value.field_unclamped),
+		"field_factor": _serialize_rational(value.field_factor),
 		"raw_score": _serialize_rational(value.raw_score), "final_score": value.final_score,
 	}
 
@@ -439,16 +459,42 @@ func _deserialize_score_breakdown(value: Variant) -> Variant:
 	if value == null:
 		return null
 	var data: Dictionary = value
-	var modifier_results: Array[Rational] = []
-	for result: Dictionary in data.after_each_modifier:
-		modifier_results.append(_deserialize_rational(result))
+	var card_components: Array[ScoringTypes.MultiplierComponent] = []
+	for component: Dictionary in data.card_hand_components: card_components.append(_deserialize_component(component))
+	var context_components: Array[ScoringTypes.MultiplierComponent] = []
+	for component: Dictionary in data.context_hand_components: context_components.append(_deserialize_component(component))
+	var field_components: Array[ScoringTypes.MultiplierComponent] = []
+	for component: Dictionary in data.field_components: field_components.append(_deserialize_component(component))
+	var modifiers: Array[ScoringTypes.FactorModifier] = []
+	for modifier: Dictionary in data.applied_modifiers: modifiers.append(_deserialize_factor_modifier(modifier))
 	return ScoringTypes.ScoreBreakdown.new(
-		data.base_value, _deserialize_rational(data.normal_multiplier),
-		_deserialize_rational(data.context_multiplier),
-		_deserialize_rational(data.before_modifiers), modifier_results,
-		_deserialize_rational(data.unclamped_raw_score),
+		data.base_value, card_components, context_components, field_components, modifiers,
+		_deserialize_rational(data.card_hand_unclamped), _deserialize_rational(data.card_hand_factor),
+		_deserialize_rational(data.context_hand_unclamped), _deserialize_rational(data.context_hand_factor),
+		_deserialize_rational(data.field_unclamped), _deserialize_rational(data.field_factor),
 		_deserialize_rational(data.raw_score), data.final_score
 	)
+
+
+func _serialize_component(value: ScoringTypes.MultiplierComponent) -> Dictionary:
+	return {"factor_id": str(value.factor_id), "category_id": str(value.category_id),
+		"source_definition_id": str(value.source_definition_id), "value": _serialize_rational(value.value)}
+
+
+func _deserialize_component(data: Dictionary) -> ScoringTypes.MultiplierComponent:
+	return ScoringTypes.MultiplierComponent.new(StringName(data.factor_id), StringName(data.category_id),
+		StringName(data.source_definition_id), _deserialize_rational(data.value))
+
+
+func _serialize_factor_modifier(value: ScoringTypes.FactorModifier) -> Dictionary:
+	return {"factor_id": str(value.factor_id), "category_id": str(value.category_id),
+		"delta": _serialize_rational(value.delta), "source_copy_id": str(value.source_copy_id),
+		"source_definition_id": str(value.source_definition_id)}
+
+
+func _deserialize_factor_modifier(data: Dictionary) -> ScoringTypes.FactorModifier:
+	return ScoringTypes.FactorModifier.new(StringName(data.factor_id), StringName(data.category_id),
+		_deserialize_rational(data.delta), StringName(data.source_copy_id), StringName(data.source_definition_id))
 
 
 func _serialize_rational(value: Rational) -> Dictionary:
