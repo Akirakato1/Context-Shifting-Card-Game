@@ -8,11 +8,10 @@ signal session_failed(reason: String)
 signal connection_state_changed(state: Dictionary)
 
 const GameTypes = preload("res://src/core/common/game_types.gd")
-const Rational = preload("res://src/core/common/rational.gd")
 const AbilityCatalog = preload("res://src/core/abilities/ability_catalog.gd")
 const ContextHandCatalog = preload("res://src/core/scoring/context_hand_catalog.gd")
+const NormalHandCatalog = preload("res://src/core/scoring/normal_hand_catalog.gd")
 const AbilityDefinition = preload("res://src/core/abilities/ability_definition.gd")
-const NormalHandDefinition = preload("res://src/core/scoring/normal_hand_definition.gd")
 const GameCommand = preload("res://src/core/commands/game_command.gd")
 const MatchConfig = preload("res://src/core/match/match_config.gd")
 const MatchState = preload("res://src/core/match/match_state.gd")
@@ -544,7 +543,7 @@ func _build_config(active_ids: Array) -> MatchConfig:
 			GameTypes.Phase.END: int(_settings.end_timer_msec),
 		}, int(_settings.reaction_window_msec),
 		int(_settings.public_hard_limit_msec), int(_settings.reconnect_grace_msec),
-		_default_abilities(), _placeholder_normal_hands(), ContextHandCatalog.definitions()
+		_default_abilities(), NormalHandCatalog.definitions(), ContextHandCatalog.definitions()
 	)
 
 
@@ -629,19 +628,6 @@ func _ability_catalog(definitions: Array) -> Dictionary:
 
 func _default_abilities() -> Array[AbilityDefinition]:
 	return AbilityCatalog.build_deck(AbilityCatalog.provisional_deck_recipe())
-
-
-func _placeholder_normal_hands() -> Array[NormalHandDefinition]:
-	return [
-		NormalHandDefinition.new(&"high_card", 10, 1, &"high_card", Rational.new(1, 1)),
-		NormalHandDefinition.new(&"pair", 20, 2, &"pair", Rational.new(1, 1)),
-		NormalHandDefinition.new(&"three_kind", 30, 3, &"three_kind", Rational.new(1, 1)),
-		NormalHandDefinition.new(&"straight_three", 40, 3, &"straight", Rational.new(1, 1)),
-		NormalHandDefinition.new(&"straight_four", 41, 4, &"straight", Rational.new(1, 1)),
-		NormalHandDefinition.new(&"straight_five", 42, 5, &"straight", Rational.new(1, 1)),
-		NormalHandDefinition.new(&"straight_six", 43, 6, &"straight", Rational.new(1, 1)),
-		NormalHandDefinition.new(&"full_house", 50, 5, &"full_house", Rational.new(1, 1)),
-	]
 
 
 func _fallback_name(player: Dictionary) -> String:

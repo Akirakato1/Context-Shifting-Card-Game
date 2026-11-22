@@ -144,6 +144,24 @@ func test_runtime_config_uses_recipe_with_all_four_ability_categories() -> void:
 	assert_false(contexts.any(func(definition):
 		return definition.multiplier.numerator == 1 and definition.multiplier.denominator == 1
 	))
+	var normals: Array = runtime._controller.state.config.normal_definitions
+	var normals_by_id := {}
+	var normal_categories := {}
+	for definition in normals:
+		normals_by_id[definition.id] = definition
+		normal_categories[definition.broad_category_id] = true
+	assert_eq(normals.size(), 19)
+	assert_eq(normal_categories.keys().size(), 5)
+	assert_eq(normals_by_id.pair.priority, 20)
+	assert_eq(normals_by_id.pair.multiplier.numerator, 5)
+	assert_eq(normals_by_id.pair.multiplier.denominator, 4)
+	assert_eq(normals_by_id.four_house.rule_parameters.group_sizes, [4, 2])
+	assert_eq(normals_by_id.six_kind.priority, 190)
+	assert_eq(normals_by_id.six_kind.multiplier.numerator, 19)
+	assert_eq(normals_by_id.six_kind.multiplier.denominator, 4)
+	assert_false(normals.all(func(definition):
+		return definition.multiplier.numerator == 1 and definition.multiplier.denominator == 1
+	))
 	runtime.close()
 
 
