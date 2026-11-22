@@ -123,12 +123,16 @@ static func field_designs() -> Array[AbilityDefinition]:
 			&"field_rule", 1,
 			{"field_rule": &"additional_context", "context": item[2]}
 		))
-	for suit in range(GameTypes.Suit.MOUNTAIN, GameTypes.Suit.SEA + 1):
+	for item in [
+		[&"mountain_favor", "Mountain", GameTypes.Suit.MOUNTAIN],
+		[&"cloud_favor", "Cloud", GameTypes.Suit.CLOUD],
+		[&"sea_favor", "Sea", GameTypes.Suit.SEA],
+	]:
 		result.append(_field_definition(
-			StringName("suit_%d_favor" % (suit + 1)), "Suit %d Favor" % (suit + 1),
-			"Add +0.1 to each player's field multiplier per submitted scoring face with Suit %d." % (suit + 1),
+			item[0], "%s Favor" % item[1],
+			"Add +0.1 to each player's field multiplier per submitted scoring face with %s." % item[1],
 			&"field_rule", 3,
-			{"field_rule": &"per_selected_suit", "suit": suit,
+			{"field_rule": &"per_selected_suit", "suit": item[2],
 			"numerator": 1, "denominator": 10}
 		))
 	for item in [

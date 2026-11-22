@@ -73,12 +73,29 @@ func test_field_catalog_has_fifteen_valid_main_one_designs_without_prime_favor()
 		assert_eq(by_id[id].effect_id, &"field_rule")
 		assert_eq(by_id[id].effect_parameters.field_rule, &"additional_context")
 	for id in [
-		&"suit_1_favor", &"suit_2_favor", &"suit_3_favor",
+		&"mountain_favor", &"cloud_favor", &"sea_favor",
 		&"even_rank_favor", &"odd_rank_favor",
 		&"rise_ascendancy", &"flourish_ascendancy", &"fall_ascendancy",
 	]:
 		assert_eq(by_id[id].field_duration, 3)
 		assert_eq(by_id[id].effect_id, &"field_rule")
+
+
+func test_suit_favors_use_semantic_ids_names_rules_and_parameters() -> void:
+	var by_id := _definitions_by_id(AbilityCatalog.field_designs())
+	var expected := {
+		&"mountain_favor": ["Mountain Favor", "Mountain", GameTypes.Suit.MOUNTAIN],
+		&"cloud_favor": ["Cloud Favor", "Cloud", GameTypes.Suit.CLOUD],
+		&"sea_favor": ["Sea Favor", "Sea", GameTypes.Suit.SEA],
+	}
+	for id in expected:
+		var definition: AbilityDefinition = by_id.get(id)
+		assert_true(definition != null)
+		assert_eq(definition.display_name, expected[id][0])
+		assert_true(definition.rules_text.contains(expected[id][1]))
+		assert_eq(definition.effect_parameters.suit, expected[id][2])
+	for numbered_id in [&"suit_1_favor", &"suit_2_favor", &"suit_3_favor"]:
+		assert_false(by_id.has(numbered_id))
 
 
 func test_sabotage_catalog_has_nine_single_opponent_main_one_designs() -> void:

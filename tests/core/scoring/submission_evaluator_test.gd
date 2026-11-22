@@ -134,7 +134,7 @@ func test_score_fields_add_exact_components_and_pass_stays_neutral() -> void:
 		GameTypes.Context.RISE, 9, GameTypes.Suit.CLOUD
 	)
 	var fields := [
-		_field_state(&"suit_1_favor"),
+		_field_state(&"mountain_favor"),
 		_field_state(&"even_rank_favor"),
 		_field_state(&"rise_ascendancy"),
 	]

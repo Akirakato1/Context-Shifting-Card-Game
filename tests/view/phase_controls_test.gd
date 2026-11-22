@@ -69,11 +69,17 @@ func test_hand_builder_stages_eligible_cards_requires_half_choice_and_defaults_j
 	assert_eq(joker_choices, [{"half_index": 0, "context": 0, "suit": 0}])
 	assert_true(controls.card_widget(&"c4").joker_prompts_visible())
 	var joker_context: OptionButton = controls.card_widget(&"c4").get_node("Face/FirstChoices/Context")
+	var joker_suit: OptionButton = controls.card_widget(&"c4").get_node("Face/FirstChoices/Suit")
 	assert_eq([
 		joker_context.get_item_text(0),
 		joker_context.get_item_text(1),
 		joker_context.get_item_text(2),
 	], ["Rise", "Flourish", "Fall"])
+	assert_eq([
+		joker_suit.get_item_text(0),
+		joker_suit.get_item_text(1),
+		joker_suit.get_item_text(2),
+	], ["Mountain", "Cloud", "Sea"])
 	assert_true(controls.get_node("HandPlayControls/Preview/Heading").text.contains("PREVIEW"))
 	assert_true(controls.get_node("HandPlayControls/Preview/Authority").text.contains("host validates"))
 	controls.set_joker_choice(&"c4", 0, 2, 1)

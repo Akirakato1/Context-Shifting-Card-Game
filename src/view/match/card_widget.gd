@@ -9,7 +9,6 @@ signal joker_choice_changed(card_id: StringName, half_index: int, context: int, 
 signal reorder_requested(card_id: StringName, delta: int)
 
 const GameTypes = preload("res://src/core/common/game_types.gd")
-const SUIT_NAMES := ["ONE", "TWO", "THREE"]
 
 var card_id := ""
 var active_half_index := -1
@@ -51,8 +50,9 @@ func _ready() -> void:
 	]
 	_populate_choices(_first_context, context_names)
 	_populate_choices(_second_context, context_names)
-	_populate_choices(_first_suit, SUIT_NAMES)
-	_populate_choices(_second_suit, SUIT_NAMES)
+	var suit_names := _suit_names()
+	_populate_choices(_first_suit, suit_names)
+	_populate_choices(_second_suit, suit_names)
 
 
 func render(
@@ -153,14 +153,22 @@ func _half_text(half: Dictionary) -> String:
 	var context := int(half.get("effective_context", half.get("base_context", 0)))
 	var rank := int(half.get("effective_rank", half.get("rank", half.get("base_rank", 0))))
 	var suit := int(half.get("effective_suit", half.get("suit", half.get("base_suit", 0))))
-	return "%s  %d  %s" % [GameTypes.context_name(context), rank, _safe_name(SUIT_NAMES, suit, "?")]
+	return "%s  %d  %s" % [GameTypes.context_name(context), rank, GameTypes.suit_name(suit)]
 
 
 func _half_text_without_rank(half: Dictionary) -> String:
 	if int(half.get("kind", 0)) == 1: return "JOKER  ANY"
 	var context := int(half.get("effective_context", half.get("base_context", 0)))
 	var suit := int(half.get("effective_suit", half.get("suit", half.get("base_suit", 0))))
-	return "%s  %s" % [GameTypes.context_name(context), _safe_name(SUIT_NAMES, suit, "?")]
+	return "%s  %s" % [GameTypes.context_name(context), GameTypes.suit_name(suit)]
+
+
+func _suit_names() -> Array[String]:
+	return [
+		GameTypes.suit_name(GameTypes.Suit.MOUNTAIN),
+		GameTypes.suit_name(GameTypes.Suit.CLOUD),
+		GameTypes.suit_name(GameTypes.Suit.SEA),
+	]
 
 
 func _half_rank(half: Dictionary) -> int:

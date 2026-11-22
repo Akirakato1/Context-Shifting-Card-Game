@@ -41,12 +41,12 @@ func test_local_and_revealed_cards_render_effective_faces_and_active_half() -> v
 	}
 	table.render(model)
 	var local_card = table.get_node("TableLayer/BottomSeat").card_at(0)
-	assert_eq(local_card.first_face_text(), "Rise  7  ONE")
-	assert_eq(local_card.second_face_text(), "Flourish  4  THREE")
+	assert_eq(local_card.first_face_text(), "Rise  7  Mountain")
+	assert_eq(local_card.second_face_text(), "Flourish  4  Sea")
 	assert_eq(local_card.active_half_index, 1)
 	var revealed = table.get_node("TableLayer/TopSeat").card_at(0)
-	assert_eq(revealed.first_face_text(), "Fall  9  TWO")
-	assert_eq(revealed.second_face_text(), "Rise  4  THREE")
+	assert_eq(revealed.first_face_text(), "Fall  9  Cloud")
+	assert_eq(revealed.second_face_text(), "Rise  4  Sea")
 	assert_eq(table.get_node("TableLayer/TopSeat/ScoreSummary").text, "Pair  ×  All Contexts ×1   ·   31 pts")
 	await _unmount(table)
 
