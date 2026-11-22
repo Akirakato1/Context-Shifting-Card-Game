@@ -1,6 +1,6 @@
 # Art, UI, animation, and audio asset checklist
 
-The context names are finalized as Rise / `興`, Flourish / `盛`, and Fall / `衰`; the suits are finalized as Mountain, Cloud, and Sea. Use the English names for development identifiers and placeholder UI, and use the traditional Chinese context concepts to inspire visual motifs. The initial context-hand priorities and multipliers are implemented; normal-hand definitions and balance, ability copy counts, and final art treatments remain open to iteration.
+The context names are finalized as Rise / `興`, Flourish / `盛`, and Fall / `衰`; the suits are finalized as Mountain, Cloud, and Sea. Use the English names for development identifiers and placeholder UI, and use the traditional Chinese context concepts to inspire visual motifs. The initial context-hand and normal-hand priorities and multipliers are implemented; ability copy counts and final art treatments remain open to iteration.
 
 ## Priority key
 
@@ -273,8 +273,8 @@ Keep music optional for the jam if time is tight. Functional sound feedback is m
 ## Recommended production order
 
 1. Lock the context and suit visual language, card face/back templates, Joker, and table readability.
-2. Produce P0 UI states and the minimum sound pack while final ability data is still being written.
-3. Apply the final hand/context names and multipliers using dynamic text.
+2. Produce P0 UI states and the minimum sound pack while ability balance data is still being tuned.
+3. Apply the implemented hand/context names and multipliers using dynamic text.
 4. Add unique ability illustrations only after the ability list stabilizes.
 5. Add P1 reveal/scoring/clock effects and music.
 6. Treat 2.5D meshes and animation as a separate optional milestone after the complete 2D multiplayer loop survives external playtests.

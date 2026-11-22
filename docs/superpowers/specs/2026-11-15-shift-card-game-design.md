@@ -24,10 +24,9 @@ The central decision is how many cards to commit now versus preserve for later c
 ## Non-goals for the first version
 
 - Final card art, 3D models, animations, audio, music, and presentation polish.
-- Final normal-hand catalogue, multiplier balance, the three remaining ability-category catalogues, or suit theme/names.
+- Final playtest balance for ability copy counts, phase timers, and multiplier values.
 - Dedicated authoritative servers, accounts, matchmaking, progression, or ranked play.
 - Host migration.
-- TURN relay fallback when a direct P2P route cannot be established.
 - AI players or automatic bot replacement.
 - More than four active seats or four spectator connections.
 - Linux and macOS exports for the first jam release; Windows x64 is the initial required build.
@@ -272,20 +271,24 @@ Every active player participates in the same global sequence. There is no first-
 
 ### 1. Start
 
-Resolve in this order:
+Round 1 bypasses Start. Lobby launch deals six full cards and two abilities to every active player, keeps the context at Rise, and enters Main 1 directly. No replenishment or ordinary ability draw occurs before that first Main 1.
 
-1. Advance and reveal the active context (except Round 1, which begins at Rise).
+From Round 2 onward, Start resolves in this order:
+
+1. Advance and reveal the active context.
 2. Activate any pending mid-match players.
 3. Determine every active player's missing full-card count.
 4. Collect required half-card replenishment requests.
 5. Reveal request distributions simultaneously if Information Visibility is Public.
 6. Draw and randomly pair replacement halves privately.
-7. Draw one ability card for every active player.
+7. Draw two ability cards for every active player.
 8. Enter Main 1.
 
 For each missing full card, a player requests two halves. No request may contain more than five halves from one context. A player missing `N` full cards requests exactly `2N` halves.
 
 If the player supplies only part of the request before timeout, preserve that partial choice and randomly fill missing context slots while respecting the five-per-context limit. If they supply nothing, choose the complete legal distribution randomly. Drawn ranks, suits, copy IDs, and pairings are always private.
+
+An active player who already has six full cards is automatically Ready for Start. If every active player needs no replenishment, the host performs the two-card ability draw and advances to Main 1 immediately without waiting for client input.
 
 ### 2. Main 1
 
@@ -349,10 +352,10 @@ Resolve in this order:
 6. Reset and split played full cards into original-context used piles.
 7. Leave modifications on unplayed cards intact.
 8. Decrement active field durations and expire zero-duration fields.
-9. Require players above three ability cards to discard down to three.
+9. Require players above three ability cards to choose the exact excess cards to discard down to three.
 10. Check match victory; otherwise begin the next round.
 
-End's ability-discard timer is expected to be relatively short and remains a lobby setting. If a player fails to confirm a complete discard choice before timeout, the host randomly discards enough abilities to reach three.
+End's ability-discard timer is expected to be relatively short and remains a lobby setting. Each owner receives the authoritative required discard count and selects exact ability-copy IDs privately. If a player fails to confirm a complete discard choice before timeout, the host randomly discards enough abilities to reach three.
 
 ## Ready state, timers, and reactions
 
@@ -383,7 +386,17 @@ Normal evaluation:
 
 High Card is an exact one-card category. Because every non-empty eligible submission contains at least a High Card subset, a selection such as ranks `3, 8, 9` is legal and classifies as Nine High if it contains no higher category.
 
-The final normal-hand catalogue, hierarchy, and multipliers are intentionally unresolved content. Definitions must include required subset size and a deterministic predicate. The system must support categories for submissions up to six cards.
+The production normal-hand catalogue contains 19 definitions. Priority and initial multiplier are rarity-derived; exact values and probability methodology are specified in [Normal Hand Catalogue and Initial Balance Design](2026-11-22-normal-hand-catalog-balance-design.md).
+
+| Category | Implemented hands |
+| --- | --- |
+| High Card | High Card |
+| Family | Pair; Three, Four, Five, and Six of a Kind |
+| Group | Two Pair; Full House (`3+2`); Three Pair (`2+2+2`); Four House (`4+2`); Double Triple (`3+3`) |
+| Straight | Three-, Four-, Five-, and Six-card Straight |
+| Flush | Three-, Four-, Five-, and Six-card Flush |
+
+Straights do not wrap between 10 and 1. Joker rank zero is a legal High Card fallback but does not form Family, Group, or Straight patterns. A Joker's staged suit may participate in Flush. Flush is independent of the selected rank structure, so both components add inside the card-hand multiplier factor.
 
 ### Base value
 
@@ -441,13 +454,13 @@ Zones:
 - Active field area
 - Shared used-ability pile
 
-Every player receives two at setup and one at each Start. There is no per-turn play-count limit. At End, players discard down to three.
+Every player receives two at setup and two at each Start beginning with Round 2. There is no per-turn play-count limit. At End, players above three choose the exact excess cards to discard; timeout selects the required cards randomly.
 
 When a draw cannot be completed, shuffle the used-ability pile into a new draw pile and continue. Cards in player hands or active on the field are not recycled.
 
 If both the draw and used piles are empty after recycling, the draw is short: do not generate a substitute card. This applies to ordinary Start draws and late entrants. The eventual ability deck should be sized so this is exceptional.
 
-The fourteen-card Hand Manipulation catalogue is finalized at two initial copies per design. Its detailed definitions and selection rules are in the [card-manipulation ability specification](2026-11-21-card-manipulation-abilities-design.md). Copy counts remain subject to balance changes. The Field, hand-shape buff/nerf, and Opponent Sabotage catalogues remain future content.
+All four ability categories are implemented as data-driven definitions. Their detailed selection and resolution rules live in the manipulation, field, hand-shape buff/nerf, and sabotage specifications. The shared 90-card recipe uses the current `15:6:4:5` category ratio and remains subject to playtest copy-count tuning.
 
 ### Four timing categories
 
@@ -572,14 +585,11 @@ The eventual implementation plan should include automated coverage for at least:
 
 These decisions do not block the rules architecture and will be supplied after playtesting/design work:
 
-- Final suit theme and names
-- Complete normal-hand catalogue and hierarchy for up to six submitted cards
-- Normal-hand multipliers
-- Context-hand hierarchy and multipliers
-- Field and Opponent Sabotage ability catalogues; final Hand Buff/Nerf values and all copy-count balance
+- Final playtest tuning for normal-hand, context-hand, field, and Hand Buff/Nerf values
+- Final ability copy-count balance
 - Exact phase timer, response-window, hard-limit, and reconnect-grace defaults
 - Final UI layout, animation timing, art, 3D models, audio, and music
-- Signaling/STUN hosting provider and TURN fallback decision after connectivity tests
+- Production signaling/TURN deployment, monitoring, and real-network validation
 - Linux and macOS export timing after the Windows x64 jam build is stable
 
 ## Builder calls
