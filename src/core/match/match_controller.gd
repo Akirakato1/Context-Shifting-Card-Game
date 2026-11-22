@@ -17,8 +17,10 @@ const MatchState = preload("res://src/core/match/match_state.gd")
 const PlayerState = preload("res://src/core/match/player_state.gd")
 const HalfCardState = preload("res://src/core/cards/half_card_state.gd")
 const Rational = preload("res://src/core/common/rational.gd")
+const ScoringTypes = preload("res://src/core/scoring/scoring_types.gd")
 const ScoreCalculator = preload("res://src/core/scoring/score_calculator.gd")
 const SubmissionEvaluator = preload("res://src/core/scoring/submission_evaluator.gd")
+const FieldEffectResolver = preload("res://src/core/abilities/field_effect_resolver.gd")
 
 var state: MatchState
 var _accepted_command_ids: Dictionary = {}
@@ -404,7 +406,11 @@ func _play_public_ability(command: GameCommand, now_msec: int) -> CommandResult:
 	)]
 	_remove_held_ability(command.player_id, ability)
 	if ability.definition.timing == AbilityDefinition.Timing.FIELD:
-		var field_result := state.ability_deck.play_field(ability, command.player_id)
+		var field_result := {"field": null, "replaced": null}
+		if ability.definition.is_instant_field():
+			state.ability_deck.discard(ability)
+		else:
+			field_result = state.ability_deck.play_field(ability, command.player_id)
 		events.append(DomainEvent.new(
 			EventKinds.FIELD_PLAYED,
 			{"ability_id": str(ability.definition.id), "source_player_id": str(command.player_id)},
@@ -422,10 +428,7 @@ func _play_public_ability(command: GameCommand, now_msec: int) -> CommandResult:
 	if state.phase == GameTypes.Phase.MAIN_2 and not target_player_id.is_empty():
 		var target = state.players.get(target_player_id)
 		if target != null and target.locked_normal != null and target.locked_context != null:
-			target.provisional_score = ScoreCalculator.calculate(
-				target.submitted_faces, target.locked_normal, target.locked_context,
-				target.factor_modifiers
-			)
+			target.provisional_score = _calculate_player_score(target)
 			events.append(DomainEvent.new(
 				EventKinds.PROVISIONAL_SCORE_UPDATED,
 				{"player_id": str(target_player_id),
@@ -471,10 +474,7 @@ func _begin_end(now_msec: int) -> Array[DomainEvent]:
 		var player = state.players[player_id]
 		if not player.active or player.pending:
 			continue
-		player.provisional_score = ScoreCalculator.calculate(
-			player.submitted_faces, player.locked_normal, player.locked_context,
-			player.factor_modifiers
-		)
+		player.provisional_score = _calculate_player_score(player)
 		player.finalized_score = player.provisional_score.final_score
 		final_scores[player_id] = player.finalized_score
 	state.last_round_winner_id = state.resolve_round(final_scores)
@@ -968,7 +968,8 @@ func _stage_hand(command: GameCommand, now_msec: int) -> CommandResult:
 		state.active_context,
 		state.config.normal_definitions,
 		state.config.context_definitions,
-		player.factor_modifiers
+		player.factor_modifiers,
+		state.ability_deck.active_fields()
 	)
 	if not evaluation.is_valid:
 		return CommandResult.new(false, evaluation.error_code)
@@ -1005,7 +1006,8 @@ func _lock_player_hand(
 		state.active_context,
 		state.config.normal_definitions,
 		state.config.context_definitions,
-		player.factor_modifiers
+		player.factor_modifiers,
+		state.ability_deck.active_fields()
 	)
 	if not evaluation.is_valid:
 		if not default_invalid_to_pass:
@@ -1018,7 +1020,8 @@ func _lock_player_hand(
 			state.active_context,
 			state.config.normal_definitions,
 			state.config.context_definitions,
-			player.factor_modifiers
+			player.factor_modifiers,
+			state.ability_deck.active_fields()
 		)
 	player.submitted_cards.assign(evaluation.submitted_cards)
 	player.submitted_faces.assign(evaluation.selected_faces)
@@ -1029,6 +1032,23 @@ func _lock_player_hand(
 	player.hand_locked = true
 	player.ready = true
 	return &""
+
+
+func _calculate_player_score(player: PlayerState) -> ScoringTypes.ScoreBreakdown:
+	var field_components: Array[ScoringTypes.MultiplierComponent] = []
+	if player.locked_context != null:
+		field_components = FieldEffectResolver.score_components(
+			player.submitted_faces,
+			player.locked_context.counts,
+			state.ability_deck.active_fields()
+		)
+	return ScoreCalculator.calculate(
+		player.submitted_faces,
+		player.locked_normal,
+		player.locked_context,
+		player.factor_modifiers,
+		field_components
+	)
 
 
 func _finish_hand_play(now_msec: int) -> Array[DomainEvent]:

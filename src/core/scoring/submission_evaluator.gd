@@ -10,6 +10,7 @@ const ContextHandDefinition = preload("res://src/core/scoring/context_hand_defin
 const NormalHandEvaluator = preload("res://src/core/scoring/normal_hand_evaluator.gd")
 const ContextHandEvaluator = preload("res://src/core/scoring/context_hand_evaluator.gd")
 const ScoreCalculator = preload("res://src/core/scoring/score_calculator.gd")
+const FieldEffectResolver = preload("res://src/core/abilities/field_effect_resolver.gd")
 
 const MAX_SUBMITTED_CARDS := 6
 
@@ -20,7 +21,8 @@ static func evaluate(
 	active_context: int,
 	normal_definitions: Array[NormalHandDefinition],
 	context_definitions: Array[ContextHandDefinition],
-	modifiers: Array[ScoringTypes.FactorModifier]
+	modifiers: Array[ScoringTypes.FactorModifier],
+	active_fields: Array = []
 ) -> ScoringTypes.SubmissionResult:
 	if selections.size() > MAX_SUBMITTED_CARDS:
 		return _invalid(&"submission_size_out_of_range")
@@ -29,6 +31,7 @@ static func evaluate(
 		or active_context > GameTypes.Context.FALL
 	):
 		return _invalid(&"invalid_active_context")
+	var active_contexts := FieldEffectResolver.active_contexts(active_context, active_fields)
 
 	var cards_by_id := {}
 	for card in hand:
@@ -66,9 +69,12 @@ static func evaluate(
 			return _invalid(choices_result["error_code"])
 		var choices_by_half: Dictionary = choices_result["choices_by_half"]
 		var selected_half: HalfCardState = card.half_at(half_index)
-		if card.eligible_half_indexes(active_context).is_empty():
+		if card.eligible_half_indexes_for_contexts(active_contexts).is_empty():
 			return _invalid(&"card_not_eligible")
-		if not selected_half.is_joker() and selected_half.effective_context() != active_context:
+		if (
+			not selected_half.is_joker()
+			and selected_half.effective_context() not in active_contexts
+		):
 			return _invalid(&"selected_half_not_active")
 
 		var resolved_halves: Array[Dictionary] = []
@@ -115,8 +121,11 @@ static func evaluate(
 	var context_result := ContextHandEvaluator.evaluate_contexts(
 		resolved_contexts, context_definitions
 	)
+	var field_components := FieldEffectResolver.score_components(
+		selected_faces, context_result.counts, active_fields
+	)
 	var score_breakdown := ScoreCalculator.calculate(
-		selected_faces, normal_result, context_result, modifiers
+		selected_faces, normal_result, context_result, modifiers, field_components
 	)
 	return ScoringTypes.SubmissionResult.new(
 		true,
