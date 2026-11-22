@@ -114,8 +114,13 @@ func test_shared_deck_recycles_used_cards_and_short_draws_held_cards() -> void:
 func test_deck_exposes_setup_draw_and_end_hand_limit_data() -> void:
 	var deck := AbilityDeckState.new([])
 	assert_eq(deck.starting_hand_size, 2)
-	assert_eq(deck.start_draw_count, 1)
+	assert_eq(deck.start_draw_count, 2)
 	assert_eq(deck.end_hand_limit, 3)
+	var restored := AbilityDeckState.new([])
+	restored.load_dict(deck.to_dict())
+	assert_eq(restored.starting_hand_size, 2)
+	assert_eq(restored.start_draw_count, 2)
+	assert_eq(restored.end_hand_limit, 3)
 
 
 func test_effective_card_change_persists_until_the_full_card_leaves_hand() -> void:

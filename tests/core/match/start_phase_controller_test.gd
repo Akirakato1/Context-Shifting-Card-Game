@@ -27,6 +27,10 @@ func test_timeout_completes_partial_requests_replenishes_then_draws_abilities() 
 	_discard_one_full_card(state, &"one")
 	_discard_one_full_card(state, &"two")
 	var original_ids := _hand_ids(state.players[&"one"].hand)
+	var original_ability_counts := {
+		&"one": state.players[&"one"].ability_hand.size(),
+		&"two": state.players[&"two"].ability_hand.size(),
+	}
 	var controller := MatchController.new(state)
 	controller.tick(1000)
 
@@ -40,8 +44,10 @@ func test_timeout_completes_partial_requests_replenishes_then_draws_abilities() 
 	assert_eq(state.phase, GameTypes.Phase.MAIN_1)
 	assert_eq(state.players[&"one"].hand.size(), 6)
 	assert_eq(state.players[&"two"].hand.size(), 6)
-	assert_eq(state.players[&"one"].ability_hand.size(), 3)
-	assert_eq(state.players[&"two"].ability_hand.size(), 3)
+	assert_eq(state.players[&"one"].ability_hand.size(), original_ability_counts[&"one"] + 2)
+	assert_eq(state.players[&"two"].ability_hand.size(), original_ability_counts[&"two"] + 2)
+	assert_eq(_event_count_for_player(events, EventKinds.ABILITY_DRAWN, &"one"), 2)
+	assert_eq(_event_count_for_player(events, EventKinds.ABILITY_DRAWN, &"two"), 2)
 	var new_card = _new_card(state.players[&"one"].hand, original_ids)
 	assert_true(
 		new_card.first.base_context == GameTypes.Context.RISE
@@ -90,7 +96,7 @@ func test_all_ready_advances_before_deadline_and_clears_readiness() -> void:
 	assert_false(state.players[&"one"].ready)
 	assert_false(state.players[&"two"].ready)
 	assert_true(_first_event(second.events, EventKinds.PHASE_CHANGED) != null)
-	assert_eq(state.players[&"one"].ability_hand.size(), 3)
+	assert_eq(state.players[&"one"].ability_hand.size(), 4)
 
 
 func _config(visibility: int) -> MatchConfig:
@@ -137,6 +143,14 @@ func _event_index(events: Array, kind: StringName) -> int:
 	for index in range(events.size()):
 		if events[index].kind == kind: return index
 	return -1
+
+
+func _event_count_for_player(events: Array, kind: StringName, player_id: StringName) -> int:
+	var count := 0
+	for event in events:
+		if event.kind == kind and StringName(event.payload.get("player_id", "")) == player_id:
+			count += 1
+	return count
 
 
 func _request_total(request: Dictionary) -> int:
