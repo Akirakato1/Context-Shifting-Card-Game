@@ -49,13 +49,51 @@ func test_hand_shape_cards_use_public_player_target_schema_and_placeholder_three
 		assert_eq(definition.choice_schema.steps[0].kind, "player")
 
 
+func test_field_catalog_has_fifteen_valid_main_one_designs_without_prime_favor() -> void:
+	var by_id := _definitions_by_id(AbilityCatalog.field_designs())
+	assert_eq(by_id.size(), 15)
+	assert_false(by_id.has(&"prime_rank_favor"))
+	for definition: AbilityDefinition in by_id.values():
+		assert_eq(definition.timing, AbilityDefinition.Timing.FIELD)
+		assert_true(definition.allows_phase(GameTypes.Phase.MAIN_1))
+		assert_false(definition.allows_phase(GameTypes.Phase.MAIN_2))
+		assert_false(definition.display_name.is_empty())
+		assert_false(definition.rules_text.is_empty())
+		assert_eq(definition.choice_schema.get("steps", []), [])
+
+	for id in [&"shift_to_rise", &"shift_to_flourish", &"shift_to_fall"]:
+		assert_eq(by_id[id].field_duration, AbilityDefinition.FIELD_DURATION_INSTANT)
+		assert_eq(by_id[id].effect_id, &"context_jump")
+	assert_eq(by_id.reverse_cycle.field_duration, AbilityDefinition.FIELD_DURATION_PERSISTENT)
+	assert_eq(by_id.reverse_cycle.effect_id, &"reverse_direction")
+	assert_eq(by_id.reverse_cycle.conflict_group, &"direction")
+
+	for id in [&"rise_resonance", &"flourish_resonance", &"fall_resonance"]:
+		assert_eq(by_id[id].field_duration, 1)
+		assert_eq(by_id[id].effect_id, &"field_rule")
+		assert_eq(by_id[id].effect_parameters.field_rule, &"additional_context")
+	for id in [
+		&"suit_1_favor", &"suit_2_favor", &"suit_3_favor",
+		&"even_rank_favor", &"odd_rank_favor",
+		&"rise_ascendancy", &"flourish_ascendancy", &"fall_ascendancy",
+	]:
+		assert_eq(by_id[id].field_duration, 3)
+		assert_eq(by_id[id].effect_id, &"field_rule")
+
+
 func test_definition_data_is_independent_from_physical_copy_recipe() -> void:
 	var designs := AbilityCatalog.all_designs()
 	var recipe := AbilityCatalog.provisional_deck_recipe()
-	assert_eq(designs.size(), 30)
-	assert_eq(recipe.size(), 30)
+	assert_eq(designs.size(), 45)
+	assert_eq(recipe.size(), 45)
 	for definition in designs:
 		assert_false(definition.effect_parameters.has("copy_count"))
+	assert_eq(AbilityCatalog.build_deck(recipe).size(), 68)
+	for definition in AbilityCatalog.field_designs():
+		assert_eq(
+			recipe[definition.id],
+			4 if str(definition.id).ends_with("_resonance") else 1
+		)
 
 
 func test_custom_recipe_supports_different_counts_per_definition() -> void:

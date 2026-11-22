@@ -218,6 +218,27 @@ func test_effect_registry_validates_and_returns_domain_events() -> void:
 	assert_eq(events[0].kind, EventKinds.ABILITY_EFFECT_APPLIED)
 	assert_eq(events[0].payload.value, 7)
 	assert_eq(events[0].audience, &"public")
+	assert_eq(
+		registry.validate(&"field_rule", {"effect": {
+			"field_rule": &"per_selected_suit", "suit": GameTypes.Suit.ONE,
+			"numerator": 1, "denominator": 10,
+		}}),
+		&""
+	)
+	assert_eq(
+		registry.apply(&"field_rule", {"effect": {
+			"field_rule": &"per_selected_suit", "suit": GameTypes.Suit.ONE,
+			"numerator": 1, "denominator": 10,
+		}}),
+		[]
+	)
+	assert_eq(
+		registry.validate(&"field_rule", {"effect": {
+			"field_rule": &"per_selected_rank_set", "ranks": [2, 2],
+			"numerator": 1, "denominator": 10,
+		}}),
+		&"invalid_field_ranks"
+	)
 
 
 func _definition(

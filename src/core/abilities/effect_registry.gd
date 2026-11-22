@@ -9,6 +9,7 @@ const FullCardState = preload("res://src/core/cards/full_card_state.gd")
 const ScoringTypes = preload("res://src/core/scoring/scoring_types.gd")
 const ScoringCategories = preload("res://src/core/scoring/scoring_categories.gd")
 const EventKinds = preload("res://src/core/events/event_kinds.gd")
+const FieldEffectResolver = preload("res://src/core/abilities/field_effect_resolver.gd")
 
 var _handlers: Dictionary = {}
 
@@ -16,6 +17,16 @@ var _handlers: Dictionary = {}
 class NoopHandler extends RefCounted:
 	func validate(_context: Dictionary) -> StringName:
 		return &""
+
+	func apply(_context: Dictionary) -> Array[DomainEvent]:
+		return []
+
+
+class FieldRuleHandler extends RefCounted:
+	func validate(context: Dictionary) -> StringName:
+		if not context.get("effect") is Dictionary:
+			return &"invalid_effect_payload"
+		return FieldEffectResolver.validate_rule(context.effect)
 
 	func apply(_context: Dictionary) -> Array[DomainEvent]:
 		return []
@@ -134,6 +145,7 @@ class ForceRedrawHandler extends RefCounted:
 
 func _init() -> void:
 	register(&"noop", NoopHandler.new())
+	register(&"field_rule", FieldRuleHandler.new())
 	register(&"context_jump", ContextJumpHandler.new())
 	register(&"reverse_direction", ReverseDirectionHandler.new())
 	register(&"factor_modifier", FactorModifierHandler.new())

@@ -97,9 +97,66 @@ static func hand_shape_designs() -> Array[AbilityDefinition]:
 	return result
 
 
+static func field_designs() -> Array[AbilityDefinition]:
+	var result: Array[AbilityDefinition] = []
+	var contexts := [
+		[&"rise", "Rise", GameTypes.Context.RISE],
+		[&"flourish", "Flourish", GameTypes.Context.FLOURISH],
+		[&"fall", "Fall", GameTypes.Context.FALL],
+	]
+	for item in contexts:
+		result.append(_field_definition(
+			StringName("shift_to_%s" % item[0]), "Shift to %s" % item[1],
+			"Move the active context to %s immediately. Do not change the cycle direction." % item[1],
+			&"context_jump", AbilityDefinition.FIELD_DURATION_INSTANT,
+			{"context": item[2]}
+		))
+	result.append(_field_definition(
+		&"reverse_cycle", "Reverse Cycle",
+		"Reverse the context clock direction without changing the current context.",
+		&"reverse_direction", AbilityDefinition.FIELD_DURATION_PERSISTENT, {}, &"direction"
+	))
+	for item in contexts:
+		result.append(_field_definition(
+			StringName("%s_resonance" % item[0]), "%s Resonance" % item[1],
+			"In addition to the currently active contexts, activate %s for this round without moving the clock." % item[1],
+			&"field_rule", 1,
+			{"field_rule": &"additional_context", "context": item[2]}
+		))
+	for suit in range(GameTypes.Suit.ONE, GameTypes.Suit.THREE + 1):
+		result.append(_field_definition(
+			StringName("suit_%d_favor" % (suit + 1)), "Suit %d Favor" % (suit + 1),
+			"Add +0.1 to each player's field multiplier per submitted scoring face with Suit %d." % (suit + 1),
+			&"field_rule", 3,
+			{"field_rule": &"per_selected_suit", "suit": suit,
+			"numerator": 1, "denominator": 10}
+		))
+	for item in [
+		[&"even_rank_favor", "Even Rank Favor", [2, 4, 6, 8, 10], "even"],
+		[&"odd_rank_favor", "Odd Rank Favor", [1, 3, 5, 7, 9], "odd"],
+	]:
+		result.append(_field_definition(
+			item[0], item[1],
+			"Add +0.1 to each player's field multiplier per submitted non-Joker scoring face with an %s rank." % item[3],
+			&"field_rule", 3,
+			{"field_rule": &"per_selected_rank_set", "ranks": item[2],
+			"numerator": 1, "denominator": 10}
+		))
+	for item in contexts:
+		result.append(_field_definition(
+			StringName("%s_ascendancy" % item[0]), "%s Ascendancy" % item[1],
+			"Add +0.25 to a player's field multiplier when %s has the strictly highest context tally in their submitted hand." % item[1],
+			&"field_rule", 3,
+			{"field_rule": &"strict_context_majority", "context": item[2],
+			"numerator": 1, "denominator": 4}
+		))
+	return result
+
+
 static func all_designs() -> Array[AbilityDefinition]:
 	var result := manipulation_designs()
 	result.append_array(hand_shape_designs())
+	result.append_array(field_designs())
 	return result
 
 
@@ -107,6 +164,8 @@ static func provisional_deck_recipe() -> Dictionary:
 	var recipe := {}
 	for definition in manipulation_designs(): recipe[definition.id] = 2
 	for definition in hand_shape_designs(): recipe[definition.id] = 1
+	for definition in field_designs():
+		recipe[definition.id] = 4 if str(definition.id).ends_with("_resonance") else 1
 	return recipe
 
 
@@ -152,6 +211,29 @@ static func _definition(
 		&"",
 		effect_parameters,
 		{"steps": steps.duplicate(true)},
+		display_name,
+		rules_text
+	)
+
+
+static func _field_definition(
+	id: StringName,
+	display_name: String,
+	rules_text: String,
+	effect_id: StringName,
+	duration: int,
+	parameters: Dictionary = {},
+	conflict_group: StringName = &""
+) -> AbilityDefinition:
+	return AbilityDefinition.new(
+		id,
+		AbilityDefinition.Timing.FIELD,
+		[&"field"],
+		effect_id,
+		duration,
+		conflict_group,
+		parameters,
+		{"steps": []},
 		display_name,
 		rules_text
 	)
