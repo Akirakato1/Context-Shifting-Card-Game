@@ -130,6 +130,20 @@ func test_runtime_config_uses_recipe_with_all_four_ability_categories() -> void:
 	assert_false(definitions.any(func(definition):
 		return str(definition.id).begins_with("placeholder_ability_")
 	))
+	var contexts: Array = runtime._controller.state.config.context_definitions
+	var contexts_by_id := {}
+	for definition in contexts:
+		contexts_by_id[definition.id] = definition
+	assert_eq(contexts.size(), 40)
+	assert_eq(contexts_by_id.all_contexts_1.priority, 10)
+	assert_eq(contexts_by_id.all_contexts_1.multiplier.numerator, 5)
+	assert_eq(contexts_by_id.all_contexts_1.multiplier.denominator, 4)
+	assert_eq(contexts_by_id.rise_12.priority, 160)
+	assert_eq(contexts_by_id.rise_12.multiplier.numerator, 5)
+	assert_eq(contexts_by_id.rise_12.multiplier.denominator, 1)
+	assert_false(contexts.any(func(definition):
+		return definition.multiplier.numerator == 1 and definition.multiplier.denominator == 1
+	))
 	runtime.close()
 
 

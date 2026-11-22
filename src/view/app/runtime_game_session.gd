@@ -10,9 +10,9 @@ signal connection_state_changed(state: Dictionary)
 const GameTypes = preload("res://src/core/common/game_types.gd")
 const Rational = preload("res://src/core/common/rational.gd")
 const AbilityCatalog = preload("res://src/core/abilities/ability_catalog.gd")
+const ContextHandCatalog = preload("res://src/core/scoring/context_hand_catalog.gd")
 const AbilityDefinition = preload("res://src/core/abilities/ability_definition.gd")
 const NormalHandDefinition = preload("res://src/core/scoring/normal_hand_definition.gd")
-const ContextHandDefinition = preload("res://src/core/scoring/context_hand_definition.gd")
 const GameCommand = preload("res://src/core/commands/game_command.gd")
 const MatchConfig = preload("res://src/core/match/match_config.gd")
 const MatchState = preload("res://src/core/match/match_state.gd")
@@ -544,7 +544,7 @@ func _build_config(active_ids: Array) -> MatchConfig:
 			GameTypes.Phase.END: int(_settings.end_timer_msec),
 		}, int(_settings.reaction_window_msec),
 		int(_settings.public_hard_limit_msec), int(_settings.reconnect_grace_msec),
-		_default_abilities(), _placeholder_normal_hands(), _placeholder_context_hands()
+		_default_abilities(), _placeholder_normal_hands(), ContextHandCatalog.definitions()
 	)
 
 
@@ -642,29 +642,6 @@ func _placeholder_normal_hands() -> Array[NormalHandDefinition]:
 		NormalHandDefinition.new(&"straight_six", 43, 6, &"straight", Rational.new(1, 1)),
 		NormalHandDefinition.new(&"full_house", 50, 5, &"full_house", Rational.new(1, 1)),
 	]
-
-
-func _placeholder_context_hands() -> Array[ContextHandDefinition]:
-	var result: Array[ContextHandDefinition] = []
-	for count in range(1, 5):
-		result.append(ContextHandDefinition.new(
-			StringName("all_contexts_%d" % count), count,
-			{0: count, 1: count, 2: count}, Rational.new(1, 1)
-		))
-	for context in range(3):
-		for count in range(5, 13):
-			result.append(ContextHandDefinition.new(
-				StringName("context_%d_%d" % [context, count]), 100 + count,
-				{context: count}, Rational.new(1, 1)
-			))
-	for first in range(3):
-		for second in range(first + 1, 3):
-			for count in range(3, 7):
-				result.append(ContextHandDefinition.new(
-					StringName("contexts_%d_%d_%d" % [first, second, count]), 50 + count,
-					{first: count, second: count}, Rational.new(1, 1)
-				))
-	return result
 
 
 func _fallback_name(player: Dictionary) -> String:
