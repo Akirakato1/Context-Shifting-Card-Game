@@ -465,7 +465,7 @@ func _render_end() -> void:
 		_ability_choices.remove_child(child)
 		child.queue_free()
 	var abilities: Array = _model.get("private_abilities", [])
-	var required := maxi(abilities.size() - 3, 0)
+	var required := _required_ability_discards()
 	_end_required.text = "Choose %d to discard" % required
 	for ability in abilities:
 		if not ability is Dictionary:
@@ -493,8 +493,15 @@ func _update_start_total() -> void:
 
 
 func _update_end_button() -> void:
-	var required := maxi(_model.get("private_abilities", []).size() - 3, 0)
+	var required := _required_ability_discards()
 	_end_confirm.disabled = _input_locked or _ability_discards.size() != required or _pending.has(&"choose_ability_discards")
+
+
+func _required_ability_discards() -> int:
+	return int(_model.get(
+		"required_ability_discards",
+		maxi(_model.get("private_abilities", []).size() - 3, 0)
+	))
 
 
 func _refresh_buttons() -> void:

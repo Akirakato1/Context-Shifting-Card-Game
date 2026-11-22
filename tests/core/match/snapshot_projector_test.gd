@@ -89,6 +89,28 @@ func test_player_snapshot_contains_only_that_players_private_values() -> void:
 		assert_false(ability.legal)
 
 
+func test_end_snapshot_exposes_required_discards_only_to_owner() -> void:
+	var state := _state(GameTypes.InformationVisibility.PUBLIC)
+	state.phase = GameTypes.Phase.END
+	state.players[&"one"].ability_hand.append_array(
+		state.ability_deck.draw(&"one", 3, state.rng)
+	)
+	var owner := SnapshotProjector.for_recipient(
+		state, &"one", GameTypes.RecipientRole.ACTIVE_PLAYER
+	)
+	var opponent := SnapshotProjector.for_recipient(
+		state, &"two", GameTypes.RecipientRole.ACTIVE_PLAYER
+	)
+	var spectator := SnapshotProjector.for_recipient(
+		state, &"watcher", GameTypes.RecipientRole.SPECTATOR
+	)
+
+	assert_eq(owner.private_abilities.size(), 5)
+	assert_eq(owner.required_ability_discards, 2)
+	assert_eq(opponent.required_ability_discards, 0)
+	assert_false(spectator.has("required_ability_discards"))
+
+
 func test_active_contexts_and_persistent_fields_are_public_for_every_role() -> void:
 	var state := _state(GameTypes.InformationVisibility.PUBLIC)
 	_activate_field(state, &"one", &"flourish_resonance")

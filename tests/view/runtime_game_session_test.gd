@@ -176,6 +176,65 @@ func test_runtime_config_uses_recipe_with_all_four_ability_categories() -> void:
 	runtime.close()
 
 
+func test_runtime_end_discard_uses_owner_choices_and_rejects_wrong_count() -> void:
+	var transport := RuntimeTransport.new()
+	var runtime = RuntimeGameSession.new(transport, Callable(self, "_now"))
+	var snapshots: Array[Dictionary] = []
+	var results: Array[Dictionary] = []
+	runtime.snapshot_applied.connect(func(snapshot: Dictionary, _sequence: int):
+		snapshots.append(snapshot)
+	)
+	runtime.command_result_received.connect(func(message_id: String, result: Dictionary):
+		results.append({"message_id": message_id, "result": result})
+	)
+	assert_eq(runtime.start_host("ws://127.0.0.1:8080", "Mira"), OK)
+	transport.lobby_created.emit("ABC234")
+	transport.join_status.emit("approved", {
+		"peer_id": "peer-one", "role": "active", "display_name": "Noah",
+	})
+	transport.peer_connected.emit("peer-one")
+	assert_eq(runtime.start_match(), OK)
+
+	var state = runtime._controller.state
+	var host = state.players[&"host"]
+	host.ability_hand.append_array(state.ability_deck.draw(&"host", 3, state.rng))
+	host.end_discard_complete = false
+	state.players[&"peer-one"].end_discard_complete = true
+	state.phase = 5
+	state.phase_started_msec = 1000
+	state.phase_deadline_msec = 11000
+	runtime._host_session.publish_state_change([])
+
+	assert_eq(snapshots[-1].phase, 5)
+	assert_eq(snapshots[-1].private_abilities.size(), 5)
+	assert_eq(snapshots[-1].required_ability_discards, 2)
+	var chosen_ids := [
+		str(host.ability_hand[0].copy_id), str(host.ability_hand[1].copy_id),
+	]
+	assert_eq(runtime.submit_command("wrong-end-discard", {
+		"command_id": "wrong-end-discard-command",
+		"kind": "choose_ability_discards",
+		"payload": {"copy_ids": [chosen_ids[0]]},
+	}), OK)
+	assert_false(results[-1].result.accepted)
+	assert_eq(results[-1].result.error_code, "incorrect_discard_count")
+	assert_eq(host.ability_hand.size(), 5)
+
+	assert_eq(runtime.submit_command("chosen-end-discard", {
+		"command_id": "chosen-end-discard-command",
+		"kind": "choose_ability_discards",
+		"payload": {"copy_ids": chosen_ids},
+	}), OK)
+	assert_true(results[-1].result.accepted)
+	assert_eq(host.ability_hand.size(), 3)
+	for copy_id in chosen_ids:
+		assert_false(host.ability_hand.any(func(ability):
+			return str(ability.copy_id) == copy_id
+		))
+	assert_eq(snapshots[-1].phase, 1)
+	runtime.close()
+
+
 func test_ability_catalog_projects_name_rules_text_timing_and_schema() -> void:
 	var definitions: Array = []
 	for definition in AbilityCatalog.manipulation_definitions(1):

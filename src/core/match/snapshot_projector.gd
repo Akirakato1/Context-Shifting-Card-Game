@@ -81,6 +81,10 @@ static func for_recipient(
 		snapshot["private_abilities"] = _private_abilities(
 			recipient.ability_hand, state.phase
 		)
+		snapshot["required_ability_discards"] = (
+			maxi(recipient.ability_hand.size() - state.ability_deck.end_hand_limit, 0)
+			if state.phase == GameTypes.Phase.END else 0
+		)
 		snapshot["private_staging"] = {
 			"pending_manipulation": recipient.pending_manipulation.duplicate(true),
 			"completed_manipulation_ids": completed_manipulations,
