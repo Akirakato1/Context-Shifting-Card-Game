@@ -76,6 +76,7 @@ class NormalHandResult extends RefCounted:
 	var matched_faces: Array[SelectedCardFace]
 	var submitted_faces: Array[SelectedCardFace]
 	var tie_break: PackedInt32Array
+	var components: Array[MultiplierComponent]
 
 	func _init(
 		valid: bool,
@@ -84,7 +85,8 @@ class NormalHandResult extends RefCounted:
 		category_multiplier: Rational,
 		matched: Array[SelectedCardFace],
 		submitted: Array[SelectedCardFace],
-		category_tie_break: PackedInt32Array
+		category_tie_break: PackedInt32Array,
+		multiplier_components: Array[MultiplierComponent] = []
 	) -> void:
 		is_valid = valid
 		category_id = category
@@ -93,6 +95,7 @@ class NormalHandResult extends RefCounted:
 		matched_faces = matched.duplicate()
 		submitted_faces = submitted.duplicate()
 		tie_break = category_tie_break.duplicate()
+		components = multiplier_components.duplicate()
 
 
 class ContextHandResult extends RefCounted:
@@ -100,17 +103,23 @@ class ContextHandResult extends RefCounted:
 	var priority: int
 	var multiplier: Rational
 	var counts: Dictionary
+	var broad_category_id: StringName
+	var component: MultiplierComponent
 
 	func _init(
 		category: StringName,
 		category_priority: int,
 		category_multiplier: Rational,
-		context_counts: Dictionary
+		context_counts: Dictionary,
+		context_broad_category_id: StringName = &"",
+		context_component: MultiplierComponent = null
 	) -> void:
 		category_id = category
 		priority = category_priority
 		multiplier = category_multiplier
 		counts = context_counts.duplicate()
+		broad_category_id = context_broad_category_id
+		component = context_component
 
 
 class ScoreBreakdown extends RefCounted:

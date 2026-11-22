@@ -24,9 +24,19 @@ static func evaluate(
 	var best_definition: NormalHandDefinition = null
 	var best_faces: Array[ScoringTypes.SelectedCardFace] = []
 	var best_tie_break := PackedInt32Array()
+	var best_flush_definition: NormalHandDefinition = null
+	var best_flush_tie_break := PackedInt32Array()
 
 	for definition in definitions:
 		if not supports_rule(definition.rule_id) or definition.subset_size > faces.size():
+			continue
+		if definition.component_group == &"suit":
+			if definition.subset_size != faces.size() or not _matches(definition, faces):
+				continue
+			var flush_tie_break := _tie_break(definition, faces)
+			if _candidate_precedes(definition, flush_tie_break, best_flush_definition, best_flush_tie_break):
+				best_flush_definition = definition
+				best_flush_tie_break = flush_tie_break
 			continue
 		var subsets := _combinations(faces, definition.subset_size)
 		for untyped_subset in subsets:
@@ -46,6 +56,17 @@ static func evaluate(
 		return ScoringTypes.NormalHandResult.new(
 			false, &"", -1, Rational.new(0, 1), [], faces, PackedInt32Array()
 		)
+	var components: Array[ScoringTypes.MultiplierComponent] = [
+		ScoringTypes.MultiplierComponent.new(
+			&"card_hand", best_definition.broad_category_id,
+			best_definition.id, best_definition.multiplier
+		),
+	]
+	if best_flush_definition != null:
+		components.append(ScoringTypes.MultiplierComponent.new(
+			&"card_hand", best_flush_definition.broad_category_id,
+			best_flush_definition.id, best_flush_definition.multiplier
+		))
 	return ScoringTypes.NormalHandResult.new(
 		true,
 		best_definition.id,
@@ -53,7 +74,8 @@ static func evaluate(
 		best_definition.multiplier,
 		best_faces,
 		faces,
-		best_tie_break
+		best_tie_break,
+		components
 	)
 
 

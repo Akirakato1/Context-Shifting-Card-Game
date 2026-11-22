@@ -48,10 +48,13 @@ static func evaluate_contexts(
 
 	if best == null:
 		return ScoringTypes.ContextHandResult.new(
-			&"no_context", -1, Rational.new(1, 1), counts
+			&"no_context", -1, Rational.new(1, 1), counts, &"", null
 		)
+	var component := ScoringTypes.MultiplierComponent.new(
+		&"context_hand", best.broad_category_id, best.id, best.multiplier
+	)
 	return ScoringTypes.ContextHandResult.new(
-		best.id, best.priority, best.multiplier, counts
+		best.id, best.priority, best.multiplier, counts, best.broad_category_id, component
 	)
 
 

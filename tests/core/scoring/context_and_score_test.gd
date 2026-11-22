@@ -98,6 +98,30 @@ func test_context_evaluator_accepts_resolved_contexts_without_card_mutation() ->
 	assert_eq(result.counts[GameTypes.Context.FALL], 2)
 
 
+func test_context_result_uses_selected_definition_broad_category() -> void:
+	var definitions: Array[ContextHandDefinition] = [ContextHandDefinition.new(
+		&"all_three", 20, {0: 1, 1: 1, 2: 1}, Rational.new(3, 1), &"three_context"
+	)]
+	var result := ContextHandEvaluator.evaluate_contexts(PackedInt32Array([0, 1, 2]), definitions)
+	assert_eq(result.broad_category_id, &"three_context")
+	assert_eq(result.component.category_id, &"three_context")
+
+
+func test_lower_priority_context_shapes_do_not_emit_extra_components() -> void:
+	var definitions: Array[ContextHandDefinition] = [
+		ContextHandDefinition.new(&"single", 10, {0: 1}, Rational.new(2, 1), &"single_context"),
+		ContextHandDefinition.new(&"triple", 20, {0: 1, 1: 1, 2: 1}, Rational.new(3, 1), &"three_context"),
+	]
+	var result := ContextHandEvaluator.evaluate_contexts(PackedInt32Array([0, 1, 2]), definitions)
+	assert_eq(result.component.source_definition_id, &"triple")
+
+
+func test_no_context_fallback_is_neutral_and_has_no_buffable_category() -> void:
+	var result := ContextHandEvaluator.evaluate_contexts(PackedInt32Array([0]), [])
+	assert_eq(result.broad_category_id, &"")
+	assert_eq(result.component, null)
+
+
 func test_score_uses_all_faces_ordered_modifiers_and_one_final_ceiling() -> void:
 	var faces: Array[ScoringTypes.SelectedCardFace] = [
 		ScoringTypes.SelectedCardFace.new(&"three", 0, 3, GameTypes.Suit.ONE),
