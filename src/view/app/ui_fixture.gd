@@ -43,7 +43,7 @@ func _fixture_model() -> Dictionary:
 		_card("c6", _half(0, 4, 2), _half(1, 7, 1)),
 	]
 	return {
-		"phase": 3, "round_number": 4, "active_context": 0, "context_direction": 1,
+		"phase": 3, "round_number": 4, "active_context": 0, "active_contexts": [0, 1], "context_direction": 1,
 		"phase_deadline_msec": 30000, "now_msec": 12400, "reaction_deadline_msec": -1,
 		"private_player_id": "p1", "private_hand": hand,
 		"private_abilities": [
@@ -69,7 +69,8 @@ func _fixture_model() -> Dictionary:
 			{"player_id": "s1", "name": "Watcher", "seat_index": -1, "spectator": true, "active": false, "connected": true},
 		],
 		"active_fields": [
-			{"ability_id": "slow_clock", "source_player_id": "p3", "remaining_rounds": 2},
+			{"ability_id": "reverse_cycle", "source_player_id": "p3", "remaining_rounds": -1, "persistent": true},
+			{"ability_id": "flourish_resonance", "source_player_id": "p2", "remaining_rounds": 1, "persistent": false},
 		],
 		"recent_public_abilities": [
 			{"ability_id": "pair_breaker", "source_player_id": "p2", "target_player_id": "p1"},

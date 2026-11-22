@@ -21,7 +21,8 @@ func render(
 	active_context: int,
 	is_local: bool,
 	request: Dictionary = {},
-	show_hand: bool = true
+	show_hand: bool = true,
+	active_contexts: Array = []
 ) -> void:
 	_clear_hand()
 	_hidden_cards = 0
@@ -61,7 +62,7 @@ func render(
 		_hand.add_child(widget)
 		if not is_local:
 			widget.custom_minimum_size = Vector2(72, 58)
-		widget.render(card, active_context, hidden)
+		widget.render(card, active_context, hidden, {"active_contexts": active_contexts})
 	_score.text = _score_text(player, revealed)
 
 

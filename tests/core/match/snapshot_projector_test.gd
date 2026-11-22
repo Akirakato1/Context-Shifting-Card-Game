@@ -5,6 +5,7 @@ const Rational = preload("res://src/core/common/rational.gd")
 const HalfCardState = preload("res://src/core/cards/half_card_state.gd")
 const FullCardState = preload("res://src/core/cards/full_card_state.gd")
 const AbilityDefinition = preload("res://src/core/abilities/ability_definition.gd")
+const AbilityCatalog = preload("res://src/core/abilities/ability_catalog.gd")
 const NormalHandDefinition = preload("res://src/core/scoring/normal_hand_definition.gd")
 const CommandKinds = preload("res://src/core/commands/command_kinds.gd")
 const GameCommand = preload("res://src/core/commands/game_command.gd")
@@ -83,6 +84,35 @@ func test_player_snapshot_contains_only_that_players_private_values() -> void:
 		assert_true(card.has("eligible_half_indexes"))
 	for ability in snapshot.private_abilities:
 		assert_false(ability.legal)
+
+
+func test_active_contexts_and_persistent_fields_are_public_for_every_role() -> void:
+	var state := _state(GameTypes.InformationVisibility.PUBLIC)
+	_activate_field(state, &"one", &"flourish_resonance")
+	_activate_field(state, &"two", &"reverse_cycle")
+	for entry in [
+		[&"one", GameTypes.RecipientRole.HOST],
+		[&"one", GameTypes.RecipientRole.ACTIVE_PLAYER],
+		[&"watcher", GameTypes.RecipientRole.SPECTATOR],
+	]:
+		var snapshot := SnapshotProjector.for_recipient(state, entry[0], entry[1])
+		assert_eq(snapshot.active_contexts, [GameTypes.Context.RISE, GameTypes.Context.FLOURISH])
+		assert_eq(snapshot.active_fields.size(), 2)
+		var reverse := _projected_field(snapshot.active_fields, "reverse_cycle")
+		assert_true(reverse.persistent)
+		assert_eq(reverse.remaining_rounds, AbilityDefinition.FIELD_DURATION_PERSISTENT)
+		if entry[1] == GameTypes.RecipientRole.SPECTATOR:
+			assert_false(snapshot.has("private_hand"))
+	var flourish_card = state.players[&"one"].hand[0]
+	if not flourish_card.first.is_joker():
+		flourish_card.first.apply_overrides(
+			GameTypes.Context.FLOURISH, flourish_card.first.effective_rank(),
+			flourish_card.first.effective_suit()
+		)
+	var owner := SnapshotProjector.for_recipient(
+		state, &"one", GameTypes.RecipientRole.ACTIVE_PLAYER
+	)
+	assert_true(0 in owner.private_hand[0].eligible_half_indexes)
 
 
 func test_manipulation_targets_and_random_results_are_owner_private() -> void:
@@ -244,6 +274,25 @@ func _state(visibility: int) -> MatchState:
 		)], []
 	)
 	return MatchState.create(config, 88)
+
+
+func _activate_field(state: MatchState, player_id: StringName, definition_id: StringName) -> void:
+	var ability = state.players[player_id].ability_hand[0]
+	for definition in AbilityCatalog.field_designs():
+		if definition.id == definition_id:
+			ability.definition = definition
+			state.players[player_id].ability_hand.erase(ability)
+			state.ability_deck.play_field(ability, player_id)
+			return
+	assert(false, "unknown field fixture")
+
+
+func _projected_field(fields: Array, ability_id: String) -> Dictionary:
+	for field in fields:
+		if str(field.get("ability_id", "")) == ability_id:
+			return field
+	assert(false, "missing projected field")
+	return {}
 
 
 func _player_view(players: Array, player_id: StringName) -> Dictionary:

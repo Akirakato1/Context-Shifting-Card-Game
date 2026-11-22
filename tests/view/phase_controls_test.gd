@@ -88,6 +88,26 @@ func test_hand_builder_stages_eligible_cards_requires_half_choice_and_defaults_j
 	await _unmount(controls)
 
 
+func test_resonance_context_half_is_highlighted_and_selectable() -> void:
+	var controls = await _mount_controls()
+	if controls == null:
+		return
+	var hand := _hand()
+	hand[0]["first"]["effective_context"] = 1
+	hand[0]["second"]["effective_context"] = 2
+	hand[0]["eligible_half_indexes"] = [0]
+	var model := _model(3, hand, {})
+	model["active_context"] = 0
+	model["active_contexts"] = [0, 1]
+	controls.render(model)
+	var widget = controls.card_widget(&"c1")
+	assert_eq(widget.active_half_index, 0)
+	controls.click_card(&"c1")
+	assert_true(controls.has_staged_card(&"c1"))
+	assert_eq(controls.staged_selection(&"c1").half_index, 0)
+	await _unmount(controls)
+
+
 func test_score_preview_renders_additive_components_adjustments_and_factor_floor() -> void:
 	var controls = await _mount_controls()
 	if controls == null: return

@@ -358,6 +358,7 @@ func _make_card_widget(
 			half_selected[half_index] = half_target in _target_selected
 	var has_target := full_card_eligible or half_eligible[0] or half_eligible[1]
 	widget.render(_hand_cards[card_id], active_context, false, {
+		"active_contexts": _active_contexts(),
 		"staged": staged,
 		"selected_half_index": selection.get("half_index", _default_half_index_for_card(card_id)),
 		"joker_choices": selection.get("joker_choices", []),
@@ -584,7 +585,17 @@ func _half_index_is_eligible(card: Dictionary, half_index: int) -> bool:
 
 
 func _half_is_eligible(half: Dictionary) -> bool:
-	return int(half.get("kind", 0)) == 1 or int(half.get("effective_context", -1)) == int(_model.get("active_context", 0))
+	return (
+		int(half.get("kind", 0)) == 1
+		or int(half.get("effective_context", -1)) in _active_contexts()
+	)
+
+
+func _active_contexts() -> Array:
+	var result: Array = _model.get("active_contexts", [])
+	if result.is_empty():
+		result = [int(_model.get("active_context", 0))]
+	return result
 
 
 func _card_half(card: Dictionary, half_index: int) -> Dictionary:

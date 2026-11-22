@@ -88,8 +88,10 @@ func test_context_score_progress_fields_and_nil_round_render_clearly() -> void:
 	model["victory_target"] = 100
 	model["last_round_nil"] = true
 	model["active_fields"] = [
-		{"ability_id": "reverse_clock", "source_player_id": "p3", "remaining_rounds": 2},
+		{"ability_id": "reverse_cycle", "source_player_id": "p3", "remaining_rounds": -1, "persistent": true},
+		{"ability_id": "fall_resonance", "source_player_id": "p2", "remaining_rounds": 1, "persistent": false},
 	]
+	model["active_contexts"] = [1, 2]
 	model.players[0]["provisional_score"] = {
 		"score_breakdown": {
 			"base_value": 10,
@@ -114,7 +116,7 @@ func test_context_score_progress_fields_and_nil_round_render_clearly() -> void:
 	assert_eq(table.get_node("Header/Round").text, "ROUND 4")
 	assert_eq(table.get_node("Header/Timer").text, "12.4s")
 	assert_eq(table.get_node("Center/ContextClock/Direction").text, "Fall  ←  Flourish  ←  Rise")
-	assert_eq(table.get_node("Center/ContextClock/Active").text, "ACTIVE  Flourish")
+	assert_eq(table.get_node("Center/ContextClock/Active").text, "ACTIVE  Flourish + Fall")
 	var score_text: String = table.get_node("TableLayer/BottomSeat/ScoreSummary").text
 	assert_true(score_text.contains("Straight 6"))
 	assert_true(score_text.contains("Flush 4"))
@@ -122,7 +124,9 @@ func test_context_score_progress_fields_and_nil_round_render_clearly() -> void:
 	assert_true(score_text.contains("Flush -2"))
 	assert_true(score_text.contains("550 provisional"))
 	assert_eq(table.get_node("Header/Progress").text, "SCORE RACE  ·  36 / 100")
-	assert_eq(table.get_node("Center/Fields/FieldRows").get_child_count(), 1)
+	assert_eq(table.get_node("Center/Fields/FieldRows").get_child_count(), 2)
+	assert_true(table.get_node("Center/Fields/FieldRows").get_child(0).text.contains("Persistent"))
+	assert_true(table.get_node("Center/Fields/FieldRows").get_child(1).text.contains("1 round"))
 	assert_eq(table.get_node("Center/RoundResult").text, "NIL ROUND  ·  no progress awarded")
 
 	model["victory_mode"] = 1

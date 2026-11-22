@@ -88,6 +88,9 @@ func render(
 		return
 	var first: Dictionary = card.get("first", {})
 	var second: Dictionary = card.get("second", {})
+	var active_contexts: Array = view_state.get("active_contexts", [])
+	if active_contexts.is_empty() and active_context >= 0:
+		active_contexts = [active_context]
 	var resolved_halves: Array = card.get("halves", [])
 	if resolved_halves.size() >= 2:
 		first = _resolved_half(resolved_halves[0])
@@ -102,9 +105,9 @@ func render(
 		active_half_index = int(card["selected_half_index"])
 	elif view_state.has("selected_half_index"):
 		active_half_index = int(view_state["selected_half_index"])
-	elif _half_matches_context(first, active_context):
+	elif _half_matches_contexts(first, active_contexts):
 		active_half_index = 0
-	elif _half_matches_context(second, active_context):
+	elif _half_matches_contexts(second, active_contexts):
 		active_half_index = 1
 	_apply_joker_choices(first, second, view_state)
 	_apply_orientation()
@@ -180,10 +183,10 @@ func _render_rank_art(container: HBoxContainer, rank: int) -> void:
 		container.add_child(texture_rect)
 
 
-func _half_matches_context(half: Dictionary, active_context: int) -> bool:
+func _half_matches_contexts(half: Dictionary, active_contexts: Array) -> bool:
 	return (
 		int(half.get("kind", 0)) == 1
-		or int(half.get("effective_context", half.get("base_context", -1))) == active_context
+		or int(half.get("effective_context", half.get("base_context", -1))) in active_contexts
 	)
 
 

@@ -3,6 +3,7 @@ extends RefCounted
 
 const GameTypes = preload("res://src/core/common/game_types.gd")
 const MatchState = preload("res://src/core/match/match_state.gd")
+const FieldEffectResolver = preload("res://src/core/abilities/field_effect_resolver.gd")
 
 
 static func for_recipient(
@@ -10,8 +11,15 @@ static func for_recipient(
 	recipient_id: StringName,
 	role: int
 ) -> Dictionary:
+	var active_contexts := FieldEffectResolver.active_contexts(
+		state.active_context, state.ability_deck.active_fields()
+	)
+	var projected_fields := _active_fields(state)
 	if role == GameTypes.RecipientRole.HOST:
-		return state.to_dict()
+		var host_snapshot := state.to_dict()
+		host_snapshot["active_contexts"] = Array(active_contexts)
+		host_snapshot["active_fields"] = projected_fields
+		return host_snapshot
 	var players: Array = []
 	var player_ids := state.ordered_player_ids()
 	for player_id in player_ids:
@@ -30,17 +38,11 @@ static func for_recipient(
 		):
 			projected_player["revealed_submission"] = _revealed_submission(player)
 		players.append(projected_player)
-	var active_fields: Array = []
-	for field in state.ability_deck.active_fields():
-		active_fields.append({
-			"ability_id": str(field.ability.definition.id),
-			"source_player_id": str(field.source_player_id),
-			"remaining_rounds": field.remaining_rounds,
-		})
 	var snapshot := {
 		"round_number": state.round_number, "phase": state.phase,
 		"active_context": state.active_context, "context_direction": state.context_direction,
-		"players": players, "active_fields": active_fields, "frozen": state.frozen,
+		"active_contexts": Array(active_contexts),
+		"players": players, "active_fields": projected_fields, "frozen": state.frozen,
 		"match_complete": state.match_complete, "winner_id": str(state.winner_id),
 		"last_round_winner_id": str(state.last_round_winner_id),
 		"phase_started_msec": state.phase_started_msec,
@@ -73,7 +75,7 @@ static func for_recipient(
 		for ability_id in recipient.completed_manipulation_ids:
 			completed_manipulations.append(str(ability_id))
 		snapshot["private_player_id"] = str(recipient_id)
-		snapshot["private_hand"] = _private_hand(recipient.hand, state.active_context)
+		snapshot["private_hand"] = _private_hand(recipient.hand, active_contexts)
 		snapshot["private_abilities"] = _private_abilities(
 			recipient.ability_hand, state.phase
 		)
@@ -88,6 +90,18 @@ static func for_recipient(
 			"disconnect_deadline_msec": recipient.disconnect_deadline_msec,
 		}
 	return snapshot
+
+
+static func _active_fields(state: MatchState) -> Array:
+	var result: Array = []
+	for field in state.ability_deck.active_fields():
+		result.append({
+			"ability_id": str(field.ability.definition.id),
+			"source_player_id": str(field.source_player_id),
+			"remaining_rounds": field.remaining_rounds,
+			"persistent": field.is_persistent(),
+		})
+	return result
 
 
 static func _revealed_submission(player) -> Dictionary:
@@ -137,11 +151,11 @@ static func _public_component(component) -> Dictionary:
 static func _public_rational(value) -> Dictionary:
 	return {"numerator": value.numerator, "denominator": value.denominator}
 
-static func _private_hand(hand: Array, active_context: int) -> Array:
+static func _private_hand(hand: Array, active_contexts: PackedInt32Array) -> Array:
 	var result: Array = []
 	for card in hand:
 		var eligible_indexes: Array = []
-		for half_index in card.eligible_half_indexes(active_context):
+		for half_index in card.eligible_half_indexes_for_contexts(active_contexts):
 			eligible_indexes.append(half_index)
 		result.append({
 			"card_id": str(card.card_id),

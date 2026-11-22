@@ -124,13 +124,17 @@ func _update_timer(remaining_msec: int) -> void:
 
 func _render_context_and_piles() -> void:
 	var active_context := int(_model.get("active_context", 0))
+	var active_contexts := _active_contexts()
 	var direction := int(_model.get("context_direction", 1))
 	_clock_direction.text = (
 		"Rise  →  Flourish  →  Fall"
 		if direction >= 0
 		else "Fall  ←  Flourish  ←  Rise"
 	)
-	_clock_active.text = "ACTIVE  %s" % _context_name(active_context)
+	var active_names: Array[String] = []
+	for context in active_contexts:
+		active_names.append(_context_name(int(context)))
+	_clock_active.text = "ACTIVE  %s" % " + ".join(active_names)
 	var counts: Dictionary = _model.get("pile_counts", {})
 	for context in 3:
 		var pile = get_node("Center/Piles/Pile%s" % _context_name(context))
@@ -149,10 +153,13 @@ func _render_fields() -> void:
 		if not field is Dictionary:
 			continue
 		var row := Label.new()
-		row.text = "%s  ·  %d round%s  ·  by %s" % [
-			str(field.get("ability_id", "field")).replace("_", " ").capitalize(),
+		var duration_text := "Persistent" if bool(field.get("persistent", false)) else "%d round%s" % [
 			int(field.get("remaining_rounds", 0)),
 			"" if int(field.get("remaining_rounds", 0)) == 1 else "s",
+		]
+		row.text = "%s  ·  %s  ·  by %s" % [
+			str(field.get("ability_id", "field")).replace("_", " ").capitalize(),
+			duration_text,
 			str(field.get("source_player_id", "?")),
 		]
 		_field_rows.add_child(row)
@@ -179,15 +186,22 @@ func _render_seats() -> void:
 	_bottom_seat.render(
 		local_player, _model.get("private_hand", []), int(_model.get("active_context", 0)),
 		not private_id.is_empty() and str(local_player.get("player_id", "")) == private_id,
-		_request_for(requests, local_player), not private_id.is_empty()
+		_request_for(requests, local_player), not private_id.is_empty(), _active_contexts()
 	)
 	var opponent_seats := [_top_seat, _left_seat, _right_seat]
 	for index in opponent_seats.size():
 		var player: Dictionary = opponents[index] if index < opponents.size() else {}
 		opponent_seats[index].render(
 			player, [], int(_model.get("active_context", 0)), false,
-			_request_for(requests, player)
+			_request_for(requests, player), true, _active_contexts()
 		)
+
+
+func _active_contexts() -> Array:
+	var result: Array = _model.get("active_contexts", [])
+	if result.is_empty():
+		result = [int(_model.get("active_context", 0))]
+	return result
 
 
 func _render_phase_controls() -> void:
