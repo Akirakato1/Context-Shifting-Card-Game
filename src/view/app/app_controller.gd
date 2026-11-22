@@ -14,6 +14,7 @@ const PresentationState = preload("res://src/view/common/presentation_state.gd")
 const PresentationQueue = preload("res://src/view/common/presentation_queue.gd")
 const UICommandGateway = preload("res://src/view/common/ui_command_gateway.gd")
 const RuntimeGameSession = preload("res://src/view/app/runtime_game_session.gd")
+const GameTypes = preload("res://src/core/common/game_types.gd")
 const MAIN_MENU_SCENE := preload("res://src/view/lobby/main_menu_screen.tscn")
 const LOBBY_SCENE := preload("res://src/view/lobby/lobby_screen.tscn")
 const MATCH_SCENE := preload("res://src/view/match/match_screen.tscn")
@@ -135,7 +136,7 @@ func show_screen(screen_id: StringName, model: Dictionary = {}) -> void:
 func present_state(state: Dictionary) -> void:
 	_last_presentation = state.duplicate(true)
 	var requested_screen := StringName(state.get("screen_id", ""))
-	if bool(state.get("match_complete", false)):
+	if int(state.get("phase", -1)) == GameTypes.Phase.COMPLETE:
 		requested_screen = &"results"
 	if requested_screen in [&"lobby", &"match", &"results"] and requested_screen != _current_screen_id:
 		show_screen(requested_screen, state)
@@ -277,7 +278,6 @@ func _on_lobby_intent(kind: StringName, payload: Dictionary) -> void:
 				if _current_screen.has_method("show_error"):
 					_current_screen.show_error(&"not_enough_players")
 				return
-			command_gateway.send(&"set_ready", {"ready": true})
 
 
 func _return_to_menu() -> void:

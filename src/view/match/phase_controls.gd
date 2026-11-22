@@ -406,7 +406,7 @@ func _render_preview() -> void:
 			var selection: Dictionary = _staged[card_id]
 			var half := _card_half(_hand_cards[card_id], int(selection.half_index))
 			base_sum += int(half.get("effective_rank", half.get("rank", 0)))
-		_preview_details.text = "Base %d  ·  hand/context multipliers pending final catalogue" % base_sum
+		_preview_details.text = "Base %d  ·  hand/context multipliers appear after host evaluation" % base_sum
 		_invalid_reason.text = "" if not _staged_order.is_empty() else "Stage one or more cards, or choose PASS."
 		return
 	if preview.has("score_breakdown"):

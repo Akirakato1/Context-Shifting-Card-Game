@@ -127,6 +127,8 @@ func tick(now_msec: int) -> Array[DomainEvent]:
 	if state.match_complete and state.phase != GameTypes.Phase.END:
 		return []
 	if state.phase == GameTypes.Phase.START:
+		if not state.config.match_started:
+			return []
 		_ensure_phase_clock(now_msec)
 		if _all_active_ready() or now_msec >= state.phase_deadline_msec:
 			return _record_events(_finish_start(now_msec))
@@ -224,6 +226,14 @@ func _submit_start(command: GameCommand, now_msec: int) -> CommandResult:
 		CommandKinds.SET_READY:
 			if not command.payload.has("ready") or not command.payload.ready is bool:
 				return CommandResult.new(false, &"malformed_command")
+			if not state.config.match_started:
+				state.players[command.player_id].ready = command.payload.ready
+				return CommandResult.new(true)
+			if (
+				state.players[command.player_id].replenishment_needed == 0
+				and not command.payload.ready
+			):
+				return CommandResult.new(false, &"no_replenishment_needed")
 			state.players[command.player_id].ready = command.payload.ready
 			_ensure_phase_clock(now_msec)
 			var events: Array[DomainEvent] = []
@@ -262,7 +272,8 @@ func _prepare_start_phase() -> Array[DomainEvent]:
 		var player = state.players[player_id]
 		if player.active and not player.pending:
 			player.replenishment_needed = max(6 - player.hand.size(), 0)
-			player.ready = player.replenishment_needed == 0
+			if state.config.match_started:
+				player.ready = player.replenishment_needed == 0
 	state.start_prepared_round = state.round_number
 	state.phase_started_msec = -1
 	state.phase_deadline_msec = -1

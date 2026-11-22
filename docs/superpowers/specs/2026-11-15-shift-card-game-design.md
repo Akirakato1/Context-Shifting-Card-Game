@@ -200,7 +200,7 @@ If both halves match the active context, the player chooses which half supplies 
 - Maximum spectators: 4
 - Round 1 active context: Rise
 - Every initial player receives the standard six-card opening hand.
-- Every initial player receives two ability cards during setup and the normal one-card ability draw during Round 1 Start, entering Main 1 with three abilities.
+- Every initial player receives two ability cards during setup and enters Round 1 Main 1 with those two cards; Round 1 has no Start draw.
 
 The model stores a dynamic player collection. Four is a View and connection limit, not a rule-engine assumption.
 

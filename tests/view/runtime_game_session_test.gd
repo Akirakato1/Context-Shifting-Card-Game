@@ -2,6 +2,7 @@ extends "res://tests/test_case.gd"
 
 const RuntimeGameSession = preload("res://src/view/app/runtime_game_session.gd")
 const AbilityCatalog = preload("res://src/core/abilities/ability_catalog.gd")
+const GameTypes = preload("res://src/core/common/game_types.gd")
 const FakePeerTransport = preload("res://tests/network/fake_peer_transport.gd")
 
 
@@ -69,6 +70,20 @@ func test_host_runtime_builds_authority_after_first_active_peer_and_projects_nam
 	assert_true(transport.sent.any(func(entry):
 		return entry.peer_id == "peer-one"
 	))
+	for _index in range(3):
+		runtime.poll()
+	assert_false(runtime._controller.state.config.match_started)
+	assert_eq(runtime._controller.state.phase, GameTypes.Phase.START)
+	assert_eq(runtime._controller.state.players[&"host"].ability_hand.size(), 2)
+	assert_eq(runtime.submit_command("lobby-ready", {
+		"command_id": "lobby-ready-command",
+		"kind": "set_ready",
+		"payload": {"ready": true},
+	}), OK)
+	assert_true(results[-1].result.accepted)
+	assert_false(runtime._controller.state.config.match_started)
+	assert_eq(runtime._controller.state.phase, GameTypes.Phase.START)
+	assert_eq(runtime._controller.state.players[&"host"].ability_hand.size(), 2)
 
 	transport.clear_sent()
 	transport.join_status.emit("approved", {
@@ -198,14 +213,16 @@ func test_runtime_end_discard_uses_owner_choices_and_rejects_wrong_count() -> vo
 	var state = runtime._controller.state
 	var host = state.players[&"host"]
 	host.ability_hand.append_array(state.ability_deck.draw(&"host", 3, state.rng))
-	host.end_discard_complete = false
-	state.players[&"peer-one"].end_discard_complete = true
-	state.phase = 5
+	state.phase = GameTypes.Phase.MAIN_2
 	state.phase_started_msec = 1000
-	state.phase_deadline_msec = 11000
-	runtime._host_session.publish_state_change([])
+	state.phase_deadline_msec = 6000
+	state.reaction_deadline_msec = 1000
+	host.ready = true
+	state.players[&"peer-one"].ready = true
+	var end_events: Array = runtime._controller.tick(1000)
+	runtime._host_session.publish_state_change(end_events)
 
-	assert_eq(snapshots[-1].phase, 5)
+	assert_eq(snapshots[-1].phase, GameTypes.Phase.END)
 	assert_eq(snapshots[-1].private_abilities.size(), 5)
 	assert_eq(snapshots[-1].required_ability_discards, 2)
 	var chosen_ids := [
@@ -231,7 +248,7 @@ func test_runtime_end_discard_uses_owner_choices_and_rejects_wrong_count() -> vo
 		assert_false(host.ability_hand.any(func(ability):
 			return str(ability.copy_id) == copy_id
 		))
-	assert_eq(snapshots[-1].phase, 1)
+	assert_eq(snapshots[-1].phase, GameTypes.Phase.START)
 	runtime.close()
 
 

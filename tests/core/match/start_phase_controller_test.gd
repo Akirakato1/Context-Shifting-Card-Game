@@ -43,6 +43,27 @@ func test_begin_match_skips_round_one_start_effects_and_enters_main_one() -> voi
 	assert_true(_first_event(events, EventKinds.REPLENISHMENT_REQUESTS_REVEALED) == null)
 
 
+func test_open_lobby_poll_and_ready_toggle_cannot_start_round_one() -> void:
+	var state := MatchState.create(_config(GameTypes.InformationVisibility.PUBLIC), 90)
+	state.config.match_started = false
+	var controller := MatchController.new(state)
+
+	assert_false(state.players[&"one"].ready)
+	assert_false(state.players[&"two"].ready)
+	assert_eq(controller.tick(1000), [])
+	var ready := controller.submit(GameCommand.new(
+		&"lobby-ready", &"one", CommandKinds.SET_READY, {"ready": true}
+	), 1100)
+
+	assert_true(ready.accepted)
+	assert_true(state.players[&"one"].ready)
+	assert_eq(state.phase, GameTypes.Phase.START)
+	assert_false(state.config.match_started)
+	assert_eq(state.phase_started_msec, -1)
+	assert_eq(state.players[&"one"].ability_hand.size(), 2)
+	assert_eq(controller.tick(10_000), [])
+
+
 func test_round_one_stays_rise_and_round_two_advances_to_flourish() -> void:
 	var first := MatchState.create(_config(GameTypes.InformationVisibility.PUBLIC), 10)
 	MatchController.new(first)
@@ -138,6 +159,12 @@ func test_only_player_needing_replenishment_must_ready_before_main_one() -> void
 	var controller := MatchController.new(state)
 
 	assert_false(state.players[&"one"].ready)
+	assert_true(state.players[&"two"].ready)
+	var cannot_unready := controller.submit(GameCommand.new(
+		&"unready-two", &"two", CommandKinds.SET_READY, {"ready": false}
+	), 1050)
+	assert_false(cannot_unready.accepted)
+	assert_eq(cannot_unready.error_code, &"no_replenishment_needed")
 	assert_true(state.players[&"two"].ready)
 	var result := controller.submit(GameCommand.new(
 		&"ready-one", &"one", CommandKinds.SET_READY, {"ready": true}
