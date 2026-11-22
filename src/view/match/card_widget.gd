@@ -200,7 +200,9 @@ func _apply_active_style() -> void:
 	var normal := Color("c4cfdb")
 	var active := Color("ffd166")
 	_first.modulate = active if active_half_index == 0 else normal
+	_first_rank_art.modulate = active if active_half_index == 0 else normal
 	_second.modulate = active if active_half_index == 1 else normal
+	_second_rank_art.modulate = active if active_half_index == 1 else normal
 
 
 func _apply_half_targeting_style() -> void:
@@ -208,12 +210,16 @@ func _apply_half_targeting_style() -> void:
 		return
 	for index in range(2):
 		var label: Label = _first if index == 0 else _second
+		var rank_art: HBoxContainer = _first_rank_art if index == 0 else _second_rank_art
 		if targeting_half_selected[index]:
 			label.modulate = Color("ffd45a")
+			rank_art.modulate = Color("ffd45a")
 		elif targeting_half_eligible[index]:
 			label.modulate = Color("77e8ff")
+			rank_art.modulate = Color("77e8ff")
 		else:
 			label.modulate = Color("46505d")
+			rank_art.modulate = Color("46505d")
 
 
 func _apply_joker_choices(first: Dictionary, second: Dictionary, view_state: Dictionary) -> void:
@@ -235,20 +241,13 @@ func _apply_joker_choices(first: Dictionary, second: Dictionary, view_state: Dic
 
 
 func _apply_orientation() -> void:
-	if orientation_flipped:
-		_face.move_child(_second, 0)
-		_face.move_child(_second_rank_art, 1)
-		_face.move_child(_second_choices, 2)
-		_face.move_child(_first, 4)
-		_face.move_child(_first_rank_art, 5)
-		_face.move_child(_first_choices, 6)
-	else:
-		_face.move_child(_first, 0)
-		_face.move_child(_first_rank_art, 1)
-		_face.move_child(_first_choices, 2)
-		_face.move_child(_second, 4)
-		_face.move_child(_second_rank_art, 5)
-		_face.move_child(_second_choices, 6)
+	var divider: HSeparator = $Face/Divider
+	var desired: Array = (
+		[_second, _second_rank_art, _second_choices, divider, _first, _first_rank_art, _first_choices, _order_controls]
+		if orientation_flipped else
+		[_first, _first_rank_art, _first_choices, divider, _second, _second_rank_art, _second_choices, _order_controls]
+	)
+	for index in range(desired.size()): _face.move_child(desired[index], index)
 
 
 func _populate_choices(button: OptionButton, values: Array) -> void:

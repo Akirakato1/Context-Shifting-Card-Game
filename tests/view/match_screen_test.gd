@@ -91,10 +91,23 @@ func test_context_score_progress_fields_and_nil_round_render_clearly() -> void:
 		{"ability_id": "reverse_clock", "source_player_id": "p3", "remaining_rounds": 2},
 	]
 	model.players[0]["provisional_score"] = {
-		"normal_category": "three_kind",
-		"context_category": "no_context_pattern",
-		"base_value": 21,
-		"final_score": 42,
+		"score_breakdown": {
+			"base_value": 10,
+			"card_hand_components": [
+				{"category_id": "straight", "value": {"numerator": 6, "denominator": 1}},
+				{"category_id": "flush", "value": {"numerator": 4, "denominator": 1}},
+			],
+			"context_hand_components": [{"category_id": "three_context", "value": {"numerator": 5, "denominator": 1}}],
+			"field_components": [],
+			"applied_modifiers": [
+				{"factor_id": "card_hand", "category_id": "straight", "delta": {"numerator": 3, "denominator": 1}},
+				{"factor_id": "card_hand", "category_id": "flush", "delta": {"numerator": -2, "denominator": 1}},
+			],
+			"card_hand_unclamped": {"numerator": 11, "denominator": 1}, "card_hand_factor": {"numerator": 11, "denominator": 1},
+			"context_hand_unclamped": {"numerator": 5, "denominator": 1}, "context_hand_factor": {"numerator": 5, "denominator": 1},
+			"field_unclamped": {"numerator": 1, "denominator": 1}, "field_factor": {"numerator": 1, "denominator": 1},
+			"final_score": 550,
+		},
 	}
 	table.render(model)
 	assert_eq(table.get_node("Header/Phase").text, "HAND PLAY")
@@ -102,7 +115,12 @@ func test_context_score_progress_fields_and_nil_round_render_clearly() -> void:
 	assert_eq(table.get_node("Header/Timer").text, "12.4s")
 	assert_eq(table.get_node("Center/ContextClock/Direction").text, "Fall  ←  Flourish  ←  Rise")
 	assert_eq(table.get_node("Center/ContextClock/Active").text, "ACTIVE  Flourish")
-	assert_eq(table.get_node("TableLayer/BottomSeat/ScoreSummary").text, "Three of a Kind  ×  No Context Pattern ×1   ·   42 provisional")
+	var score_text: String = table.get_node("TableLayer/BottomSeat/ScoreSummary").text
+	assert_true(score_text.contains("Straight 6"))
+	assert_true(score_text.contains("Flush 4"))
+	assert_true(score_text.contains("Straight +3"))
+	assert_true(score_text.contains("Flush -2"))
+	assert_true(score_text.contains("550 provisional"))
 	assert_eq(table.get_node("Header/Progress").text, "SCORE RACE  ·  36 / 100")
 	assert_eq(table.get_node("Center/Fields/FieldRows").get_child_count(), 1)
 	assert_eq(table.get_node("Center/RoundResult").text, "NIL ROUND  ·  no progress awarded")

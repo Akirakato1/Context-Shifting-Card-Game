@@ -88,6 +88,32 @@ func test_hand_builder_stages_eligible_cards_requires_half_choice_and_defaults_j
 	await _unmount(controls)
 
 
+func test_score_preview_renders_additive_components_adjustments_and_factor_floor() -> void:
+	var controls = await _mount_controls()
+	if controls == null: return
+	controls.render(_model(3, _hand(), {"submission_preview": {"score_breakdown": {
+		"base_value": 10,
+		"card_hand_components": [
+			{"category_id": "straight", "value": {"numerator": 6, "denominator": 1}},
+			{"category_id": "flush", "value": {"numerator": 4, "denominator": 1}},
+		],
+		"context_hand_components": [{"category_id": "three_context", "value": {"numerator": 5, "denominator": 1}}],
+		"field_components": [],
+		"applied_modifiers": [
+			{"factor_id": "card_hand", "category_id": "straight", "delta": {"numerator": 3, "denominator": 1}},
+			{"factor_id": "card_hand", "category_id": "flush", "delta": {"numerator": -2, "denominator": 1}},
+		],
+		"card_hand_unclamped": {"numerator": 11, "denominator": 1}, "card_hand_factor": {"numerator": 11, "denominator": 1},
+		"context_hand_unclamped": {"numerator": 5, "denominator": 1}, "context_hand_factor": {"numerator": 5, "denominator": 1},
+		"field_unclamped": {"numerator": 0, "denominator": 1}, "field_factor": {"numerator": 1, "denominator": 1},
+		"final_score": 550,
+	}}}))
+	var details: String = controls.get_node("HandPlayControls/Preview/Details").text
+	for expected in ["Straight 6", "Flush 4", "Straight +3", "Flush -2", "floor 1", "projected 550"]:
+		assert_true(details.contains(expected), "missing additive detail: %s" % expected)
+	await _unmount(controls)
+
+
 func test_orientation_and_reorder_stay_local_while_lock_payload_is_canonical() -> void:
 	var controls = await _mount_controls()
 	if controls == null:

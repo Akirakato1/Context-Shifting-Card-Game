@@ -124,16 +124,37 @@ func _score_text(player: Dictionary, revealed: Dictionary) -> String:
 
 func _factor_score_text(breakdown: Dictionary, suffix: String) -> String:
 	return "Base %d · Card %s · Context %s · Field %s · %d %s" % [
-		int(breakdown.get("base_value", 0)), _rational_text(breakdown.get("card_hand_factor", {})),
-		_rational_text(breakdown.get("context_hand_factor", {})),
-		_rational_text(breakdown.get("field_factor", {})), int(breakdown.get("final_score", 0)), suffix,
+		int(breakdown.get("base_value", 0)), _factor_summary(breakdown, "card_hand"),
+		_factor_summary(breakdown, "context_hand"), _factor_summary(breakdown, "field"),
+		int(breakdown.get("final_score", 0)), suffix,
 	]
+
+
+func _factor_summary(breakdown: Dictionary, factor_id: String) -> String:
+	var terms: Array[String] = []
+	for component in breakdown.get(factor_id + "_components", []):
+		terms.append("%s %s" % [str(component.get("category_id", "")).replace("_", " ").capitalize(),
+			_rational_text(component.get("value", {}))])
+	for modifier in breakdown.get("applied_modifiers", []):
+		if str(modifier.get("factor_id", "")) != factor_id: continue
+		terms.append("%s %s" % [str(modifier.get("category_id", "")).replace("_", " ").capitalize(),
+			_signed_rational_text(modifier.get("delta", {}))])
+	if terms.is_empty(): terms.append("neutral")
+	var unclamped: Dictionary = breakdown.get(factor_id + "_unclamped", {})
+	var factor: Dictionary = breakdown.get(factor_id + "_factor", {})
+	var floor_text := " floor" if int(unclamped.get("numerator", 1)) < int(unclamped.get("denominator", 1)) else ""
+	return "[%s]=%s%s" % [" + ".join(terms), _rational_text(factor), floor_text]
 
 
 func _rational_text(value: Dictionary) -> String:
 	var numerator := int(value.get("numerator", 1))
 	var denominator := int(value.get("denominator", 1))
 	return str(numerator) if denominator == 1 else "%d/%d" % [numerator, denominator]
+
+
+func _signed_rational_text(value: Dictionary) -> String:
+	var text := _rational_text(value)
+	return "+%s" % text if int(value.get("numerator", 0)) >= 0 else text
 
 
 func _category_name(id: String) -> String:
