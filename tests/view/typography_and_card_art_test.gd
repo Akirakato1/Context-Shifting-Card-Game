@@ -17,7 +17,7 @@ func test_card_rank_uses_number_art_and_ten_composes_one_then_zero() -> void:
 	assert_eq(digits.size(), 2)
 	assert_eq(digits[0].texture.resource_path, "res://assets/artwork/card_number/png/card_number_1.png")
 	assert_eq(digits[1].texture.resource_path, "res://assets/artwork/card_number/png/card_number_0.png")
-	assert_false(widget.get_node("Face/First").text.contains("10"))
+	assert_true(widget.get_node("Face/First") is TextureRect)
 	await _unmount(widget)
 
 
@@ -30,12 +30,16 @@ func test_rank_and_suit_stay_upright_when_halves_swap() -> void:
 		await Engine.get_main_loop().process_frame
 		var top := "Second" if flipped else "First"
 		var bottom := "First" if flipped else "Second"
-		var top_suit: Label = widget.get_node("Face/" + top)
-		var bottom_suit: Label = widget.get_node("Face/" + bottom)
+		var top_suit := widget.get_node("Face/" + top) as TextureRect
+		var bottom_suit := widget.get_node("Face/" + bottom) as TextureRect
+		assert_true(top_suit != null and bottom_suit != null)
+		if top_suit == null or bottom_suit == null:
+			await _unmount(widget)
+			return
 		var top_rank: Control = widget.get_node("Face/" + top + "RankArt")
 		var bottom_rank: Control = widget.get_node("Face/" + bottom + "RankArt")
-		assert_eq(top_suit.text, "C" if flipped else "M")
-		assert_eq(bottom_suit.text, "M" if flipped else "C")
+		assert_eq(_suit_asset(top_suit), "card_suit_cloud.png" if flipped else "card_suit_mountain.png")
+		assert_eq(_suit_asset(bottom_suit), "card_suit_mountain.png" if flipped else "card_suit_cloud.png")
 		assert_eq(top_rank.position.y, top_suit.position.y)
 		assert_eq(bottom_rank.position.y, bottom_suit.position.y)
 		assert_true(top_rank.position.y < bottom_rank.position.y)
@@ -72,13 +76,49 @@ func test_joker_rank_uses_zero_art_and_assigned_suit() -> void:
 	var digits = widget.get_node("Face/FirstRankArt").get_children()
 	assert_eq(digits.size(), 1)
 	assert_eq(digits[0].texture.resource_path, "res://assets/artwork/card_number/png/card_number_0.png")
-	assert_eq(widget.get_node("Face/First").text, "S")
-	assert_true(widget.get_node("Face/First").get_theme_font("font") != null)
+	var joker_suit := widget.get_node("Face/First") as TextureRect
+	assert_true(joker_suit != null)
+	if joker_suit != null:
+		assert_eq(_suit_asset(joker_suit), "card_suit_sea.png")
 	assert_eq(widget.size, Vector2(175, 279))
-	assert_eq(widget.get_theme_stylebox("panel"), widget.selected_panel_style)
+	assert_true(widget.get_theme_stylebox("panel") is StyleBoxEmpty)
 	var joker_art := widget.get_node("Artwork/TopHalf").texture as AtlasTexture
 	assert_eq(joker_art.atlas.resource_path.get_file(), "card_half_context_flourish.png")
 	await _unmount(widget)
+
+
+func test_card_can_use_supplied_frame_art_and_has_no_default_blue_panel() -> void:
+	var widget = await _mount_card()
+	if widget == null:
+		return
+	var data := {"card_id": "framed", "first": _half(0, 2, 1), "second": _half(1, 7, 2)}
+	widget.render(data, 0)
+	assert_true(widget.get_theme_stylebox("panel") is StyleBoxEmpty)
+	var frame := widget.get_node_or_null("Frame") as TextureRect
+	assert_true(frame != null, "The front should support transparent replacement frame art")
+	if frame != null:
+		assert_false(frame.visible)
+		var normal := GradientTexture2D.new()
+		var selected := GradientTexture2D.new()
+		widget.frame_art = normal
+		widget.selected_frame_art = selected
+		widget.render(data, 0)
+		assert_eq(frame.texture, normal)
+		widget.render(data, 0, false, {"select_in_place": true, "staged": true})
+		assert_eq(frame.texture, selected)
+		widget.render(data, 0, true)
+		assert_false(frame.visible)
+		var back := widget.get_node("Back") as TextureRect
+		var back_atlas := back.texture as AtlasTexture
+		assert_eq(back_atlas.atlas.resource_path.get_file(), "card_back.png")
+	await _unmount(widget)
+
+
+func _suit_asset(icon: TextureRect) -> String:
+	var texture: Texture2D = icon.texture
+	if texture is AtlasTexture:
+		texture = texture.atlas
+	return texture.resource_path.get_file() if texture != null else ""
 
 
 func test_card_context_art_meets_the_divider_and_follows_orientation() -> void:

@@ -7,6 +7,7 @@ const FullCardState = preload("res://src/core/cards/full_card_state.gd")
 const AbilityDefinition = preload("res://src/core/abilities/ability_definition.gd")
 const AbilityCatalog = preload("res://src/core/abilities/ability_catalog.gd")
 const NormalHandDefinition = preload("res://src/core/scoring/normal_hand_definition.gd")
+const ScoringTypes = preload("res://src/core/scoring/scoring_types.gd")
 const CommandKinds = preload("res://src/core/commands/command_kinds.gd")
 const GameCommand = preload("res://src/core/commands/game_command.gd")
 const MatchConfig = preload("res://src/core/match/match_config.gd")
@@ -41,14 +42,71 @@ func test_public_and_spectator_snapshots_recursively_omit_private_state() -> voi
 
 
 func test_all_visibility_modes_expose_live_draw_pile_counts_only() -> void:
+	for visibility in [GameTypes.InformationVisibility.PUBLIC, GameTypes.InformationVisibility.PRIVATE]:
+		var state := _state(visibility)
+		state.ability_deck.draw(&"one", 3, state.rng)
+		for role in [GameTypes.RecipientRole.HOST, GameTypes.RecipientRole.SPECTATOR]:
+			var snapshot := SnapshotProjector.for_recipient(state, &"", role)
+			assert_eq(snapshot.get("ability_pile_count", {}), {"draw_count": 5, "capacity": 12})
+			var pile_counts: Dictionary = snapshot.get("pile_counts", {})
+			for context in state.piles:
+				assert_eq(pile_counts.get(str(context), {}), {
+					"draw_count": state.piles[context].draw_count(), "capacity": 91,
+				})
+			if role == GameTypes.RecipientRole.SPECTATOR:
+				assert_false(snapshot.has("ability_deck"))
+
+
+func test_only_registered_spectators_receive_sanitized_live_card_faces() -> void:
 	var state := _state(GameTypes.InformationVisibility.PRIVATE)
-	var snapshot := SnapshotProjector.for_recipient(
-		state, &"", GameTypes.RecipientRole.SPECTATOR
+	state.phase = GameTypes.Phase.HAND_PLAY
+	var player = state.players[&"one"]
+	player.hand[0] = FullCardState.new(
+		&"hidden-full-card",
+		HalfCardState.new(&"hidden-half-one", GameTypes.Context.RISE, 2, GameTypes.Suit.MOUNTAIN),
+		HalfCardState.new(&"hidden-half-two", GameTypes.Context.FLOURISH, 7, GameTypes.Suit.CLOUD)
 	)
-	assert_true(snapshot.has("pile_counts"))
-	for pile in snapshot.pile_counts.values():
-		assert_true(pile.has("draw_count"))
-		assert_false(pile.has("used_count"))
+	player.hand[0].first.apply_overrides(GameTypes.Context.FALL, 10, GameTypes.Suit.SEA)
+	var authorized := SnapshotProjector.for_recipient(state, &"watcher", GameTypes.RecipientRole.SPECTATOR)
+	var live_hand: Array = _player_view(authorized.players, &"one").get("spectator_hand", [])
+	assert_eq(live_hand.size(), 6)
+	if not live_hand.is_empty():
+		assert_eq(live_hand[0].first.get("effective_context"), GameTypes.Context.FALL)
+		assert_eq(live_hand[0].first.get("effective_rank"), 10)
+		assert_eq(live_hand[0].first.get("effective_suit"), GameTypes.Suit.SEA)
+		assert_eq(live_hand[0].second.get("effective_rank"), 7)
+	var ids := {}
+	for card: Dictionary in live_hand:
+		var view_id := str(card.get("view_id", ""))
+		assert_false(view_id.is_empty())
+		assert_false(ids.has(view_id))
+		ids[view_id] = true
+	var encoded := JSON.stringify(authorized)
+	assert_false(encoded.contains("hidden-full-card"))
+	assert_false(encoded.contains("hidden-half-"))
+	assert_false(encoded.contains(str(player.ability_hand[0].copy_id)))
+	_assert_no_forbidden_keys(authorized)
+	for entry in [
+		[&"one", GameTypes.RecipientRole.ACTIVE_PLAYER],
+		[&"one", GameTypes.RecipientRole.SPECTATOR],
+		[&"watcher", GameTypes.RecipientRole.PENDING_PLAYER],
+		[&"", GameTypes.RecipientRole.SPECTATOR],
+	]:
+		var unauthorized := SnapshotProjector.for_recipient(state, entry[0], entry[1])
+		assert_false(_player_view(unauthorized.players, &"one").has("spectator_hand"))
+
+
+func test_active_round_modifiers_are_public_without_the_consumed_card_identity() -> void:
+	var state := _state(GameTypes.InformationVisibility.PRIVATE)
+	state.players[&"two"].factor_modifiers.append(ScoringTypes.FactorModifier.new(
+		&"card_hand", &"family", Rational.new(3), &"hidden-copy", &"family_buff"
+	))
+	var public_snapshot := SnapshotProjector.for_recipient(state, &"watcher", GameTypes.RecipientRole.SPECTATOR)
+	assert_eq(public_snapshot.active_score_modifiers, [{
+		"target_player_id": "two", "source_definition_id": "family_buff", "factor_id": "card_hand",
+		"category_id": "family", "delta": {"numerator": 3, "denominator": 1},
+	}])
+	assert_false(JSON.stringify(public_snapshot).contains("hidden-copy"))
 
 
 func test_replacement_context_requests_follow_lobby_visibility_setting() -> void:
@@ -261,6 +319,7 @@ func test_joker_draft_is_owner_only_and_resolved_view_is_public() -> void:
 		_player_view(between_locks.players, &"one").has("revealed_submission"),
 		"a locked hand must remain private until every hand resolves"
 	)
+	assert_eq(_player_view(between_locks.players, &"one").get("spectator_hand", []).size(), 6)
 	assert_false(JSON.stringify(between_locks).contains(str(joker.card_id)))
 	controller.submit(GameCommand.new(&"lock-two", &"two", CommandKinds.LOCK_HAND), 2)
 	var revealed_views: Array = []
@@ -272,6 +331,8 @@ func test_joker_draft_is_owner_only_and_resolved_view_is_public() -> void:
 		var projected := SnapshotProjector.for_recipient(state, entry[0], entry[1])
 		var revealed: Dictionary = _player_view(projected.players, &"one").revealed_submission
 		assert_eq(_player_view(projected.players, &"one").hand_count, owner.private_hand.size() - 1)
+		if entry[1] == GameTypes.RecipientRole.SPECTATOR:
+			assert_eq(_player_view(projected.players, &"one").get("spectator_hand", []).size(), 5)
 		revealed_views.append(revealed.cards)
 		assert_true(revealed.has("score_breakdown"))
 		assert_true(revealed.score_breakdown.has("card_hand_components"))
@@ -289,6 +350,35 @@ func test_joker_draft_is_owner_only_and_resolved_view_is_public() -> void:
 	assert_false(public_text.contains("copy_id"))
 	assert_false(public_text.contains("base_context"))
 	assert_false(public_text.contains("joker_choices"))
+
+	# An extra ability holds the round in End long enough for every viewer to inspect it.
+	state.players[&"one"].ability_hand.append_array(
+		state.ability_deck.draw(&"one", 3, state.rng)
+	)
+	var kept_card_id := str(submitted.private_hand[0].card_id)
+	for player_id: StringName in [&"one", &"two"]:
+		assert_true(controller.submit(GameCommand.new(
+			StringName("ready-" + str(player_id)), player_id, CommandKinds.SET_READY, {"ready": true}
+		), 3).accepted)
+	assert_eq(state.phase, GameTypes.Phase.END)
+	for entry in [
+		[&"one", GameTypes.RecipientRole.ACTIVE_PLAYER],
+		[&"two", GameTypes.RecipientRole.ACTIVE_PLAYER],
+		[&"watcher", GameTypes.RecipientRole.SPECTATOR],
+	]:
+		var projected := SnapshotProjector.for_recipient(state, entry[0], entry[1])
+		var public_seat := _player_view(projected.players, &"one")
+		var resolved: Dictionary = public_seat.get("revealed_submission", {})
+		assert_eq(resolved.get("cards", []), revealed_views[0])
+		assert_eq(resolved.get("finalized_score", -1), state.players[&"one"].finalized_score)
+		assert_eq(public_seat.hand_count, 5)
+		assert_false(public_seat.has("spectator_hand"))
+		assert_false(JSON.stringify(public_seat).contains(kept_card_id))
+		assert_eq(_player_view(projected.players, &"two").get("revealed_submission", {}).get("cards", [null]), [])
+	controller.tick(state.phase_deadline_msec)
+	assert_eq(state.phase, GameTypes.Phase.START)
+	var next_round := SnapshotProjector.for_recipient(state, &"watcher", GameTypes.RecipientRole.SPECTATOR)
+	assert_false(_player_view(next_round.players, &"one").has("revealed_submission"))
 
 
 func _state(visibility: int) -> MatchState:

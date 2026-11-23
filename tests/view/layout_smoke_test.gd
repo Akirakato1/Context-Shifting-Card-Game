@@ -34,15 +34,17 @@ func test_full_table_stays_inside_supported_landscape_sizes() -> void:
 			"Center", "PhaseControls", "AbilityPanel/ToggleButton",
 		]:
 			_assert_inside(table.get_node(path), Rect2(Vector2.ZERO, viewport_size), "%s at %s" % [path, viewport_size])
-		var pass_button: Control = table.get_node("PhaseControls/HandPlayControls/ActionRow/PassButton")
-		var lock_button: Control = table.get_node("PhaseControls/HandPlayControls/ActionRow/LockButton")
+		var submit_button: Control = table.get_node("PhaseControls/HandPlayControls/ActionRow/SubmitButton")
 		var ability_button: Control = table.get_node("AbilityPanel/ToggleButton")
-		assert_false(pass_button.get_global_rect().intersects(lock_button.get_global_rect()), "phase buttons overlap at %s" % viewport_size)
-		assert_false(lock_button.get_global_rect().intersects(ability_button.get_global_rect()), "ability tab overlaps lock at %s" % viewport_size)
+		assert_false(submit_button.get_global_rect().intersects(ability_button.get_global_rect()), "ability tab overlaps hand action at %s" % viewport_size)
 		var hand := table.get_node("PhaseControls/HandPlayControls/Hand/Cards") as HBoxContainer
-		for card: Control in hand.get_children():
-			assert_false(card.get_global_rect().intersects(pass_button.get_global_rect()), "hand overlaps pass at %s" % viewport_size)
-			assert_false(card.get_global_rect().intersects(lock_button.get_global_rect()), "hand overlaps lock at %s" % viewport_size)
+		assert_eq(hand.get_child_count(), 6)
+		for slot: Control in hand.get_children():
+			var card := slot.get_child(0) as Control
+			_assert_inside(card, Rect2(Vector2.ZERO, viewport_size), "hand card at %s" % viewport_size)
+			assert_true(card.size.x >= 200.0 and card.size.y >= 300.0, "hand card should be larger at %s" % viewport_size)
+			assert_false(card.get_global_rect().intersects(submit_button.get_global_rect()), "hand overlaps hand action at %s" % viewport_size)
+			assert_false(card.get_global_rect().intersects(ability_button.get_global_rect()), "hand overlaps abilities at %s" % viewport_size)
 		await _unmount(table)
 
 
@@ -59,6 +61,56 @@ func test_main_menu_lobby_and_results_root_layouts_fill_viewport() -> void:
 		assert_eq(screen.position, Vector2.ZERO)
 		assert_eq(screen.size, Vector2(1280, 720))
 		await _unmount(screen)
+
+
+func test_end_shows_each_resolved_hand_at_its_seat_without_overlapping_discards() -> void:
+	for viewport_size in [Vector2(1280, 720), Vector2(1920, 1080)]:
+		var table = await _mount_table(viewport_size)
+		var model := _crowded_model()
+		model.phase = 5
+		model["required_ability_discards"] = 1
+		model["public_history"] = [{
+			"kind": "round_finalized", "round_number": 8,
+			"payload": {"round_number": 8, "winner_id": "p1", "scores": {"p1": 20}},
+		}]
+		for player: Dictionary in model.players:
+			var cards: Array = []
+			for index in 6:
+				cards.append({
+					"card_id": "%s-%d" % [player.player_id, index], "selected_half_index": 0,
+					"halves": [
+						{"context": 0, "rank": 10, "suit": 0},
+						{"context": 1, "rank": 9, "suit": 2},
+					],
+				})
+			player["revealed_submission"] = {"cards": cards, "finalized_score": 20}
+		table.render(model)
+		await Engine.get_main_loop().process_frame
+		await Engine.get_main_loop().process_frame
+		var discards: Control = table.get_node("PhaseControls/EndControls")
+		assert_true(discards.is_visible_in_tree())
+		assert_false(table.get_node("PhaseControls/HandPlayControls").is_visible_in_tree())
+		var seats := {"BottomSeat": "p1", "TopSeat": "p2", "LeftSeat": "p3", "RightSeat": "p4"}
+		var shown_cards: Array[Control] = []
+		for position: String in seats:
+			var seat = table.get_node("TableLayer/" + position)
+			assert_true(seat.is_visible_in_tree())
+			var hand: Control = seat.get_node("Hand")
+			assert_eq(hand.get_child_count(), 6)
+			for card: Control in hand.get_children():
+				assert_true(card.is_visible_in_tree())
+				assert_true(card.card_id.begins_with(seats[position]))
+				assert_false(card.face_down)
+				_assert_inside(card, Rect2(Vector2.ZERO, viewport_size), card.card_id)
+				assert_false(card.get_global_rect().intersects(discards.get_global_rect()))
+				for other in shown_cards:
+					assert_false(card.get_global_rect().intersects(other.get_global_rect()))
+				shown_cards.append(card)
+		model.erase("private_player_id")
+		model.erase("private_hand")
+		table.render(model)
+		assert_true(table.get_node("TableLayer/BottomSeat/Hand").is_visible_in_tree())
+		await _unmount(table)
 
 
 func _assert_inside(control: Control, bounds: Rect2, label: String) -> void:

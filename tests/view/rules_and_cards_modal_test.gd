@@ -90,6 +90,19 @@ func test_ability_card_uses_supplied_category_backdrop_and_frame() -> void:
 	card.free()
 
 
+func test_help_lists_named_context_tiers_alongside_the_required_counts() -> void:
+	var modal := _create_modal()
+	if modal == null:
+		return
+	modal.open()
+	var tabs := modal.find_child("RulesTabs", true, false) as TabContainer
+	var context_text := _label_text(tabs.get_tab_control(2))
+	assert_true("Four Renaissance" in context_text)
+	assert_true("Submit at least 4 Rise and 4 Flourish halves." in context_text)
+	assert_true("Twelve Golden Age" in context_text)
+	modal.free()
+
+
 func _create_modal() -> Control:
 	if not ResourceLoader.exists(MODAL_PATH):
 		assert_true(false, "The in-match help modal scene is missing")

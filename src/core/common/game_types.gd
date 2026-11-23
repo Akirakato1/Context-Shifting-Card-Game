@@ -52,6 +52,8 @@ enum Phase {
 	COMPLETE,
 }
 
+const MAIN_2_REVIEW_MSEC_PER_PLAYER := 3000
+
 enum VictoryMode {
 	SCORE_RACE,
 	ROUND_WIN_RACE,

@@ -6,33 +6,86 @@ const MATCH_SCREEN_PATH := "res://src/view/match/match_screen.tscn"
 const AbilityCatalog = preload("res://src/core/abilities/ability_catalog.gd")
 
 
+func test_pending_ability_draw_targets_the_visible_copy_or_collapsed_toggle() -> void:
+	var panel = await _mount(ABILITY_PANEL_PATH)
+	if panel == null:
+		return
+	if not panel.has_method("draw_destination"):
+		assert_true(false, "Ability draws need a tray destination")
+		await _unmount(panel)
+		return
+	panel.position = Vector2(230, 240)
+	panel.set_draw_pending(&"field-copy", true)
+	panel.render(_abilities(), 2, _catalog(), false)
+	var toggle: Button = panel.get_node("ToggleButton")
+	assert_eq(panel.draw_destination(&"field-copy"), toggle)
+	toggle.pressed.emit()
+	await Engine.get_main_loop().process_frame
+	var card: Control = panel.get_node("Drawer/Layout/Scroll/Cards").get_child(1)
+	assert_eq(panel.draw_destination(&"field-copy"), card)
+	assert_true(card.is_visible_in_tree() and card.size.y > 0, "Pending draws occupy their normal slots")
+	assert_eq(card.modulate.a, 0.0)
+	assert_eq(panel.draw_destination(&"buff-copy").modulate.a, 1.0)
+	panel.render(_abilities(), 2, _catalog(), false)
+	assert_eq(card.modulate.a, 0.0)
+
+	var activations: Array[StringName] = []
+	panel.ability_activated.connect(func(copy_id: StringName, _ability: Dictionary): activations.append(copy_id))
+	panel.activate_ability(&"field-copy")
+	_click_card(card, MOUSE_BUTTON_RIGHT)
+	_click_card(card, MOUSE_BUTTON_LEFT)
+	assert_true(activations.is_empty())
+	panel.clear_pending_draws()
+	assert_eq(card.modulate.a, 1.0)
+	_click_card(card, MOUSE_BUTTON_RIGHT)
+	_click_card(card, MOUSE_BUTTON_LEFT)
+	assert_eq(activations, [&"field-copy"])
+	await _unmount(panel)
+
+
+func test_ability_draw_uses_toggle_for_a_copy_clipped_by_the_tray() -> void:
+	var panel = await _mount(ABILITY_PANEL_PATH)
+	if panel == null:
+		return
+	panel.position = Vector2(230, 240)
+	panel.set_drawer_bounds(Rect2(Vector2(-26, -100), Vector2(274, 170)))
+	panel.render([
+		{"copy_id": "field-first", "ability_id": "reverse_clock"},
+		{"copy_id": "field-middle", "ability_id": "reverse_clock"},
+		{"copy_id": "field-last", "ability_id": "reverse_clock"},
+	], 2, _catalog(), false)
+	var toggle: Button = panel.get_node("ToggleButton")
+	toggle.pressed.emit()
+	await Engine.get_main_loop().process_frame
+	var scroll: ScrollContainer = panel.get_node("Drawer/Layout/Scroll")
+	var cards := scroll.get_node("Cards")
+	assert_eq(panel.draw_destination(&"field-first"), cards.get_child(0))
+	assert_eq(panel.draw_destination(&"field-last"), toggle)
+	scroll.scroll_vertical = int(scroll.get_v_scroll_bar().max_value)
+	await Engine.get_main_loop().process_frame
+	assert_eq(panel.draw_destination(&"field-first"), toggle)
+	assert_eq(panel.draw_destination(&"field-last"), cards.get_child(2))
+	await _unmount(panel)
+
+
 func test_ability_drawer_expands_upward_and_enforces_all_four_timings() -> void:
 	var panel = await _mount(ABILITY_PANEL_PATH)
 	if panel == null:
 		return
 	panel.position = Vector2(230, 240)
-	var activations: Array[StringName] = []
-	panel.ability_activated.connect(func(copy_id: StringName, _ability: Dictionary): activations.append(copy_id))
 	panel.render(_abilities(), 2, _catalog(), false)
 	assert_false(panel.get_node("Drawer").visible)
 	panel.get_node("ToggleButton").pressed.emit()
 	assert_true(panel.get_node("Drawer").visible)
 	assert_eq(panel.legal_ability_ids(), [&"field-copy", &"buff-copy", &"sabotage-copy"])
 	await Engine.get_main_loop().process_frame
-	var cards := panel.get_node("Drawer/Layout/Scroll/Cards") as VBoxContainer
+	var cards := panel.get_node("Drawer/Layout/Scroll/Cards") as Control
 	var borders: Array[Color] = []
 	for card: Control in cards.get_children():
 		var frame := card.get_theme_stylebox("panel") as StyleBoxFlat
 		if frame.border_color not in borders:
 			borders.append(frame.border_color)
 	assert_eq(borders.size(), 4, "each category should have its own card border")
-	_click_card(cards.get_child(0), MOUSE_BUTTON_RIGHT)
-	_click_card(cards.get_child(1), MOUSE_BUTTON_LEFT)
-	assert_true(activations.is_empty())
-	_click_card(cards.get_child(1), MOUSE_BUTTON_RIGHT)
-	panel.activate_ability(&"buff-copy")
-	assert_eq(activations, [&"field-copy", &"buff-copy"])
-
 	panel.render(_abilities(), 4, _catalog(), false)
 	assert_eq(panel.legal_ability_ids(), [&"buff-copy"])
 	panel.render(_abilities(), 3, _catalog(), false)
@@ -42,14 +95,270 @@ func test_ability_drawer_expands_upward_and_enforces_all_four_timings() -> void:
 	await _unmount(panel)
 
 
+func test_ability_drawer_plays_only_after_right_click_focus_and_same_card_left_click() -> void:
+	var panel = await _mount(ABILITY_PANEL_PATH)
+	if panel == null:
+		return
+	panel.position = Vector2(230, 240)
+	panel.render(_abilities(), 2, _catalog(), false)
+	panel.get_node("ToggleButton").pressed.emit()
+	await Engine.get_main_loop().process_frame
+	var cards := panel.get_node("Drawer/Layout/Scroll/Cards") as Control
+	var activations: Array[StringName] = []
+	panel.ability_activated.connect(func(copy_id: StringName, _ability: Dictionary): activations.append(copy_id))
+	_click_card(cards.get_child(0), MOUSE_BUTTON_RIGHT)
+	_click_card(cards.get_child(0), MOUSE_BUTTON_LEFT)
+	_click_card(cards.get_child(1), MOUSE_BUTTON_LEFT)
+	assert_true(activations.is_empty(), "an illegal ability or an unfocused left click cannot play")
+	_click_card(cards.get_child(1), MOUSE_BUTTON_RIGHT)
+	assert_true(activations.is_empty(), "right click alone must not play")
+	_click_card(cards.get_child(2), MOUSE_BUTTON_LEFT)
+	assert_true(activations.is_empty(), "a different card cannot confirm the focused ability")
+	_click_card(cards.get_child(1), MOUSE_BUTTON_LEFT)
+	_click_card(cards.get_child(1), MOUSE_BUTTON_LEFT)
+	assert_eq(activations, [&"field-copy"], "the focused card must be confirmed exactly once")
+
+	_click_card(cards.get_child(1), MOUSE_BUTTON_RIGHT)
+	panel.render(_abilities(), 4, _catalog(), false)
+	panel.render(_abilities(), 2, _catalog(), false)
+	await Engine.get_main_loop().process_frame
+	_click_card(cards.get_child(1), MOUSE_BUTTON_LEFT)
+	assert_eq(activations, [&"field-copy"], "focus must clear when the ability becomes illegal")
+	await _unmount(panel)
+
+
+func test_right_click_again_unprimes_without_playing() -> void:
+	var screen = await _mount(MATCH_SCREEN_PATH)
+	if screen == null:
+		return
+	screen.render(_active_model(2))
+	var commands: Array[StringName] = []
+	screen.intent_requested.connect(func(kind: StringName, _payload: Dictionary): commands.append(kind))
+	var panel: Control = screen.get_node("AbilityPanel")
+	panel.get_node("ToggleButton").pressed.emit()
+	await Engine.get_main_loop().process_frame
+	var card: Control = panel.get_node("Drawer/Layout/Scroll/Cards").get_child(1)
+	_click_card(card, MOUSE_BUTTON_RIGHT)
+	var dimmer := screen.get_node_or_null("AbilityFocus") as Control
+	assert_true(dimmer != null and dimmer.visible, "Priming gently dims the match")
+	_click_card(card, MOUSE_BUTTON_RIGHT)
+	assert_true(dimmer == null or not dimmer.visible)
+	_click_card(card, MOUSE_BUTTON_LEFT)
+	assert_true(commands.is_empty())
+	await _unmount(screen)
+
+
+func test_targeting_can_be_cancelled_with_the_same_ability_or_escape() -> void:
+	var screen = await _mount(MATCH_SCREEN_PATH)
+	if screen == null:
+		return
+	var model := _active_model(3)
+	model.private_abilities = [
+		{"copy_id": "roulette-copy", "ability_id": "context_roulette"},
+		{"copy_id": "mirror-copy", "ability_id": "mirror_rank"},
+	]
+	model.ability_catalog = AbilityCatalog.public_catalog({})
+	screen.render(model)
+	var commands: Array[StringName] = []
+	screen.intent_requested.connect(func(kind: StringName, _payload: Dictionary): commands.append(kind))
+	var panel: Control = screen.get_node("AbilityPanel")
+	panel.get_node("ToggleButton").pressed.emit()
+	await Engine.get_main_loop().process_frame
+	var cards: Control = panel.get_node("Drawer/Layout/Scroll/Cards")
+	var overlay: Control = screen.get_node("TargetingOverlay")
+	var activate: Button = overlay.get_node("Panel/Layout/CommitButton")
+	_click_card(cards.get_child(0), MOUSE_BUTTON_RIGHT)
+	assert_true(overlay.visible)
+	assert_true(activate.visible and activate.disabled)
+	_click_card(cards.get_child(1), MOUSE_BUTTON_RIGHT)
+	assert_eq(commands, [&"stage_manipulation"], "Another copy cannot switch an active workflow")
+	assert_true(activate.visible and activate.disabled)
+	screen.get_node("PhaseControls").choose_half(&"c1", 0)
+	assert_true(overlay.visible and not activate.disabled, "Variable targets still need Activate")
+	assert_eq(commands, [&"stage_manipulation"])
+	_click_card(cards.get_child(0), MOUSE_BUTTON_RIGHT)
+	assert_false(overlay.visible)
+	assert_false(screen.get_node("AbilityFocus").visible)
+	_click_card(cards.get_child(1), MOUSE_BUTTON_RIGHT)
+	assert_true(overlay.visible)
+	assert_false(activate.visible)
+	var escape := InputEventKey.new()
+	escape.keycode = KEY_ESCAPE
+	escape.pressed = true
+	screen.get_viewport().push_input(escape, true)
+	assert_false(overlay.visible)
+	assert_false(screen.get_node("AbilityFocus").visible)
+	assert_eq(commands, [
+		&"stage_manipulation", &"cancel_manipulation", &"stage_manipulation", &"cancel_manipulation",
+	])
+	await _unmount(screen)
+
+
+func test_sabotage_targets_the_opponent_seat_and_clears_on_play() -> void:
+	var screen = await _mount(MATCH_SCREEN_PATH)
+	if screen == null:
+		return
+	var model := _active_model(2)
+	model.private_abilities = [{"copy_id": "sabotage-copy", "ability_id": "forced_mulligan"}]
+	model.ability_catalog = AbilityCatalog.public_catalog({})
+	screen.render(model)
+	var commands: Array[Dictionary] = []
+	screen.intent_requested.connect(func(kind: StringName, payload: Dictionary):
+		commands.append({"kind": kind, "payload": payload}))
+	var panel: Control = screen.get_node("AbilityPanel")
+	panel.get_node("ToggleButton").pressed.emit()
+	await Engine.get_main_loop().process_frame
+	_click_card(panel.get_node("Drawer/Layout/Scroll/Cards").get_child(0), MOUSE_BUTTON_RIGHT)
+	var overlay: Control = screen.get_node("TargetingOverlay")
+	assert_true(overlay.visible, "Right-clicking the ability immediately enables seat targeting")
+	assert_true(commands.is_empty(), "Priming alone does not play the ability")
+	assert_eq(overlay.get_node("Panel/Layout/Options").get_child_count(), 0)
+	var seat: Control = screen.get_node("TableLayer/TopSeat")
+	if seat.has_method("ability_target_rect"):
+		var bounds: Rect2 = seat.call("ability_target_rect")
+		_mouse_button(screen.get_viewport(), bounds.get_center(), MOUSE_BUTTON_LEFT, true)
+		_mouse_button(screen.get_viewport(), bounds.get_center(), MOUSE_BUTTON_LEFT, false)
+	assert_eq(commands, [{
+		"kind": &"play_public_ability",
+		"payload": {"copy_id": "sabotage-copy", "target_player_id": "p2",
+			"choices": {"target_player_id": ["p2"]}},
+	}])
+	screen.handle_command_result(&"play_public_ability", true, &"", 2)
+	var dimmer := screen.get_node_or_null("AbilityFocus") as Control
+	assert_true(dimmer != null and not dimmer.visible)
+	await _unmount(screen)
+
+
+func test_main_two_buff_can_target_your_own_table_semicircle() -> void:
+	var screen = await _mount(MATCH_SCREEN_PATH)
+	if screen == null:
+		return
+	var model := _active_model(4)
+	model.private_staging.hand_locked = true
+	model.private_abilities = [{"copy_id": "buff-copy", "ability_id": "family_buff"}]
+	model.ability_catalog = AbilityCatalog.public_catalog({})
+	screen.render(model)
+	var commands: Array[Dictionary] = []
+	screen.intent_requested.connect(func(kind: StringName, payload: Dictionary):
+		commands.append({"kind": kind, "payload": payload}))
+	screen.get_node("AbilityPanel").activate_ability(&"buff-copy")
+	screen.render(model)
+	assert_true(screen.get_node("TargetingOverlay").visible)
+	var targets: Control = screen.get_node("TableAbilityTargets")
+	var point := targets.get_global_transform() * (targets.size * Vector2(965.0 / 1920.0, 678.0 / 1080.0))
+	var motion := InputEventMouseMotion.new()
+	motion.position = point
+	screen.get_viewport().push_input(motion, true)
+	var hovered: Control = screen.get_viewport().gui_get_hovered_control()
+	assert_eq(hovered, targets, "Expected pointer on lower semicircle, got %s" % [
+		str(hovered.get_path()) if hovered != null else "no control",
+	])
+	_mouse_button(screen.get_viewport(), point, MOUSE_BUTTON_LEFT, true)
+	_mouse_button(screen.get_viewport(), point, MOUSE_BUTTON_LEFT, false)
+	assert_eq(commands, [{
+		"kind": &"play_public_ability",
+		"payload": {"copy_id": "buff-copy", "target_player_id": "p1",
+			"choices": {"target_player_id": ["p1"]}},
+	}])
+	await _unmount(screen)
+
+
+func test_ability_drawer_drag_moves_cards_at_the_midpoint_and_keeps_local_order() -> void:
+	var panel = await _mount(ABILITY_PANEL_PATH)
+	if panel == null:
+		return
+	panel.position = Vector2(230, 240)
+	panel.scale = Vector2.ONE * 0.75
+	panel.render(_abilities(), 2, _catalog(), false)
+	panel.get_node("ToggleButton").pressed.emit()
+	await Engine.get_main_loop().process_frame
+	var cards := panel.get_node("Drawer/Layout/Scroll/Cards") as Control
+	var first := cards.get_child(0) as Control
+	var second := cards.get_child(1) as Control
+	var start := first.get_global_rect().get_center()
+	var midpoint := second.get_global_rect().get_center()
+	var viewport := panel.get_viewport() as Viewport
+	_mouse_button(viewport, start, MOUSE_BUTTON_LEFT, true)
+	_drag_motion(viewport, midpoint - Vector2(0, 10))
+	assert_false(first.get_parent() == cards and first.visible, "the source slot should be empty during a drag")
+	assert_true(first.get_global_rect().get_center().is_equal_approx(midpoint - Vector2(0, 10)), "the ability face should follow the pointer")
+	await Engine.get_main_loop().create_timer(0.18).timeout
+	assert_eq(second.get_global_rect().get_center(), midpoint, "the next card stays put before the midpoint")
+	panel.render(_abilities(), 2, _catalog(), false)
+	assert_false(first.get_parent() == cards, "rendering the same inventory must preserve a live drag")
+	_drag_motion(viewport, midpoint + Vector2(0, 10))
+	assert_eq(second.get_global_rect().get_center(), midpoint, "the next card should animate from its current position")
+	await Engine.get_main_loop().create_timer(0.18).timeout
+	assert_true(second.get_global_rect().get_center().y < midpoint.y, "the next card slides into the gap after crossing its midpoint")
+	_mouse_button(viewport, midpoint + Vector2(0, 10), MOUSE_BUTTON_LEFT, false)
+	await Engine.get_main_loop().create_timer(0.18).timeout
+	assert_eq(_ability_titles(cards), ["Reverse Clock", "Suit Imprint", "Pair Boost", "Pair Breaker"])
+	panel.render(_abilities(), 2, _catalog(), false)
+	assert_eq(_ability_titles(cards), ["Reverse Clock", "Suit Imprint", "Pair Boost", "Pair Breaker"])
+	var next_inventory := _abilities()
+	next_inventory.remove_at(2)
+	next_inventory.push_front({"copy_id": "buff-copy-2", "ability_id": "pair_boost"})
+	panel.render(next_inventory, 2, _catalog(), false)
+	assert_eq(_ability_titles(cards), ["Reverse Clock", "Suit Imprint", "Pair Breaker", "Pair Boost"])
+	await _unmount(panel)
+
+
+func test_ability_drawer_drag_outside_restores_order_without_playing_a_focused_ability() -> void:
+	var panel = await _mount(ABILITY_PANEL_PATH)
+	if panel == null:
+		return
+	panel.position = Vector2(230, 240)
+	panel.render(_abilities(), 2, _catalog(), false)
+	panel.get_node("ToggleButton").pressed.emit()
+	await Engine.get_main_loop().process_frame
+	var cards := panel.get_node("Drawer/Layout/Scroll/Cards") as Control
+	var field := cards.get_child(1) as Control
+	var viewport := panel.get_viewport() as Viewport
+	var activations: Array[StringName] = []
+	panel.ability_activated.connect(func(copy_id: StringName, _ability: Dictionary): activations.append(copy_id))
+	_click_card(field, MOUSE_BUTTON_RIGHT)
+	var start := field.get_global_rect().get_center()
+	var drop := start - Vector2(250, 140)
+	_mouse_button(viewport, start, MOUSE_BUTTON_LEFT, true)
+	_drag_motion(viewport, drop)
+	if DisplayServer.has_feature(DisplayServer.FEATURE_MOUSE):
+		assert_eq(Input.get_current_cursor_shape(), Input.CURSOR_DRAG)
+	_mouse_button(viewport, drop, MOUSE_BUTTON_LEFT, false)
+	if DisplayServer.has_feature(DisplayServer.FEATURE_MOUSE):
+		assert_eq(Input.get_current_cursor_shape(), Input.CURSOR_ARROW)
+	await Engine.get_main_loop().create_timer(0.18).timeout
+	assert_eq(_ability_titles(cards), ["Suit Imprint", "Reverse Clock", "Pair Boost", "Pair Breaker"])
+	assert_true(activations.is_empty())
+	await _unmount(panel)
+
+
+func _ability_titles(cards: Control) -> Array[String]:
+	var titles: Array[String] = []
+	for card: Control in cards.get_children():
+		titles.append((card.find_child("Title") as Label).text)
+	return titles
+
+
 func _click_card(card: Control, button_index: MouseButton) -> void:
+	var position := card.get_global_rect().get_center()
+	var viewport := card.get_viewport()
+	_mouse_button(viewport, position, button_index, true)
+	_mouse_button(viewport, position, button_index, false)
+
+
+func _mouse_button(viewport: Viewport, position: Vector2, button_index: MouseButton, pressed: bool) -> void:
 	var event := InputEventMouseButton.new()
 	event.button_index = button_index
-	event.position = card.get_global_rect().get_center()
-	event.pressed = true
-	card.get_viewport().push_input(event, true)
-	event.pressed = false
-	card.get_viewport().push_input(event, true)
+	event.position = position
+	event.pressed = pressed
+	viewport.push_input(event, true)
+
+
+func _drag_motion(viewport: Viewport, position: Vector2) -> void:
+	var event := InputEventMouseMotion.new()
+	event.position = position
+	event.button_mask = MOUSE_BUTTON_MASK_LEFT
+	viewport.push_input(event, true)
 
 
 func test_targeting_overlay_collects_multistep_choices_dims_and_cancels_safely() -> void:
@@ -249,7 +558,7 @@ func test_ability_drawer_shows_emblems_only_for_fixed_contexts() -> void:
 	], 3, catalog, false)
 	panel.get_node("ToggleButton").pressed.emit()
 	await Engine.get_main_loop().process_frame
-	var cards := panel.get_node("Drawer/Layout/Scroll/Cards") as VBoxContainer
+	var cards := panel.get_node("Drawer/Layout/Scroll/Cards") as Control
 	var fixed_art := cards.get_child(0).find_child("ContextEmblem") as TextureRect
 	assert_true(fixed_art != null and fixed_art.visible and fixed_art.texture != null)
 	if fixed_art != null and fixed_art.texture != null:
@@ -313,7 +622,7 @@ func test_rejected_manipulation_commit_restores_targeting_for_retry_or_cancel() 
 	await _unmount(match_screen)
 
 
-func test_match_ability_targeting_marks_eligible_cards_and_commits_manipulation() -> void:
+func test_right_click_enables_hand_targeting_and_the_last_choice_commits_manipulation() -> void:
 	var match_screen = await _mount(MATCH_SCREEN_PATH)
 	if match_screen == null:
 		return
@@ -326,17 +635,27 @@ func test_match_ability_targeting_marks_eligible_cards_and_commits_manipulation(
 	model["ability_catalog"] = _catalog()
 	match_screen.render(model)
 	var panel = match_screen.get_node("AbilityPanel")
-	panel.activate_ability(&"manip-copy")
+	panel.get_node("ToggleButton").pressed.emit()
+	await Engine.get_main_loop().process_frame
+	var card := panel.get_node("Drawer/Layout/Scroll/Cards").get_child(0) as Control
+	_click_card(card, MOUSE_BUTTON_RIGHT)
+	assert_eq(intents.size(), 1)
+	if intents.is_empty():
+		await _unmount(match_screen)
+		return
 	assert_eq(intents[0], {"kind": &"stage_manipulation", "payload": {"copy_id": "manip-copy"}})
 	assert_true(match_screen.get_node("TargetingOverlay").visible)
 	assert_true(match_screen.get_node("PhaseControls").card_widget(&"c1").targeting_eligible)
-	match_screen.get_node("TargetingOverlay").select_value("c1")
+	await Engine.get_main_loop().process_frame
+	_click_card(match_screen.get_node("PhaseControls").card_widget(&"c1"), MOUSE_BUTTON_LEFT)
+	assert_true(match_screen.get_node("PhaseControls").card_widget(&"c1").targeting_selected)
 	match_screen.get_node("TargetingOverlay").select_value(1)
 	assert_eq(intents[-1].kind, &"commit_manipulation")
 	assert_eq(intents[-1].payload, {
-		"choices": {"cards": ["c1"], "suit": [1]},
+		"choices": {"cards": [&"c1"], "suit": [1]},
 	})
 	assert_false(match_screen.get_node("TargetingOverlay").visible)
+	match_screen.handle_command_result(&"commit_manipulation", true, &"", 3)
 	panel.activate_ability(&"manip-copy")
 	match_screen.get_node("TargetingOverlay/Panel/Layout/CancelButton").pressed.emit()
 	assert_eq(intents[-1], {"kind": &"cancel_manipulation", "payload": {}})

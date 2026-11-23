@@ -1,9 +1,13 @@
 service/signaling/node_modules/
+/service/signaling/.wrangler/
+/service/signaling/.dev.vars*
 /.godot/
 /godot-extension-webrtc_native.zip
 /.superpowers/
 /graphify-out/
 /outputs/
 /build/
-/addons/webrtc_native/lib/~libwebrtc_native*.TMP
+/assets/sound_effects/Card Game SFX Lite (Free)/
+/assets/sound_effects/Tabletop Games SFX Pack/
+/addons/webrtc_native/lib/~libwebrtc_native*
 *.import

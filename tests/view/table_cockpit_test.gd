@@ -42,6 +42,33 @@ func test_match_can_hide_the_sketch_guides_without_disabling_controls() -> void:
 	await Engine.get_main_loop().process_frame
 
 
+func test_table_art_covers_the_hotbar_seam_and_uses_context_shades() -> void:
+	var scene := load("res://src/view/match/match_screen.tscn") as PackedScene
+	var table := scene.instantiate()
+	Engine.get_main_loop().root.add_child(table)
+	var scenery := table.get_node("TableScenery")
+	var constants: Dictionary = scenery.get_script().get_script_constant_map()
+	var rect: Rect2 = constants.get("TABLE_RECT", Rect2())
+	assert_eq(rect.get_center().x, 960.0)
+	assert_eq(constants.get("TABLE_SHADE_OPACITY", 0.0), 0.5)
+	var board: Texture2D = scenery.get("table_art")
+	assert_true(board != null)
+	if board != null:
+		assert_eq(board.resource_path.get_file(), "board.png")
+		var source: Rect2 = scenery.get("table_source_region")
+		var board_pixels := board.get_image()
+		var seam_row := floori(source.position.y + (709.0 - rect.position.y) / rect.size.y * source.size.y)
+		for fraction in [0.25, 0.5, 0.75]:
+			var column := floori(source.position.x + source.size.x * fraction)
+			assert_true(board_pixels.get_pixel(column, seam_row).a > 0.95, "Table art should reach the hotbar")
+	var shades: Array = scenery.get("table_shading") if scenery.get("table_shading") != null else []
+	assert_eq(shades.map(func(texture: Texture2D): return texture.resource_path.get_file()), [
+		"board_shade_blue.png", "board_shade_green.png", "board_shade_red.png",
+	])
+	table.queue_free()
+	await Engine.get_main_loop().process_frame
+
+
 func test_top_half_is_the_scoring_half_and_selected_card_keeps_its_slot() -> void:
 	var scene := load("res://src/view/match/match_screen.tscn") as PackedScene
 	var table: Control = scene.instantiate()
@@ -132,30 +159,29 @@ func _half(context: int, rank: int) -> Dictionary:
 
 
 func test_drag_reorders_the_hand_without_staging_cards() -> void:
-	var scene := load("res://src/view/match/match_screen.tscn") as PackedScene
-	var table: Control = scene.instantiate()
-	Engine.get_main_loop().root.add_child(table)
+	var model := _hand_drag_model()
+	var table := _open_hand_drag_table(model)
 	var controls = table.get_node("PhaseControls")
-	var model := {
-		"phase": 3, "active_context": 0, "private_player_id": "p1",
-		"private_hand": [
-			{"card_id": "a", "first": _half(0, 2), "second": _half(1, 3)},
-			{"card_id": "b", "first": _half(0, 4), "second": _half(1, 5)},
-			{"card_id": "c", "first": _half(0, 6), "second": _half(1, 7)},
-		],
-	}
-	table.render(model)
 	table.get_node("SortControls/Rise").pressed.emit()
 	await Engine.get_main_loop().process_frame
 	var view := table.get_viewport()
-	var source: Vector2 = controls.card_widget(&"a").get_global_rect().get_center()
+	var card: Control = controls.card_widget(&"a")
+	var neighbor: Control = controls.card_widget(&"b")
+	var source := card.get_global_rect().get_center()
+	var neighbor_start := neighbor.get_global_rect().get_center()
 	var destination: Vector2 = controls.card_widget(&"c").get_global_rect().get_center()
 	_push_hand_click(view, source, true)
-	var motion := InputEventMouseMotion.new()
-	motion.position = destination
-	motion.relative = destination - source
-	motion.button_mask = MOUSE_BUTTON_MASK_LEFT
-	view.push_input(motion, true)
+	var before_center := neighbor_start - Vector2(12, 0)
+	_push_hand_motion(view, source, before_center)
+	assert_true(view.gui_is_dragging())
+	assert_true(not card.is_visible_in_tree() or is_zero_approx(card.modulate.a), "The hand shows a gap while the card is attached to the cursor")
+	await Engine.get_main_loop().create_timer(0.20).timeout
+	assert_eq(neighbor.get_global_rect().get_center(), neighbor_start, "A card stays put until the pointer reaches its center")
+	_push_hand_motion(view, before_center, destination)
+	assert_eq(neighbor.get_global_rect().get_center(), neighbor_start, "The neighbor starts its slide from the current position")
+	await Engine.get_main_loop().create_timer(0.25).timeout
+	assert_true(neighbor.get_global_rect().get_center().distance_to(source) < 1.0, "The neighbor has slid into the gap before release")
+	assert_eq(controls.local_hand_order(), [&"a", &"b", &"c"], "Hovering keeps the committed order")
 	_push_hand_click(view, destination, false)
 	assert_eq(controls.local_hand_order(), [&"b", &"c", &"a"])
 	assert_false(controls.has_staged_card(&"a"))
@@ -167,8 +193,76 @@ func test_drag_reorders_the_hand_without_staging_cards() -> void:
 	_push_hand_click(view, click, true)
 	_push_hand_click(view, click, false)
 	assert_true(controls.has_staged_card(&"a"))
+	await Engine.get_main_loop().process_frame
+	var right_click := InputEventMouseButton.new()
+	right_click.position = controls.card_widget(&"a").get_global_rect().get_center()
+	right_click.button_index = MOUSE_BUTTON_RIGHT
+	right_click.button_mask = MOUSE_BUTTON_MASK_RIGHT
+	right_click.pressed = true
+	view.push_input(right_click, true)
+	assert_eq(controls.staged_selection(&"a").get("half_index"), 1)
+	right_click.button_mask = 0
+	right_click.pressed = false
+	view.push_input(right_click, true)
 	table.queue_free()
 	await Engine.get_main_loop().process_frame
+
+
+func test_drag_released_outside_hand_restores_card_and_sorted_order() -> void:
+	var table := _open_hand_drag_table(_hand_drag_model())
+	var controls = table.get_node("PhaseControls")
+	var sorter: Button = table.get_node("SortControls/Rise")
+	sorter.pressed.emit()
+	await Engine.get_main_loop().process_frame
+	var view := table.get_viewport()
+	var source: Vector2 = controls.card_widget(&"c").get_global_rect().get_center()
+	var destination: Vector2 = controls.card_widget(&"a").get_global_rect().get_center() - Vector2(8, 0)
+	var neighbor_start: Vector2 = controls.card_widget(&"b").get_global_rect().get_center()
+	_push_hand_click(view, source, true)
+	_push_hand_motion(view, source, destination)
+	await Engine.get_main_loop().create_timer(0.25).timeout
+	var neighbor_during_drag: Vector2 = controls.card_widget(&"b").get_global_rect().get_center()
+	assert_true(neighbor_during_drag.distance_to(source) < 1.0, "Dragging left moves the neighbor right")
+	var outside := Vector2(400, 400)
+	_push_hand_motion(view, destination, outside)
+	_push_hand_click(view, outside, false)
+	await Engine.get_main_loop().create_timer(0.25).timeout
+	var restored: Control = controls.card_widget(&"c")
+	assert_true(restored.is_visible_in_tree() and is_equal_approx(restored.modulate.a, 1.0))
+	assert_true(restored.get_global_rect().get_center().is_equal_approx(source))
+	assert_true(controls.card_widget(&"b").get_global_rect().get_center().is_equal_approx(neighbor_start))
+	assert_eq(controls.local_hand_order(), [&"a", &"b", &"c"])
+	assert_true(sorter.button_pressed)
+	assert_false(controls.has_staged_card(&"c"))
+	table.queue_free()
+	await Engine.get_main_loop().process_frame
+
+
+func _hand_drag_model() -> Dictionary:
+	return {
+		"phase": 3, "active_context": 0, "active_contexts": [0, 1], "private_player_id": "p1",
+		"private_hand": [
+			{"card_id": "a", "first": _half(0, 2), "second": _half(1, 3)},
+			{"card_id": "b", "first": _half(0, 4), "second": _half(1, 5)},
+			{"card_id": "c", "first": _half(0, 6), "second": _half(1, 7)},
+		],
+	}
+
+
+func _open_hand_drag_table(model: Dictionary) -> Control:
+	var scene := load("res://src/view/match/match_screen.tscn") as PackedScene
+	var table: Control = scene.instantiate()
+	Engine.get_main_loop().root.add_child(table)
+	table.render(model)
+	return table
+
+
+func _push_hand_motion(view: Viewport, from: Vector2, point: Vector2) -> void:
+	var event := InputEventMouseMotion.new()
+	event.position = point
+	event.relative = point - from
+	event.button_mask = MOUSE_BUTTON_MASK_LEFT
+	view.push_input(event, true)
 
 
 func _push_hand_click(view: Viewport, point: Vector2, pressed: bool) -> void:
@@ -216,7 +310,7 @@ func test_practice_menu_uses_the_live_controller_through_hand_reveal() -> void:
 				submitted_id = StringName(card.card_id)
 				controls.card_widget(submitted_id).primary_clicked.emit(submitted_id)
 				assert_true(controls.has_staged_card(submitted_id))
-				controls.get_node("HandPlayControls/ActionRow/LockButton").pressed.emit()
+				controls.get_node("HandPlayControls/ActionRow/SubmitButton").pressed.emit()
 				break
 			var main_two := await _wait_for_phase(app, 4)
 			assert_true(main_two, "Practice should send and lock the submission against the real controller")
@@ -227,6 +321,41 @@ func test_practice_menu_uses_the_live_controller_through_hand_reveal() -> void:
 				assert_false(submitted_id in controls.local_hand_order())
 				var revealed: Array = app.presentation_state.private_state().players.filter(func(player): return player.has("revealed_submission"))
 				assert_eq(revealed.size(), 4)
+	app.queue_free()
+	await Engine.get_main_loop().process_frame
+
+
+func test_practice_winner_waits_for_bots_then_reaches_results() -> void:
+	var scene := load("res://src/view/app/app_root.tscn") as PackedScene
+	var app = scene.instantiate()
+	Engine.get_main_loop().root.add_child(app)
+	app.start_practice()
+	var session = app._session
+	var state: MatchState = session._controller.state
+	state.phase = GameTypes.Phase.END
+	state.match_complete = true
+	state.winner_id = &"host"
+	state.players[&"host"].round_wins = 3
+	for player_id in state.seat_order:
+		var player = state.players[player_id]
+		if player_id != &"host":
+			player.ability_hand.append_array(state.ability_deck.draw(player_id, 3, state.rng))
+		player.end_discard_complete = player.ability_hand.size() <= state.ability_deck.end_hand_limit
+	session._publish()
+
+	assert_eq(app.current_screen_id(), &"match")
+	assert_eq(state.players[&"host"].ability_hand.size(), 2)
+	var controls: Control = app.get_node("SafeArea/ScreenHost").get_child(0).get_node("PhaseControls")
+	assert_eq(controls.get_node("EndControls/Required").text, "Waiting for other players to discard…")
+	assert_false(controls.get_node("EndControls/AbilityChoices").is_visible_in_tree())
+	assert_false(controls.get_node("EndControls/ConfirmButton").is_visible_in_tree())
+
+	session._next_bot_move = 0
+	session.poll()
+	assert_eq(state.phase, GameTypes.Phase.COMPLETE)
+	assert_eq(app.current_screen_id(), &"results")
+	for player_id in state.seat_order:
+		assert_eq(state.players[player_id].ability_hand.size(), 2 if player_id == &"host" else 3)
 	app.queue_free()
 	await Engine.get_main_loop().process_frame
 

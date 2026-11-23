@@ -11,6 +11,76 @@ const MatchState = preload("res://src/core/match/match_state.gd")
 const MatchController = preload("res://src/core/match/match_controller.gd")
 
 
+func test_main_one_readies_only_players_with_publicly_empty_ability_trays() -> void:
+	var state := _main_one_state(301)
+	state.phase = GameTypes.Phase.START
+	state.players[&"one"].ability_hand.clear()
+	for ability in state.players[&"two"].ability_hand:
+		ability.definition = _ability(&"private", AbilityDefinition.Timing.HAND_MANIPULATION, &"noop")
+	var controller := MatchController.new(state)
+	controller.begin_match(0)
+	assert_eq(state.phase, GameTypes.Phase.MAIN_1)
+	assert_true(state.players[&"one"].ready, "An empty tray readies immediately on phase entry")
+	assert_false(state.players[&"two"].ready, "A nonempty tray keeps its timing information private")
+	controller.submit(GameCommand.new(&"unready", &"one", CommandKinds.SET_READY, {"ready": false}), 10)
+	assert_true(state.players[&"one"].ready)
+	controller.submit(_ready(&"ready-nonempty", &"two"), 20)
+	assert_eq(state.phase, GameTypes.Phase.HAND_PLAY)
+
+
+func test_last_public_ability_readies_empty_trays_but_keeps_reaction_window() -> void:
+	var state := _main_one_state(302)
+	state.players[&"one"].ability_hand.resize(1)
+	state.players[&"two"].ability_hand.clear()
+	_set_ability(state, &"one", 0, _ability(&"buff", AbilityDefinition.Timing.HAND_SHAPE, &"factor_modifier"))
+	var controller := MatchController.new(state)
+	var result := controller.submit(_play(
+		&"last-public-ability", &"one", state.players[&"one"].ability_hand[0].copy_id, &"two"
+	), 100)
+	assert_true(result.accepted)
+	assert_true(state.players[&"one"].ready, "The player who spent their last card is ready again")
+	assert_true(state.players[&"two"].ready, "The empty opponent tray stays ready after a public action")
+	controller.tick(1099)
+	assert_eq(state.phase, GameTypes.Phase.MAIN_1)
+	controller.tick(1100)
+	assert_eq(state.phase, GameTypes.Phase.HAND_PLAY)
+
+
+func test_empty_main_two_trays_allow_the_reveal_to_play_before_scoring() -> void:
+	var state := _main_one_state(303)
+	state.phase = GameTypes.Phase.HAND_PLAY
+	state.phase_started_msec = 0
+	state.phase_deadline_msec = 100
+	for player in state.players.values():
+		player.ability_hand.clear()
+	var controller := MatchController.new(state, null, Callable(), false)
+	var revealed := controller.tick(100)
+	assert_true(_first_event(revealed, EventKinds.HAND_REVEALED) != null)
+	assert_eq(state.phase, GameTypes.Phase.MAIN_2)
+	assert_true(state.players[&"one"].ready)
+	assert_true(state.players[&"two"].ready)
+	assert_true(controller.tick(6099).is_empty())
+	assert_eq(state.phase, GameTypes.Phase.MAIN_2)
+	assert_true(_first_event(controller.tick(6100), EventKinds.ROUND_FINALIZED) != null)
+
+
+func test_main_two_manual_ready_can_finalize_during_the_reveal() -> void:
+	var state := _main_one_state(304)
+	state.phase = GameTypes.Phase.HAND_PLAY
+	state.phase_started_msec = 0
+	state.phase_deadline_msec = 100
+	state.players[&"one"].ability_hand.clear()
+	for ability in state.players[&"two"].ability_hand:
+		ability.definition = _ability(&"private", AbilityDefinition.Timing.HAND_MANIPULATION, &"noop")
+	var controller := MatchController.new(state)
+	controller.tick(100)
+	assert_eq(state.phase, GameTypes.Phase.MAIN_2)
+	assert_true(state.players[&"one"].ready)
+	assert_false(state.players[&"two"].ready)
+	var result := controller.submit(_ready(&"ready-nonempty", &"two"), 101)
+	assert_true(_first_event(result.events, EventKinds.ROUND_FINALIZED) != null)
+
+
 func test_public_action_clears_readiness_and_grace_delays_all_ready_close() -> void:
 	var state := _main_one_state(31)
 	_set_ability(state, &"one", 0, _ability(&"buff", AbilityDefinition.Timing.HAND_SHAPE, &"factor_modifier"))

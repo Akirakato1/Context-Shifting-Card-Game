@@ -141,7 +141,6 @@ func test_production_catalog_detects_every_rank_structure() -> void:
 	var fixtures := {
 		&"high_card": [7],
 		&"pair": [7, 7],
-		&"straight_3": [2, 3, 4],
 		&"two_pair": [2, 2, 8, 8],
 		&"three_kind": [7, 7, 7],
 		&"straight_4": [2, 3, 4, 5],
@@ -160,6 +159,14 @@ func test_production_catalog_detects_every_rank_structure() -> void:
 			_faces(fixtures[expected]), NormalHandCatalog.definitions()
 		)
 		assert_eq(result.category_id, expected, "production fixture %s" % expected)
+
+
+func test_default_straights_start_at_four_cards() -> void:
+	var catalog := NormalHandCatalog.definitions()
+	var short_run := NormalHandEvaluator.evaluate(_faces([2, 3, 4]), catalog)
+	var full_run := NormalHandEvaluator.evaluate(_faces([2, 3, 4, 5]), catalog)
+	assert_eq(short_run.category_id, &"high_card")
+	assert_eq(full_run.category_id, &"straight_4")
 
 
 func test_production_catalog_adds_each_exact_flush_size() -> void:

@@ -7,6 +7,7 @@ const GameTypes = preload("res://src/core/common/game_types.gd")
 const GameCommand = preload("res://src/core/commands/game_command.gd")
 const CommandKinds = preload("res://src/core/commands/command_kinds.gd")
 const DomainEvent = preload("res://src/core/events/domain_event.gd")
+const EventKinds = preload("res://src/core/events/event_kinds.gd")
 const GameProtocol = preload("res://src/network/game_protocol.gd")
 const SnapshotProjector = preload("res://src/core/match/snapshot_projector.gd")
 const PeerTransport = preload("res://src/network/peer_transport.gd")
@@ -159,29 +160,6 @@ func admit_peer(peer_id: String, player_id: StringName, requested_role: String) 
 	return {"accepted": true, "error_code": ""}
 
 
-func sync_player_activation(player_id: StringName) -> Error:
-	if not _controller.state.players.has(player_id):
-		return ERR_DOES_NOT_EXIST
-	var player = _controller.state.players[player_id]
-	if not player.active or player.pending:
-		return ERR_BUSY
-	var peer_id := ""
-	for candidate in _peers:
-		if _peers[candidate]["player_id"] == player_id:
-			peer_id = candidate
-			break
-	if peer_id.is_empty():
-		return ERR_DOES_NOT_EXIST
-	if _peers[peer_id]["role"] != GameTypes.RecipientRole.PENDING_PLAYER:
-		return ERR_ALREADY_EXISTS
-	_peers[peer_id]["role"] = GameTypes.RecipientRole.ACTIVE_PLAYER
-	_ensure_reconnect_token(player_id)
-	publish_state_change([DomainEvent.new(
-		&"player_activated", {"player_id": str(player_id)}, &"public"
-	)])
-	return OK
-
-
 func unregister_peer(peer_id: String) -> void:
 	_peers.erase(peer_id)
 	_outbound_queues.erase(peer_id)
@@ -196,11 +174,12 @@ func publish_events(events: Array) -> void:
 		if not _peers.has(peer_id):
 			continue
 		var registration: Dictionary = _peers[peer_id]
-		var projected := _project_events(
+		var projected := DomainEvent.for_recipient(
 			events, registration["player_id"], registration["role"]
 		)
 		if projected.is_empty():
 			continue
+		_serialize_replenishment_events(projected)
 		var recipient_id: StringName = registration["player_id"]
 		_recipient_sequences[recipient_id] = int(_recipient_sequences[recipient_id]) + 1
 		_send_envelope(peer_id, _envelope("event_batch", {
@@ -210,9 +189,10 @@ func publish_events(events: Array) -> void:
 
 
 func publish_state_change(events: Array = []) -> void:
-	publish_events(events)
+	var published_events := events + _sync_pending_activations()
+	publish_events(published_events)
 	_broadcast_snapshots()
-	authoritative_state_changed.emit(events.duplicate())
+	authoritative_state_changed.emit(published_events)
 
 
 func send_snapshot(peer_id: String) -> Error:
@@ -234,6 +214,7 @@ func send_snapshot(peer_id: String) -> Error:
 		)
 		if decorated is Dictionary:
 			snapshot = decorated
+	_serialize_replenishment_events(snapshot.get("public_history", []))
 	return _send_envelope(peer_id, _envelope("snapshot", {
 		"sequence": int(_recipient_sequences.get(player_id, 0)),
 		"state": snapshot,
@@ -274,7 +255,6 @@ func poll() -> void:
 	var controller_events: Array = _controller.tick(now_msec)
 	if not controller_events.is_empty():
 		publish_state_change(controller_events)
-	_sync_pending_activations()
 
 
 func close() -> void:
@@ -340,11 +320,23 @@ func _on_message_received(peer_id: String, bytes: PackedByteArray) -> void:
 		_send_command_result(peer_id, player_id, message_id, false, &"malformed_command")
 		return
 
+	var kind := StringName(payload["kind"])
+	var command_payload: Dictionary = payload["payload"]
+	if kind == CommandKinds.SET_REPLENISHMENT_REQUEST and command_payload.get("request") is Dictionary:
+		var wire_request: Dictionary = command_payload["request"]
+		var request := {}
+		for context_key: String in wire_request:
+			var context := context_key.to_int()
+			if (
+				str(context) != context_key
+				or context < GameTypes.Context.RISE or context > GameTypes.Context.FALL
+			):
+				_send_command_result(peer_id, player_id, message_id, false, &"unknown_context")
+				return
+			request[context] = wire_request[context_key]
+		command_payload["request"] = request
 	var command := GameCommand.new(
-		StringName(payload["command_id"]),
-		player_id,
-		StringName(payload["kind"]),
-		payload["payload"]
+		StringName(payload["command_id"]), player_id, kind, command_payload
 	)
 	var result = _controller.submit(command, _now_msec())
 	_send_command_result(
@@ -352,7 +344,6 @@ func _on_message_received(peer_id: String, bytes: PackedByteArray) -> void:
 	)
 	if result.accepted:
 		publish_state_change(result.events)
-		_sync_pending_activations()
 
 
 func _handle_unregistered_message(peer_id: String, bytes: PackedByteArray) -> void:
@@ -435,23 +426,6 @@ func _append_to_queue(peer_id: String, queue: Array, bytes: PackedByteArray) -> 
 	return OK
 
 
-func _project_events(events: Array, recipient_id: StringName, role: int) -> Array:
-	var projected: Array = []
-	for event in events:
-		if not event is DomainEvent:
-			continue
-		if event.audience == &"public" or (
-			event.audience == &"player"
-			and role == GameTypes.RecipientRole.ACTIVE_PLAYER
-			and event.recipient_id == recipient_id
-		):
-			projected.append({
-				"kind": str(event.kind),
-				"payload": event.payload.duplicate(true),
-			})
-	return projected
-
-
 func _valid_command_payload(payload: Dictionary) -> bool:
 	return (
 		typeof(payload.get("command_id", null)) == TYPE_STRING
@@ -460,6 +434,21 @@ func _valid_command_payload(payload: Dictionary) -> bool:
 		and not String(payload["kind"]).is_empty()
 		and payload.get("payload", null) is Dictionary
 	)
+
+
+func _serialize_replenishment_events(events: Array) -> void:
+	for event: Dictionary in events:
+		if event.get("kind") != EventKinds.REPLENISHMENT_REQUESTS_REVEALED:
+			continue
+		var requests: Variant = event["payload"].get("requests")
+		if not requests is Dictionary:
+			continue
+		for player_id in requests:
+			var request: Dictionary = requests[player_id]
+			var wire_request := {}
+			for context in request:
+				wire_request[str(context)] = request[context]
+			requests[player_id] = wire_request
 
 
 func _envelope(kind: String, payload: Dictionary) -> Dictionary:
@@ -520,10 +509,9 @@ func _broadcast_snapshots() -> void:
 			send_snapshot(peer_id)
 
 
-func _sync_pending_activations() -> void:
-	var activated: Array[StringName] = []
-	for peer_id_variant in _peers.keys():
-		var peer_id := String(peer_id_variant)
+func _sync_pending_activations() -> Array[DomainEvent]:
+	var events: Array[DomainEvent] = []
+	for peer_id in _peers:
 		var registration: Dictionary = _peers[peer_id]
 		if registration["role"] != GameTypes.RecipientRole.PENDING_PLAYER:
 			continue
@@ -532,9 +520,12 @@ func _sync_pending_activations() -> void:
 			continue
 		var player = _controller.state.players[player_id]
 		if player.active and not player.pending:
-			activated.append(player_id)
-	for player_id in activated:
-		sync_player_activation(player_id)
+			registration["role"] = GameTypes.RecipientRole.ACTIVE_PLAYER
+			_ensure_reconnect_token(player_id)
+			events.append(DomainEvent.new(
+				&"player_activated", {"player_id": str(player_id)}, &"public"
+			))
+	return events
 
 
 func _ensure_reconnect_token(player_id: StringName) -> void:

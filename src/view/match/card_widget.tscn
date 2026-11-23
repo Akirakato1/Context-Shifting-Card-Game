@@ -1,44 +1,37 @@
-[gd_scene load_steps=4 format=3]
+[gd_scene load_steps=11 format=3]
 
 [ext_resource type="Script" path="res://src/view/match/card_widget.gd" id="1_script"]
+[ext_resource type="Texture2D" path="res://assets/artwork/card_suit_mountain.png" id="2_mountain"]
+[ext_resource type="Texture2D" path="res://assets/artwork/card_suit_cloud.png" id="3_cloud"]
+[ext_resource type="Texture2D" path="res://assets/artwork/card_suit_sea.png" id="4_sea"]
+[ext_resource type="Shader" path="res://src/view/match/rank_ink.gdshader" id="5_ink"]
 
-[sub_resource type="StyleBoxFlat" id="Style_card"]
-bg_color = Color(0.075, 0.105, 0.145, 1)
-border_width_left = 2
-border_width_top = 2
-border_width_right = 2
-border_width_bottom = 2
-border_color = Color(0.27, 0.51, 0.65, 1)
-corner_radius_top_left = 8
-corner_radius_top_right = 8
-corner_radius_bottom_right = 8
-corner_radius_bottom_left = 8
-content_margin_left = 8.0
-content_margin_top = 8.0
-content_margin_right = 8.0
-content_margin_bottom = 8.0
+[sub_resource type="AtlasTexture" id="Atlas_mountain"]
+atlas = ExtResource("2_mountain")
+region = Rect2(132, 219, 1737, 1365)
+filter_clip = true
 
-[sub_resource type="StyleBoxFlat" id="Style_card_selected"]
-bg_color = Color(0.075, 0.105, 0.145, 1)
-border_width_left = 4
-border_width_top = 4
-border_width_right = 4
-border_width_bottom = 4
-border_color = Color(0.956863, 0.8, 0.466667, 1)
-corner_radius_top_left = 8
-corner_radius_top_right = 8
-corner_radius_bottom_right = 8
-corner_radius_bottom_left = 8
-content_margin_left = 8.0
-content_margin_top = 8.0
-content_margin_right = 8.0
-content_margin_bottom = 8.0
+[sub_resource type="AtlasTexture" id="Atlas_cloud"]
+atlas = ExtResource("3_cloud")
+region = Rect2(106, 262, 1885, 1141)
+filter_clip = true
+
+[sub_resource type="AtlasTexture" id="Atlas_sea"]
+atlas = ExtResource("4_sea")
+region = Rect2(241, 295, 1707, 1429)
+filter_clip = true
+
+[sub_resource type="ShaderMaterial" id="Material_suit"]
+shader = ExtResource("5_ink")
+shader_parameter/use_tint = true
+
+[sub_resource type="StyleBoxEmpty" id="Style_card"]
 
 [node name="CardWidget" type="PanelContainer"]
 custom_minimum_size = Vector2(128, 96)
 theme_override_styles/panel = SubResource("Style_card")
 script = ExtResource("1_script")
-selected_panel_style = SubResource("Style_card_selected")
+suit_icons = Array[Texture2D]([SubResource("Atlas_mountain"), SubResource("Atlas_cloud"), SubResource("Atlas_sea")])
 
 [node name="Artwork" type="Control" parent="."]
 layout_mode = 2
@@ -76,13 +69,18 @@ grow_vertical = 2
 mouse_filter = 2
 expand_mode = 1
 
-[node name="Back" type="Label" parent="."]
+[node name="Back" type="TextureRect" parent="."]
+visible = false
 layout_mode = 2
-theme_override_colors/font_color = Color(0.35, 0.78, 0.93, 1)
-theme_override_font_sizes/font_size = 18
-text = "SHIFT\nCARD"
-horizontal_alignment = 1
-vertical_alignment = 1
+mouse_filter = 2
+expand_mode = 1
+stretch_mode = 5
+
+[node name="Frame" type="TextureRect" parent="."]
+visible = false
+layout_mode = 2
+mouse_filter = 2
+expand_mode = 1
 
 [node name="Face" type="Control" parent="."]
 layout_mode = 2
@@ -101,22 +99,12 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 mouse_filter = 1
 
-[node name="First" type="Label" parent="Face"]
+[node name="First" type="TextureRect" parent="Face"]
+material = SubResource("Material_suit")
 layout_mode = 1
-anchor_left = 1.0
-anchor_top = 0.42
-anchor_right = 1.0
-anchor_bottom = 0.42
-offset_left = -35.0
-offset_top = -28.0
-offset_right = -6.0
-offset_bottom = -2.0
 mouse_filter = 2
-theme_override_colors/font_color = Color(1, 1, 1, 1)
-theme_override_colors/font_outline_color = Color(0.045, 0.06, 0.1, 0.94)
-theme_override_constants/outline_size = 6
-horizontal_alignment = 2
-vertical_alignment = 1
+expand_mode = 1
+stretch_mode = 5
 
 [node name="FirstRankArt" type="HBoxContainer" parent="Face"]
 custom_minimum_size = Vector2(0, 24)
@@ -146,22 +134,12 @@ size_flags_horizontal = 3
 theme_override_font_sizes/font_size = 15
 fit_to_longest_item = false
 
-[node name="Second" type="Label" parent="Face"]
+[node name="Second" type="TextureRect" parent="Face"]
+material = SubResource("Material_suit")
 layout_mode = 1
-anchor_left = 1.0
-anchor_top = 1.0
-anchor_right = 1.0
-anchor_bottom = 1.0
-offset_left = -35.0
-offset_top = -28.0
-offset_right = -6.0
-offset_bottom = -2.0
 mouse_filter = 2
-theme_override_colors/font_color = Color(1, 1, 1, 1)
-theme_override_colors/font_outline_color = Color(0.045, 0.06, 0.1, 0.94)
-theme_override_constants/outline_size = 6
-horizontal_alignment = 2
-vertical_alignment = 1
+expand_mode = 1
+stretch_mode = 5
 
 [node name="SecondRankArt" type="HBoxContainer" parent="Face"]
 custom_minimum_size = Vector2(0, 24)
@@ -216,6 +194,8 @@ layout_mode = 2
 tooltip_text = "Move this card right"
 text = "▶"
 flat = true
+
+[node name="Aura" type="Node2D" parent="."]
 
 [connection signal="item_selected" from="Face/FirstChoices/Context" to="." method="_on_first_context_selected"]
 [connection signal="item_selected" from="Face/FirstChoices/Suit" to="." method="_on_first_suit_selected"]

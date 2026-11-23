@@ -2,17 +2,48 @@ class_name AbilityPanel
 extends Control
 
 signal ability_activated(copy_id: StringName, ability: Dictionary)
+signal ability_primed(copy_id: StringName, ability: Dictionary)
+signal ability_cancel_requested
+signal interaction_sound(cue: StringName)
 
-const AbilityCard = preload("res://src/view/match/ability_inventory_card.tscn")
+const AbilityCard = preload("res://src/view/match/ability_card.gd")
+const AbilityCardScene = preload("res://src/view/match/ability_inventory_card.tscn")
+const CARD_SEPARATION := 7.0
+const DRAG_THRESHOLD := 7.0
+const REORDER_DURATION := 0.14
 
 var _abilities: Dictionary = {}
 var _legal_ids: Array[StringName] = []
+var _order: Array[StringName] = []
+var _cards_by_id: Dictionary[StringName, AbilityCard] = {}
+var _pending_draws: Dictionary[StringName, bool] = {}
+var _card_targets: Dictionary[StringName, Vector2] = {}
+var _card_tweens: Dictionary[StringName, Tween] = {}
 var _expanded := false
 var _input_locked := false
+var _focused_id: StringName
+var _activating_id: StringName
+var _pressed_id: StringName
+var _press_position := Vector2.ZERO
+var _grab_offset := Vector2.ZERO
+var _drag_order: Array[StringName] = []
 
 @onready var _drawer: PanelContainer = $Drawer
-@onready var _cards: VBoxContainer = $Drawer/Layout/Scroll/Cards
+@onready var _heading: Label = $Drawer/Layout/Heading
+@onready var _scroll: ScrollContainer = $Drawer/Layout/Scroll
+@onready var _cards: Control = $Drawer/Layout/Scroll/Cards
+@onready var _drag_overlay: Control = $DragOverlay
 @onready var _toggle: Button = $ToggleButton
+
+
+func _ready() -> void:
+	_cards.resized.connect(_layout_cards)
+	visibility_changed.connect(_on_visibility_changed)
+
+
+func _exit_tree() -> void:
+	if not _drag_order.is_empty():
+		_set_drag_cursor(false)
 
 
 func set_drawer_bounds(bounds: Rect2) -> void:
@@ -21,33 +52,62 @@ func set_drawer_bounds(bounds: Rect2) -> void:
 
 
 func render(abilities: Array, phase: int, catalog: Dictionary, input_locked: bool) -> void:
+	var models: Dictionary = {}
+	var snapshot_order: Array[StringName] = []
 	_input_locked = input_locked
-	_abilities.clear()
 	_legal_ids.clear()
-	for child in _cards.get_children():
-		_cards.remove_child(child)
-		child.queue_free()
 	for ability_ref in abilities:
 		if not ability_ref is Dictionary:
 			continue
 		var copy_id := StringName(ability_ref.get("copy_id", ""))
+		if copy_id.is_empty() or models.has(copy_id):
+			continue
 		var ability_id := str(ability_ref.get("ability_id", ""))
 		var definition: Dictionary = catalog.get(ability_id, {})
 		var model: Dictionary = ability_ref.duplicate(true)
 		model.merge(definition, true)
-		_abilities[copy_id] = model
-		var legal := bool(model.get(
-			"legal", _timing_allows(int(model.get("timing", -1)), phase)
-		))
+		models[copy_id] = model
+		snapshot_order.append(copy_id)
+		var legal := bool(model.get("legal", _timing_allows(int(model.get("timing", -1)), phase)))
 		if legal:
 			_legal_ids.append(copy_id)
-		var card = AbilityCard.instantiate()
-		_cards.add_child(card)
-		card.render(model, ability_id, false, legal and not _input_locked)
-		card.gui_input.connect(_on_ability_gui_input.bind(card, copy_id))
+
+	var inventory_changed := models.size() != _order.size()
+	for copy_id in snapshot_order:
+		if not _cards_by_id.has(copy_id):
+			inventory_changed = true
+			break
+	if _input_locked or inventory_changed:
+		_finish_drag(false)
+	if _input_locked or _focused_id not in _legal_ids:
+		_set_focused_id(&"")
+
+	_abilities = models
+	for copy_id in _order.duplicate():
+		if not _abilities.has(copy_id):
+			var card := _cards_by_id[copy_id]
+			_stop_card_tween(copy_id)
+			_cards.remove_child(card)
+			card.queue_free()
+			_cards_by_id.erase(copy_id)
+			_card_targets.erase(copy_id)
+			_order.erase(copy_id)
+	for copy_id in snapshot_order:
+		if not _cards_by_id.has(copy_id):
+			var card := AbilityCardScene.instantiate() as AbilityCard
+			_cards.add_child(card)
+			card.gui_input.connect(_on_ability_gui_input.bind(card, copy_id))
+			card.card_hovered.connect(func(): interaction_sound.emit(&"hover"))
+			card.minimum_size_changed.connect(_layout_cards, CONNECT_DEFERRED)
+			_cards_by_id[copy_id] = card
+			_order.append(copy_id)
+		var card := _cards_by_id[copy_id]
+		var model: Dictionary = _abilities[copy_id]
+		card.render(model, str(model.get("ability_id", "")), false, _can_play(copy_id))
+		_update_draw_presentation(copy_id)
 	_drawer.visible = _expanded
-	_toggle.text = "ABILITIES  %d  %s" % [abilities.size(), "▼" if _expanded else "▲"]
-	_toggle.disabled = abilities.is_empty()
+	_update_toggle()
+	_layout_cards()
 
 
 func legal_ability_ids() -> Array[StringName]:
@@ -58,22 +118,279 @@ func inputs_locked() -> bool:
 	return _input_locked
 
 
-func activate_ability(copy_id: StringName) -> void:
-	if _input_locked or copy_id not in _legal_ids or not _abilities.has(copy_id):
+func draw_destination(copy_id: StringName) -> Control:
+	var card: Control = _cards_by_id.get(copy_id)
+	if _expanded and card != null and card.is_visible_in_tree() and card.size.x > 0 and card.size.y > 0:
+		var center := card.get_global_transform_with_canvas() * (card.size * 0.5)
+		if _contains_pointer(_scroll, center) and get_viewport_rect().has_point(center):
+			return card
+	return _toggle if _toggle.is_visible_in_tree() else null
+
+
+func set_draw_pending(copy_id: StringName, pending: bool) -> void:
+	if pending:
+		_pending_draws[copy_id] = true
+		if _pressed_id == copy_id:
+			_finish_drag(false)
+		if _focused_id == copy_id:
+			_set_focused_id(&"")
+	else:
+		_pending_draws.erase(copy_id)
+	_update_draw_presentation(copy_id)
+
+
+func clear_pending_draws() -> void:
+	var pending_ids := _pending_draws.keys()
+	_pending_draws.clear()
+	for copy_id in pending_ids:
+		_update_draw_presentation(copy_id)
+
+
+func _update_draw_presentation(copy_id: StringName) -> void:
+	var card: Control = _cards_by_id.get(copy_id)
+	if card == null:
 		return
-	ability_activated.emit(copy_id, _abilities[copy_id].duplicate(true))
+	var pending := _pending_draws.has(copy_id)
+	card.modulate.a = 0.0 if pending else 1.0
+	var ignore_input := pending or _input_locked or card.get_parent() == _drag_overlay
+	card.mouse_filter = Control.MOUSE_FILTER_IGNORE if ignore_input else Control.MOUSE_FILTER_PASS
+
+
+func activate_ability(copy_id: StringName) -> void:
+	if not _pending_draws.has(copy_id) and _can_play(copy_id):
+		_set_focused_id(&"", false)
+		ability_activated.emit(copy_id, _abilities[copy_id].duplicate(true))
+
+
+func ability_focus_rect(copy_id: StringName) -> Rect2:
+	var card: Control = _cards_by_id.get(copy_id)
+	if card == null or not card.is_visible_in_tree():
+		return Rect2()
+	return card.get_global_rect().grow(7).intersection(_scroll.get_global_rect().grow(7))
+
+
+func set_activating_copy(copy_id: StringName) -> void:
+	if _cards_by_id.has(_activating_id):
+		_cards_by_id[_activating_id].set_inventory_focused(_activating_id == _focused_id)
+	_activating_id = copy_id
+	if _cards_by_id.has(copy_id):
+		_cards_by_id[copy_id].set_inventory_focused(true)
+
+
+func clear_primed_ability() -> void:
+	_set_focused_id(&"")
 
 
 func _on_toggle_pressed() -> void:
+	if not _activating_id.is_empty():
+		interaction_sound.emit(&"invalid")
+		return
+	_finish_drag(false)
+	_set_focused_id(&"")
 	_expanded = not _expanded
 	_drawer.visible = _expanded
+	_update_toggle()
+
+
+func _update_toggle() -> void:
 	_toggle.text = "ABILITIES  %d  %s" % [_abilities.size(), "▼" if _expanded else "▲"]
+	_toggle.disabled = _abilities.is_empty() and not _expanded
 
 
-func _on_ability_gui_input(event: InputEvent, card: Control, copy_id: StringName) -> void:
-	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
+func _can_play(copy_id: StringName) -> bool:
+	return not _input_locked and copy_id in _legal_ids and _abilities.has(copy_id)
+
+
+func _set_focused_id(copy_id: StringName, notify := true) -> void:
+	if _focused_id == copy_id:
+		return
+	if _cards_by_id.has(_focused_id):
+		_cards_by_id[_focused_id].set_inventory_focused(false)
+	_focused_id = copy_id
+	if _cards_by_id.has(copy_id):
+		_cards_by_id[copy_id].set_inventory_focused(true)
+	_heading.text = ("Right-click to target or prime" if copy_id.is_empty() else "Left-click to play") + " · Drag to reorder"
+	if notify:
+		interaction_sound.emit(&"unprime" if copy_id.is_empty() else &"prime")
+		ability_primed.emit(copy_id, _abilities.get(copy_id, {}).duplicate(true))
+
+
+func _on_ability_gui_input(event: InputEvent, card: AbilityCard, copy_id: StringName) -> void:
+	if _input_locked or _pending_draws.has(copy_id) or not event is InputEventMouseButton or not event.pressed:
+		return
+	if not _activating_id.is_empty():
+		if event.button_index == MOUSE_BUTTON_RIGHT and copy_id == _activating_id:
+			card.accept_event()
+			ability_cancel_requested.emit()
+		elif event.button_index in [MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT]:
+			card.accept_event()
+			interaction_sound.emit(&"invalid")
+		return
+	if event.button_index == MOUSE_BUTTON_RIGHT:
 		card.accept_event()
-		activate_ability(copy_id)
+		if _pressed_id.is_empty() and _can_play(copy_id):
+			var ability: Dictionary = _abilities[copy_id]
+			if ability.get("choice_schema", {}).get("steps", []).is_empty():
+				_set_focused_id(&"" if _focused_id == copy_id else copy_id)
+			else:
+				interaction_sound.emit(&"prime")
+				activate_ability(copy_id)
+		else:
+			interaction_sound.emit(&"invalid")
+	elif event.button_index == MOUSE_BUTTON_LEFT:
+		card.accept_event()
+		_pressed_id = copy_id
+		_press_position = card.get_global_transform_with_canvas() * event.position
+
+
+func _input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
+		if not _activating_id.is_empty():
+			ability_cancel_requested.emit()
+			get_viewport().set_input_as_handled()
+		elif not _pressed_id.is_empty() or not _focused_id.is_empty():
+			_finish_drag(false)
+			_set_focused_id(&"")
+			get_viewport().set_input_as_handled()
+		return
+	if _pressed_id.is_empty():
+		return
+	if event is InputEventMouseMotion:
+		if _drag_order.is_empty():
+			var local_motion := _drag_overlay.get_global_transform_with_canvas().affine_inverse().basis_xform(
+				event.position - _press_position
+			)
+			if local_motion.length() < DRAG_THRESHOLD:
+				return
+			_begin_drag()
+		_move_drag(event.position)
+		_set_drag_cursor(true)
+		get_viewport().set_input_as_handled()
+	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
+		var copy_id := _pressed_id
+		var card := _cards_by_id[copy_id]
+		var over_scroll := _contains_pointer(_scroll, event.position)
+		if not _drag_order.is_empty():
+			if over_scroll:
+				_move_drag(event.position)
+			_finish_drag(over_scroll)
+			interaction_sound.emit(&"drop" if over_scroll else &"invalid")
+		else:
+			_pressed_id = &""
+			if over_scroll and _contains_pointer(card, event.position):
+				if copy_id == _focused_id:
+					activate_ability(copy_id)
+				else:
+					var idle_click := _focused_id.is_empty() and _can_play(copy_id)
+					interaction_sound.emit(&"select" if idle_click else &"invalid")
+
+
+func _contains_pointer(control: Control, pointer: Vector2) -> bool:
+	var local_point := control.get_global_transform_with_canvas().affine_inverse() * pointer
+	return Rect2(Vector2.ZERO, control.size).has_point(local_point)
+
+
+func _begin_drag() -> void:
+	var card := _cards_by_id[_pressed_id]
+	_set_focused_id(&"")
+	_stop_card_tween(_pressed_id)
+	_drag_order = _order.duplicate()
+	var to_overlay := _drag_overlay.get_global_transform_with_canvas().affine_inverse()
+	var card_origin := card.get_global_transform_with_canvas().origin
+	_grab_offset = to_overlay * card_origin - to_overlay * _press_position
+	card.reparent(_drag_overlay, false)
+	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	interaction_sound.emit(&"drag")
+
+
+func _move_drag(pointer: Vector2) -> void:
+	var card := _cards_by_id[_pressed_id]
+	card.position = _drag_overlay.get_global_transform_with_canvas().affine_inverse() * pointer + _grab_offset
+	var center := card.get_global_transform_with_canvas() * (card.size * 0.5)
+	var center_y := (_cards.get_global_transform_with_canvas().affine_inverse() * center).y
+	var from_index := _drag_order.find(_pressed_id)
+	var to_index := from_index
+	while to_index > 0 and center_y < _slot_center(_drag_order[to_index - 1]):
+		to_index -= 1
+	while to_index < _drag_order.size() - 1 and center_y > _slot_center(_drag_order[to_index + 1]):
+		to_index += 1
+	if from_index != to_index:
+		_drag_order.remove_at(from_index)
+		_drag_order.insert(to_index, _pressed_id)
+		_layout_cards(true)
+
+
+func _slot_center(copy_id: StringName) -> float:
+	return _card_targets[copy_id].y + _cards_by_id[copy_id].size.y * 0.5
+
+
+func _finish_drag(commit: bool) -> void:
+	var copy_id := _pressed_id
+	_pressed_id = &""
+	if _drag_order.is_empty():
+		return
+	_set_drag_cursor(false)
+	if commit:
+		_order.assign(_drag_order)
+	_drag_order.clear()
+	var card := _cards_by_id[copy_id]
+	var card_origin := card.get_global_transform_with_canvas().origin
+	card.reparent(_cards, false)
+	card.position = _cards.get_global_transform_with_canvas().affine_inverse() * card_origin
+	_update_draw_presentation(copy_id)
+	_card_targets.erase(copy_id)
+	for index in _order.size():
+		_cards.move_child(_cards_by_id[_order[index]], index)
+	_layout_cards(true)
+
+
+func _set_drag_cursor(dragging: bool) -> void:
+	if DisplayServer.has_feature(DisplayServer.FEATURE_MOUSE):
+		# Manual drag events are handled before the viewport can choose a cursor.
+		DisplayServer.cursor_set_shape(DisplayServer.CURSOR_DRAG if dragging else DisplayServer.CURSOR_ARROW)
+
+
+func _layout_cards(animate := false) -> void:
+	var layout_order := _order if _drag_order.is_empty() else _drag_order
+	var y := 0.0
+	var min_width := 0.0
+	for copy_id in layout_order:
+		var card := _cards_by_id[copy_id]
+		var minimum := card.get_combined_minimum_size()
+		var target := Vector2(0.0, y)
+		y += minimum.y + CARD_SEPARATION
+		min_width = maxf(min_width, minimum.x)
+		var target_changed: bool = _card_targets.get(copy_id, Vector2.INF) != target
+		_card_targets[copy_id] = target
+		if card.get_parent() == _drag_overlay:
+			continue
+		card.size = Vector2(maxf(_cards.size.x, minimum.x), minimum.y)
+		if target_changed:
+			_stop_card_tween(copy_id)
+			if animate and card.position != target:
+				var tween := create_tween().set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+				tween.tween_property(card, "position", target, REORDER_DURATION)
+				_card_tweens[copy_id] = tween
+			else:
+				card.position = target
+	_cards.custom_minimum_size = Vector2(min_width, maxf(0.0, y - CARD_SEPARATION))
+
+
+func _stop_card_tween(copy_id: StringName) -> void:
+	if _card_tweens.has(copy_id):
+		_card_tweens[copy_id].kill()
+		_card_tweens.erase(copy_id)
+
+
+func _on_visibility_changed() -> void:
+	if not is_visible_in_tree():
+		_finish_drag(false)
+		_set_focused_id(&"")
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_WINDOW_FOCUS_OUT:
+		_finish_drag(false)
 
 
 func _timing_allows(timing: int, phase: int) -> bool:

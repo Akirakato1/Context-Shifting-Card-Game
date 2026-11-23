@@ -60,6 +60,27 @@ test("room lookup is case-insensitive and host approval gates routing", () => {
   assert.equal(registry.canRoute(joiner, code, "wrong-nonce"), false);
 });
 
+test("room state publishes membership changes and rebuilds socket indexes after reloading", () => {
+  const changes = [];
+  const registry = new RoomRegistry({
+    onRoomChanged: (code, room) => changes.push([code, room?.joins.size ?? null]),
+  });
+  const host = new FakeSocket("host");
+  const guest = new FakeSocket("guest");
+  const { code, hostToken } = registry.createHost(host);
+  const { joinNonce, peerId } = registry.requestJoin(code, ACTIVE_ROLE, guest);
+  registry.approveJoin(code, hostToken, joinNonce);
+  assert.deepEqual(changes, [[code, 0], [code, 1], [code, 1]]);
+
+  const reloaded = new RoomRegistry();
+  reloaded.restoreRoom(registry.inspectRoom(code));
+  assert.equal(reloaded.hostRoute(code, hostToken, peerId).join.socket, guest);
+  assert.equal(reloaded.canRoute(guest, code, joinNonce), true);
+  assert.equal(reloaded.removeSocket(guest).hostClosed, false);
+  assert.equal(reloaded.canRoute(guest, code, joinNonce), false);
+  assert.equal(reloaded.closeHost(host).code, code);
+});
+
 test("host counts toward four active seats and pending joins reserve capacity", () => {
   const { registry } = registryFixture();
   const { code } = registry.createHost(new FakeSocket("host"));

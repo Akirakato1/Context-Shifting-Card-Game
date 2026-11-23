@@ -127,6 +127,10 @@ func test_mid_phase_spectator_gets_public_snapshot_and_never_private_or_ready() 
 	assert_eq(snapshot.payload.state.phase, GameTypes.Phase.MAIN_1)
 	assert_false(snapshot.payload.state.has("private_hand"))
 	assert_false(snapshot.payload.state.has("private_abilities"))
+	assert_eq(snapshot.payload.state.players[0].get("spectator_hand", []).size(), 6)
+	assert_false(JSON.stringify(snapshot.payload.state.players[0]).contains(
+		str(fixture.state.players[&"one"].hand[0].card_id)
+	))
 	assert_true(fixture.state.players[&"watch"].spectator)
 	assert_false(fixture.state.players[&"watch"].active)
 

@@ -4,6 +4,7 @@ const RuntimeGameSession = preload("res://src/view/app/runtime_game_session.gd")
 const AbilityCatalog = preload("res://src/core/abilities/ability_catalog.gd")
 const GameTypes = preload("res://src/core/common/game_types.gd")
 const FakePeerTransport = preload("res://tests/network/fake_peer_transport.gd")
+const GameProtocol = preload("res://src/network/game_protocol.gd")
 
 
 class RuntimeTransport extends FakePeerTransport:
@@ -163,11 +164,11 @@ func test_runtime_config_uses_recipe_with_all_four_ability_categories() -> void:
 		counts[definition.id] = int(counts.get(definition.id, 0)) + 1
 		timing_counts[definition.timing] = int(timing_counts.get(definition.timing, 0)) + 1
 	assert_eq(definitions.size(), 90)
-	assert_eq(counts.size(), 54)
-	assert_eq(timing_counts[AbilityDefinition.Timing.HAND_MANIPULATION], 45)
-	assert_eq(timing_counts[AbilityDefinition.Timing.HAND_SHAPE], 18)
+	assert_eq(counts.size(), 52)
+	assert_eq(timing_counts[AbilityDefinition.Timing.HAND_MANIPULATION], 49)
+	assert_eq(timing_counts[AbilityDefinition.Timing.HAND_SHAPE], 16)
 	assert_eq(timing_counts[AbilityDefinition.Timing.SABOTAGE], 12)
-	assert_eq(timing_counts[AbilityDefinition.Timing.FIELD], 15)
+	assert_eq(timing_counts[AbilityDefinition.Timing.FIELD], 13)
 	assert_false(definitions.any(func(definition):
 		return str(definition.id).begins_with("placeholder_ability_")
 	))
@@ -191,7 +192,7 @@ func test_runtime_config_uses_recipe_with_all_four_ability_categories() -> void:
 	for definition in normals:
 		normals_by_id[definition.id] = definition
 		normal_categories[definition.broad_category_id] = true
-	assert_eq(normals.size(), 19)
+	assert_eq(normals.size(), 18)
 	assert_eq(normal_categories.keys().size(), 5)
 	assert_eq(normals_by_id.pair.priority, 20)
 	assert_eq(normals_by_id.pair.multiplier.numerator, 5)
@@ -299,14 +300,16 @@ func test_host_recipe_updates_existing_deck_and_public_catalog_before_start() ->
 	transport.clear_sent()
 	recipe[&"context_exchange"] = 0
 	recipe[&"mirror_rank"] = 5
+	recipe[&"even_rank_favor"] = 1
 	assert_eq(runtime.update_lobby_setting(&"ability_deck_recipe", recipe), &"")
 	var latest: Dictionary = snapshots[-1]
 	assert_eq(latest.get("ability_catalog", {}).get("context_exchange", {}).get("copies"), 0)
 	assert_eq(latest.get("ability_catalog", {}).get("mirror_rank", {}).get("copies"), 5)
+	assert_eq(latest.get("ability_catalog", {}).get("even_rank_favor", {}).get("copies"), 1)
 	assert_eq(latest.private_hand, previous_hand)
 	assert_eq(latest.get("private_connection", {}), previous_connection)
 	var deck_cards: Array = runtime._controller.state.ability_deck.to_dict().cards
-	assert_eq(deck_cards.size(), 89)
+	assert_eq(deck_cards.size(), 88)
 	assert_eq(deck_cards.filter(func(card): return card.definition.id == "context_exchange").size(), 0)
 	assert_eq(deck_cards.filter(func(card): return card.definition.id == "mirror_rank").size(), 5)
 	var guest_received_recipe := false
@@ -337,6 +340,79 @@ func test_host_recipe_updates_existing_deck_and_public_catalog_before_start() ->
 	assert_eq(snapshots[-1].phase, GameTypes.Phase.MAIN_1)
 	assert_eq(snapshots[-1].private_abilities.size(), 2)
 	runtime.close()
+
+
+func test_results_rematch_starts_fresh_round_in_the_same_room() -> void:
+	var app = preload("res://src/view/app/app_root.tscn").instantiate()
+	Engine.get_main_loop().root.add_child(app)
+	var transport := RuntimeTransport.new()
+	var runtime := RuntimeGameSession.new(transport, Callable(self, "_now"))
+	app.bind_session(runtime)
+	assert_eq(runtime.start_host("ws://127.0.0.1:8080", "Mira"), OK)
+	transport.lobby_created.emit("ABC234")
+	transport.join_status.emit("approved", {
+		"peer_id": "peer-one", "role": "active", "display_name": "Noah",
+	})
+	transport.peer_connected.emit("peer-one")
+	assert_eq(runtime.update_lobby_setting(&"victory_target", 25), &"")
+	assert_eq(runtime.start_match(), OK)
+	transport.join_status.emit("approved", {
+		"peer_id": "peer-late", "role": "active", "display_name": "Ren",
+	})
+	transport.peer_connected.emit("peer-late")
+	transport.join_status.emit("approved", {
+		"peer_id": "peer-watch", "role": "spectator", "display_name": "Iris",
+	})
+	transport.peer_connected.emit("peer-watch")
+	var completed: MatchState = runtime._controller.state
+	assert_true(completed.players[&"peer-late"].pending)
+	var guest_token: String = completed.players[&"peer-one"].reconnect_token
+	completed.round_number = 4
+	completed.players[&"host"].match_score = 25
+	completed.players[&"host"].round_wins = 1
+	completed.match_complete = true
+	completed.winner_id = &"host"
+	completed.phase = GameTypes.Phase.COMPLETE
+	runtime._host_session.publish_state_change([])
+	assert_eq(app.current_screen_id(), &"results")
+	var screens: Array[String] = []
+	runtime.snapshot_applied.connect(func(snapshot: Dictionary, _sequence: int):
+		screens.append(snapshot.screen_id)
+	)
+	transport.clear_sent()
+	app.get_node("SafeArea/ScreenHost").get_child(0).get_node("Layout/Actions/RematchButton").pressed.emit()
+
+	assert_eq(app.current_screen_id(), &"match")
+	assert_eq(screens, ["match"])
+	var snapshot: Dictionary = app.presentation_state.private_state()
+	assert_eq(snapshot.phase, GameTypes.Phase.MAIN_1)
+	assert_eq(snapshot.round_number, 1)
+	assert_false(snapshot.match_complete)
+	assert_eq(snapshot.winner_id, "")
+	assert_eq(snapshot.room_code, "ABC234")
+	assert_eq(snapshot.settings.victory_target, 25)
+	assert_eq(snapshot.players.map(func(player): return player.name), ["Mira", "Noah", "Ren", "Iris"])
+	assert_true(snapshot.players.all(func(player): return player.match_score == 0 and player.round_wins == 0))
+	assert_eq(runtime.update_lobby_setting(&"victory_target", 30), &"config_locked")
+
+	var peer_snapshots := {}
+	for entry in transport.sent:
+		var envelope: Dictionary = GameProtocol.decode(entry.bytes).envelope
+		if envelope.kind != "snapshot":
+			continue
+		var projected: Dictionary = envelope.payload.state
+		assert_eq(projected.phase, GameTypes.Phase.MAIN_1)
+		assert_eq(projected.room_code, "ABC234")
+		peer_snapshots[entry.peer_id] = projected
+	assert_eq(peer_snapshots.size(), 3)
+	assert_eq(peer_snapshots.get("peer-one", {}).get("private_connection", {}).get("reconnect_token"), guest_token)
+	assert_eq(peer_snapshots.get("peer-late", {}).get("private_player_id"), "peer-late")
+	assert_eq(peer_snapshots.get("peer-late", {}).get("private_hand", []).size(), 6)
+	assert_eq(peer_snapshots.get("peer-watch", {}).get("local_role"), "spectator")
+	assert_false(peer_snapshots.get("peer-watch", {}).has("private_hand"))
+	runtime.close()
+	app.queue_free()
+	await Engine.get_main_loop().process_frame
 
 
 func _transport_heartbeat(transport: RuntimeTransport, timestamp: int) -> void:

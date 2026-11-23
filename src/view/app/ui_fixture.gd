@@ -77,6 +77,7 @@ func _fixture_model() -> Dictionary:
 		],
 		"frozen": false, "victory_mode": 0, "victory_target": 100,
 		"pile_counts": {"0": {"draw_count": 68}, "1": {"draw_count": 71}, "2": {"draw_count": 65}},
+		"ability_pile_count": {"draw_count": 18, "capacity": 30},
 		"submission_preview": {
 			"valid": true, "score_breakdown": {
 				"base_value": 0, "card_hand_components": [], "context_hand_components": [],

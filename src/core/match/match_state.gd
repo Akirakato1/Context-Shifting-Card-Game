@@ -15,6 +15,11 @@ const PlayerState = preload("res://src/core/match/player_state.gd")
 const Rational = preload("res://src/core/common/rational.gd")
 const ScoringTypes = preload("res://src/core/scoring/scoring_types.gd")
 
+const MAX_CONTEXT_RANK := 10
+const CONTEXT_CARD_COPIES := 3
+const CONTEXT_SUIT_COUNT := GameTypes.Suit.SEA - GameTypes.Suit.MOUNTAIN + 1
+const CONTEXT_PILE_CAPACITY := MAX_CONTEXT_RANK * CONTEXT_SUIT_COUNT * CONTEXT_CARD_COPIES + 1
+
 var config: MatchConfig
 var seed: int
 var rng: RandomSource
@@ -553,9 +558,9 @@ func _build_piles() -> Dictionary:
 	var result := {}
 	for context in range(GameTypes.Context.RISE, GameTypes.Context.FALL + 1):
 		var cards: Array[HalfCardState] = []
-		for rank in range(1, 11):
+		for rank in range(1, MAX_CONTEXT_RANK + 1):
 			for suit in range(GameTypes.Suit.MOUNTAIN, GameTypes.Suit.SEA + 1):
-				for copy_index in range(3):
+				for copy_index in range(CONTEXT_CARD_COPIES):
 					cards.append(HalfCardState.new(
 						StringName("%d-%d-%d-%d" % [context, rank, suit, copy_index]),
 						context, rank, suit

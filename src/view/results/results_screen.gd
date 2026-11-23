@@ -56,7 +56,7 @@ func render(model: Dictionary) -> void:
 	_lobby.disabled = false
 	_waiting.visible = not host and not host_loss and not practice
 	_waiting.modulate = Color.WHITE
-	_waiting.text = "Waiting for the host to return everyone to the lobby…" if _waiting.visible else ""
+	_waiting.text = "Waiting for the host to start a rematch or return to the lobby…" if _waiting.visible else ""
 
 
 func show_error(message: String) -> void:
@@ -117,7 +117,7 @@ func _player_by_id(player_id: String) -> Dictionary:
 	return {}
 
 
-func _transition_payload() -> Dictionary:
+func _transition_payload(host_settings_unlocked: bool) -> Dictionary:
 	var occupant_ids: Array = []
 	for player in _model.get("players", []):
 		if player is Dictionary:
@@ -126,7 +126,7 @@ func _transition_payload() -> Dictionary:
 		"is_practice": bool(_model.get("is_practice", false)),
 		"room_code": str(_model.get("room_code", "")),
 		"occupant_ids": occupant_ids,
-		"host_settings_unlocked": true,
+		"host_settings_unlocked": host_settings_unlocked,
 		"reset_values": {"round_number": 1, "match_scores": 0, "round_wins": 0},
 	}
 
@@ -136,7 +136,7 @@ func _on_rematch_pressed() -> void:
 		return
 	_action_pending = true
 	_rematch.disabled = true
-	rematch_requested.emit(_transition_payload())
+	rematch_requested.emit(_transition_payload(false))
 
 
 func _on_lobby_pressed() -> void:
@@ -144,7 +144,7 @@ func _on_lobby_pressed() -> void:
 		return
 	_action_pending = true
 	_lobby.disabled = true
-	return_to_lobby_requested.emit(_transition_payload())
+	return_to_lobby_requested.emit(_transition_payload(true))
 
 
 func _on_menu_pressed() -> void:

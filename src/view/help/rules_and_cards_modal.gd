@@ -111,13 +111,18 @@ func _build_how_to_play() -> void:
 	_add_phase(steps, "Start",
 		"The first round opens in Main 1 with two abilities. From round two, draw two abilities and choose the contexts of the halves needed to refill your hand. The game pairs them into full cards.")
 	_add_phase(steps, "Main 1",
-		"Play Field, Sabotage, or Buff/Nerf abilities. Use the Abilities drawer and right-click a card to play it. Ready when you’re done.")
+		"Play Field, Sabotage, or Buff/Nerf abilities. Ready when you’re done.")
 	_add_phase(steps, "Hand Play",
 		"Use Manipulation abilities, then choose cards with a half that matches an active context. Choose which half scores and submit or pass. Submitted cards leave your hand immediately.")
 	_add_phase(steps, "Main 2",
 		"Review the revealed hands and provisional scores. Play any final Buff/Nerf abilities and ready.")
 	_add_phase(steps, "End",
 		"Round scores are finalized and submitted cards are discarded. Discard extra abilities if prompted. The context clock then advances.")
+	_label(
+		content,
+		"In the Abilities drawer, right-click an available card to focus it, then left-click that card to play it. Drag cards to reorder them.",
+		20, INK
+	)
 	_label(content, "Scoring", 27, GOLD)
 	_label(
 		content,

@@ -9,6 +9,7 @@ const ADDITIONAL_CONTEXT := &"additional_context"
 const PER_SELECTED_SUIT := &"per_selected_suit"
 const PER_SELECTED_RANK_SET := &"per_selected_rank_set"
 const STRICT_CONTEXT_MAJORITY := &"strict_context_majority"
+const LEADING_CONTEXT := &"leading_context"
 
 
 static func validate_rule(parameters: Dictionary) -> StringName:
@@ -27,7 +28,7 @@ static func validate_rule(parameters: Dictionary) -> StringName:
 			if not _valid_rank_set(parameters.get("ranks")):
 				return &"invalid_field_ranks"
 			return _validate_delta(parameters)
-		STRICT_CONTEXT_MAJORITY:
+		STRICT_CONTEXT_MAJORITY, LEADING_CONTEXT:
 			if not _valid_context(parameters.get("context")):
 				return &"invalid_field_context"
 			return _validate_delta(parameters)
@@ -67,7 +68,8 @@ static func score_components(
 		if not validate_rule(parameters).is_empty():
 			continue
 		var matches := 0
-		match StringName(str(parameters.field_rule)):
+		var rule := StringName(str(parameters.field_rule))
+		match rule:
 			PER_SELECTED_SUIT:
 				for face in faces:
 					if face.suit == int(parameters.suit):
@@ -76,8 +78,8 @@ static func score_components(
 				for face in faces:
 					if face.rank > 0 and face.rank in parameters.ranks:
 						matches += 1
-			STRICT_CONTEXT_MAJORITY:
-				if _is_strict_context_majority(int(parameters.context), context_counts):
+			STRICT_CONTEXT_MAJORITY, LEADING_CONTEXT:
+				if _context_leads(int(parameters.context), context_counts, rule == LEADING_CONTEXT):
 					matches = 1
 			_:
 				continue
@@ -127,10 +129,15 @@ static func _valid_rank_set(value: Variant) -> bool:
 	return true
 
 
-static func _is_strict_context_majority(context: int, counts: Dictionary) -> bool:
+static func _context_leads(context: int, counts: Dictionary, allow_ties: bool) -> bool:
 	var target := _context_count(counts, context)
+	if target <= 0:
+		return false
 	for other_context in range(GameTypes.Context.RISE, GameTypes.Context.FALL + 1):
-		if other_context != context and target <= _context_count(counts, other_context):
+		if other_context == context:
+			continue
+		var other := _context_count(counts, other_context)
+		if target < other or (target == other and not allow_ties):
 			return false
 	return true
 

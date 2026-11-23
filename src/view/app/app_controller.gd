@@ -16,6 +16,8 @@ const UICommandGateway = preload("res://src/view/common/ui_command_gateway.gd")
 const RuntimeGameSession = preload("res://src/view/app/runtime_game_session.gd")
 const PracticeGameSession = preload("res://src/view/app/practice_game_session.gd")
 const DisplayPreferences = preload("res://src/view/app/display_preferences.gd")
+const GameplayPreferences = preload("res://src/view/app/gameplay_preferences.gd")
+const CursorArtwork = preload("res://src/view/app/cursor_artwork.gd")
 const GameTypes = preload("res://src/core/common/game_types.gd")
 const MAIN_MENU_SCENE := preload("res://src/view/lobby/main_menu_screen.tscn")
 const GENERAL_SETTINGS_SCENE := preload("res://src/view/lobby/general_settings_screen.tscn")
@@ -28,6 +30,8 @@ const STARTUP_SMOKE_PREFIX := "--startup-smoke="
 var presentation_state: PresentationState
 var presentation_queue: PresentationQueue
 var command_gateway: UICommandGateway
+var gameplay_preferences := GameplayPreferences.new()
+@export var cursor_artwork: CursorArtwork
 var _session: Variant
 var _connection := {"status": "idle", "reason": ""}
 var _current_screen_id: StringName = &""
@@ -44,6 +48,10 @@ var _player_name := ""
 
 func _ready() -> void:
 	DisplayPreferences.apply(get_window(), DisplayPreferences.load_mode())
+	if cursor_artwork != null:
+		cursor_artwork.apply()
+	gameplay_preferences.apply_audio()
+	gameplay_preferences.draw_speed_changed.connect(_apply_draw_speed)
 	show_screen(&"menu")
 	for argument in OS.get_cmdline_user_args():
 		if argument == "--practice":
@@ -64,6 +72,7 @@ func _init() -> void:
 	presentation_state.changed.connect(_on_presentation_changed)
 	presentation_queue.event_ready.connect(_on_event_ready)
 	command_gateway.command_completed.connect(_on_command_result)
+	command_gateway.command_blocked.connect(_on_command_blocked)
 
 
 func bind_session(session: Variant) -> void:
@@ -165,15 +174,42 @@ func _process(delta: float) -> void:
 	advance_presentation(int(delta * 1000.0))
 
 
+func _input(event: InputEvent) -> void:
+	if (
+		_current_screen_id not in [&"match", &"lobby"] or not is_instance_valid(_current_screen)
+		or is_instance_valid(_settings_overlay) or not event is InputEventKey or not event.pressed
+	):
+		return
+	var action := gameplay_preferences.hotkey_action(event.get_keycode_with_modifiers())
+	if action.is_empty():
+		return
+	var handled: bool
+	if _current_screen_id == &"match":
+		handled = _current_screen.handle_match_hotkey(action, event.echo)
+	elif action == GameplayPreferences.HOTKEY_READY and not event.echo:
+		handled = _current_screen.trigger_ready_shortcut()
+	if handled:
+		get_viewport().set_input_as_handled()
+
+
 func _on_snapshot_applied(snapshot: Dictionary, sequence: int) -> void:
 	presentation_queue.cancel_before_sequence(sequence + 1)
 	presentation_state.apply_snapshot(snapshot, sequence)
 
 
 func _on_events_applied(events: Array, sequence: int) -> void:
+	# Live cues are consumed before the authoritative snapshot clears its event batch.
+	if _current_screen_id == &"match" and sequence > presentation_state.sequence():
+		_current_screen.present_ability_events(events)
 	var queued: Array[Dictionary] = []
 	for event in events:
 		if event is Dictionary:
+			var payload: Variant = event.get("payload", {})
+			if event.get("kind") == "manipulation_resolved" or (
+				event.get("kind") == "sabotage_resolved" and payload is Dictionary
+				and payload.has("card_changes")
+			):
+				continue
 			var item: Dictionary = event.duplicate(true)
 			item["sequence"] = sequence
 			queued.append(item)
@@ -197,6 +233,11 @@ func _on_command_result(
 		StringName(result.get("error_code", "")),
 		int(_last_presentation.get("phase", -1))
 	)
+
+
+func _on_command_blocked(kind: StringName, reason: StringName) -> void:
+	if reason != &"duplicate_in_flight":
+		_on_command_result(kind, "", {"accepted": false, "error_code": reason})
 
 
 func _on_session_failed(reason: String) -> void:
@@ -242,6 +283,7 @@ func _wire_current_screen() -> void:
 			_current_screen.leave_requested.connect(_return_to_menu)
 			_current_screen.retry_requested.connect(func(): _on_connection_action(&"retry"))
 		&"match":
+			_current_screen.set_draw_speed(gameplay_preferences.draw_speed)
 			_current_screen.intent_requested.connect(_on_match_intent)
 			_current_screen.connection_action_requested.connect(_on_connection_action)
 			_connect_if_present(_current_screen, "settings_requested", _open_general_settings)
@@ -267,8 +309,14 @@ func _open_general_settings() -> void:
 	var previous_focus := get_viewport().gui_get_focus_owner()
 	_settings_previous_focus = weakref(previous_focus) if previous_focus != null else null
 	_settings_overlay = GENERAL_SETTINGS_SCENE.instantiate()
+	_settings_overlay.preferences = gameplay_preferences
 	_settings_overlay.back_requested.connect(_close_general_settings)
 	_screen_host.add_child(_settings_overlay)
+
+
+func _apply_draw_speed(speed: int) -> void:
+	if _current_screen_id == &"match" and is_instance_valid(_current_screen):
+		_current_screen.set_draw_speed(speed)
 
 
 func _close_general_settings() -> void:
@@ -402,8 +450,8 @@ func _on_rematch_requested(payload: Dictionary) -> void:
 	rematch_requested.emit(payload.duplicate(true))
 	if bool(payload.get("is_practice", false)):
 		start_practice()
-	else:
-		_on_return_to_lobby_requested(payload)
+	elif _session == null or not _session.has_method("start_rematch") or _session.start_rematch() != OK:
+		_show_current_error("Could not start a rematch. Try again.")
 
 
 func _on_return_to_lobby_requested(payload: Dictionary) -> void:

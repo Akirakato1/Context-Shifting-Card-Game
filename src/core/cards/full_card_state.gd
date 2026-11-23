@@ -21,6 +21,19 @@ func half_at(index: int) -> HalfCardState:
 	return first if index == 0 else second
 
 
+func face_snapshot() -> Dictionary:
+	return {"first": _face(first), "second": _face(second)}
+
+
+func _face(half: HalfCardState) -> Dictionary:
+	return {
+		"kind": half.kind,
+		"effective_context": half.effective_context(),
+		"effective_rank": half.effective_rank(),
+		"effective_suit": half.effective_suit(),
+	}
+
+
 func eligible_half_indexes(active_context: int) -> PackedInt32Array:
 	return eligible_half_indexes_for_contexts(PackedInt32Array([active_context]))
 

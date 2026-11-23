@@ -89,6 +89,104 @@ func test_clients_cannot_author_events_or_snapshots() -> void:
 		}])
 
 
+func test_guest_replenishment_request_round_trips_through_public_reveal_and_history() -> void:
+	var state := MatchState.create(_config(), 78)
+	state.round_number = 2
+	var player = state.players[&"one"]
+	var removed: FullCardState = player.hand.pop_back()
+	state.piles[removed.first.base_context].discard(removed.first)
+	state.piles[removed.second.base_context].discard(removed.second)
+	var controller := MatchController.new(state)
+	var host_transport := FakePeerTransport.new()
+	var guest_transport := FakePeerTransport.new()
+	var host = _host(controller, host_transport)
+	var guest := ClientNetworkSession.new(guest_transport, "host", "match-1", &"one")
+	host.register_peer("peer-one", &"one", GameTypes.RecipientRole.ACTIVE_PLAYER)
+	host.register_peer("peer-two", &"two", GameTypes.RecipientRole.ACTIVE_PLAYER)
+	var request := {GameTypes.Context.RISE: 2}
+	var wire_request := {str(GameTypes.Context.RISE): 2}
+	assert_eq(guest.submit_command("draw", {
+		"command_id": "draw-command", "kind": "set_replenishment_request",
+		"payload": {"request": request},
+	}), OK)
+	var guest_messages := _decoded_for(guest_transport, "host")
+	assert_eq(guest_messages.size(), 1)
+	if guest_messages.is_empty():
+		return
+	assert_eq(guest_messages[0].payload.payload.request, wire_request)
+	assert_eq(request, {GameTypes.Context.RISE: 2}, "guest must keep the caller's request intact")
+	host_transport.inject_message("peer-one", guest_transport.sent[0].bytes)
+	assert_eq(state.start_requests.get(&"one"), request)
+	assert_eq(_latest_snapshot(host_transport, "peer-two").get("replacement_requests"), {
+		"one": wire_request,
+	})
+
+	host_transport.clear_sent()
+	host_transport.inject_message("peer-one", GameProtocol.encode(_command_envelope(
+		"ready", "one", "ready-command", "set_ready", {"ready": true}
+	)))
+	assert_eq(state.phase, GameTypes.Phase.MAIN_1)
+	assert_eq(player.hand.size(), 6)
+	assert_eq(host_transport.closed, [])
+	var completed_request := {"0": 2, "1": 0, "2": 0}
+	var recorded_reveals := state.public_history.filter(
+		func(event): return event.kind == "replenishment_requests_revealed"
+	)
+	assert_eq(recorded_reveals.size(), 1)
+	if recorded_reveals.size() == 1:
+		assert_eq(recorded_reveals[0].payload.requests.one, {0: 2, 1: 0, 2: 0})
+	for peer_id in ["peer-one", "peer-two"]:
+		var reveals := []
+		for message in _decoded_for(host_transport, peer_id):
+			if message.kind == "event_batch":
+				reveals.append_array(message.payload.events.filter(
+					func(event): return event.kind == "replenishment_requests_revealed"
+				))
+		assert_eq(reveals.size(), 1)
+		if reveals.size() == 1:
+			assert_eq(reveals[0].payload.requests.one, completed_request)
+		var history: Array = _latest_snapshot(host_transport, peer_id).get("public_history", [])
+		var history_reveals := history.filter(
+			func(event): return event.kind == "replenishment_requests_revealed"
+		)
+		assert_eq(history_reveals.size(), 1)
+		if history_reveals.size() == 1:
+			assert_eq(history_reveals[0].payload.requests.one, completed_request)
+
+
+func test_host_rejects_noncanonical_and_unknown_replenishment_context_keys() -> void:
+	var state := MatchState.create(_config(), 79)
+	state.players[&"one"].hand.pop_back()
+	var controller := MatchController.new(state)
+	var transport := FakePeerTransport.new()
+	var host = _host(controller, transport)
+	host.register_peer("peer-one", &"one", GameTypes.RecipientRole.ACTIVE_PLAYER)
+	var invalid_requests := [{"0": 1, "00": 1}, {"01": 2}, {"+1": 2}, {"3": 2}]
+	for index in range(invalid_requests.size()):
+		transport.clear_sent()
+		transport.inject_message("peer-one", GameProtocol.encode(_command_envelope(
+			"invalid-draw-%d" % index, "one", "invalid-command-%d" % index,
+			"set_replenishment_request", {"request": invalid_requests[index]}
+		)))
+		var messages := _decoded_for(transport, "peer-one")
+		assert_eq(messages.size(), 1)
+		if messages.size() == 1:
+			assert_false(messages[0].payload.accepted)
+			assert_eq(messages[0].payload.error_code, "unknown_context")
+		assert_false(state.start_requests.has(&"one"))
+	assert_eq(transport.closed, [])
+
+
+func test_guest_rejects_duplicate_integer_and_string_replenishment_context_keys() -> void:
+	var transport := FakePeerTransport.new()
+	var guest := ClientNetworkSession.new(transport, "host", "match-1", &"one")
+	assert_eq(guest.submit_command("draw", {
+		"command_id": "draw-command", "kind": "set_replenishment_request",
+		"payload": {"request": {0: 1, "0": 1}},
+	}), ERR_INVALID_DATA)
+	assert_eq(transport.sent, [])
+
+
 func test_event_projection_never_leaks_owner_attacker_or_host_data() -> void:
 	var controller := MatchController.new(MatchState.create(_config(), 99))
 	var transport := FakePeerTransport.new()

@@ -3,7 +3,7 @@ extends "res://tests/test_case.gd"
 const MATCH_SCREEN_PATH := "res://src/view/match/match_screen.tscn"
 
 
-func test_table_renders_four_fixed_seats_local_hand_and_hidden_opponents() -> void:
+func test_active_player_sees_compact_opponent_summaries_and_their_own_hand() -> void:
 	var table = await _mount_match()
 	if table == null:
 		return
@@ -18,13 +18,12 @@ func test_table_renders_four_fixed_seats_local_hand_and_hidden_opponents() -> vo
 	assert_eq(table.get_node("TableLayer/RightSeat").seat_position, &"right")
 	assert_eq(table.get_node("TableLayer/BottomSeat").seat_position, &"bottom")
 	assert_eq(table.get_node("PhaseControls/HandPlayControls/Hand/Cards").get_child_count(), 6)
-	assert_eq(table.get_node("TableLayer/LeftSeat").hidden_card_count(), 4)
-	assert_eq(table.get_node("TableLayer/TopSeat").hidden_card_count(), 6)
-	assert_eq(table.get_node("TableLayer/TopSeat/HandCount").text, "Private hand · 6 cards")
-	assert_eq(table.get_node("TableLayer/TopSeat/Hand").get_child_count(), 3)
-	assert_eq(table.get_node("TableLayer/RightSeat").hidden_card_count(), 5)
+	for position in ["TopSeat", "LeftSeat", "RightSeat"]:
+		assert_eq(table.get_node("TableLayer/" + position + "/Hand").get_child_count(), 0)
 	assert_eq(table.get_node("TableLayer/BottomSeat/Info/Name").text, "YOU  ·  Mira")
-	assert_eq(table.get_node("TableLayer/TopSeat/Info/Status").text, "READY")
+	assert_eq(table.get_node("TableLayer/TopSeat/Info/Name").text, "North")
+	assert_true(table.get_node("TableLayer/TopSeat/Summary/SeatTally").text.contains("18 pts"))
+	assert_true(table.get_node("TableLayer/TopSeat/Summary/SeatTally").text.contains("0 abilities"))
 	await _unmount(table)
 
 
@@ -51,12 +50,17 @@ func test_main_two_submissions_stay_available_and_update_from_public_snapshots()
 	var tabs: HBoxContainer = reveal.get_node("Content/Navigation/Players")
 	var cards: HBoxContainer = reveal.get_node("Content/Cards")
 	var score: Label = reveal.get_node("Content/Score")
-	await Engine.get_main_loop().create_timer(4.4).timeout
+	var timeline: Tween = reveal.get("_sequence")
+	timeline.pause()
+	timeline.custom_step(13.0)
+	await Engine.get_main_loop().process_frame
 	assert_true(reveal.visible)
 	assert_eq(tabs.get_child_count(), 4)
 	assert_eq(tabs.get_child(0).text, "Mira (You)")
 	assert_eq(cards.get_child_count(), 1)
 	assert_eq(cards.get_child(0).card_id, "c1")
+	assert_eq(table.get_node("TableLayer/BottomSeat").card_at(0).card_id, "c1")
+	assert_eq(table.get_node("TableLayer/LeftSeat/Hand").get_child_count(), 6)
 	assert_eq(cards.get_child(0).active_half_index, 1)
 	assert_true(cards.get_child(0).interaction_disabled)
 	assert_eq(table.get_node("PhaseControls").card_widget(&"c1"), null)
@@ -87,6 +91,40 @@ func test_main_two_submissions_stay_available_and_update_from_public_snapshots()
 	await _unmount(table)
 
 
+func test_round_reveal_showcases_the_full_named_hand_for_each_player() -> void:
+	var table = await _mount_match()
+	if table == null:
+		return
+	var model := _active_player_model()
+	model.phase = 4
+	model["scoring_catalog"] = preload("res://src/view/app/scoring_reference.gd").default_catalog()
+	var cards := [_revealed_card("showcase", 2, 9, 1, 0, 4, 2, 1)]
+	model.players[0]["revealed_submission"] = {
+		"cards": cards, "normal_category": "two_pair", "context_category": "rise_flourish_4",
+		"provisional_score": 84, "score_breakdown": {"card_hand_components": [
+			{"source_definition_id": "two_pair"}, {"source_definition_id": "flush_4"},
+		]},
+	}
+	model.players[1]["revealed_submission"] = {
+		"cards": cards, "normal_category": "full_house", "context_category": "all_contexts_2",
+		"provisional_score": 63,
+	}
+	table.render(model)
+	var reveal = table.get_node("RoundReveal")
+	var title := reveal.get_node_or_null("Content/HandName") as Label
+	assert_true(title != null)
+	if title != null:
+		assert_eq(title.text, "Two Pair + 4-card Flush  ×  Four Renaissance")
+		var timeline: Tween = reveal._sequence
+		timeline.pause()
+		timeline.custom_step(1.2)
+		assert_eq(title.text, "Two Pair + 4-card Flush  ×  Four Renaissance")
+		assert_true(reveal._score_progress > 0.0 and reveal._score_progress < 1.0)
+		timeline.custom_step(2.0)
+		assert_eq(title.text, "Full House  ×  Two Full Cycle")
+	await _unmount(table)
+
+
 func test_local_and_revealed_cards_render_effective_faces_and_active_half() -> void:
 	var table = await _mount_match()
 	if table == null:
@@ -105,10 +143,16 @@ func test_local_and_revealed_cards_render_effective_faces_and_active_half() -> v
 	assert_eq(local_card.first_face_text(), "Rise  7  Mountain")
 	assert_eq(local_card.second_face_text(), "Flourish  4  Sea")
 	assert_eq(local_card.active_half_index, 1)
+	model.phase = 5
+	table.render(model)
 	var revealed = table.get_node("TableLayer/TopSeat").card_at(0)
+	assert_true(revealed != null)
+	if revealed == null:
+		await _unmount(table)
+		return
 	assert_eq(revealed.first_face_text(), "Fall  9  Cloud")
 	assert_eq(revealed.second_face_text(), "Rise  4  Sea")
-	assert_eq(table.get_node("TableLayer/TopSeat/ScoreSummary").text, "Pair  ×  All Contexts ×1   ·   31 pts")
+	assert_eq(table.get_node("TableLayer/TopSeat/Summary/ScoreSummary").text, "31 points this round")
 	await _unmount(table)
 
 
@@ -117,18 +161,20 @@ func test_context_hand_names_and_exact_multipliers_are_readable() -> void:
 	if table == null:
 		return
 	var model := _active_player_model()
-	var score: Label = table.get_node("TableLayer/TopSeat/ScoreSummary")
+	model.phase = 5
+	model["scoring_catalog"] = preload("res://src/view/app/scoring_reference.gd").default_catalog()
+	var score: Label = table.get_node("TableLayer/TopSeat/Summary/ScoreSummary")
 	for expected in [
-		["all_contexts_2", "All Contexts ×2"],
-		["fall_7", "Fall ×7"],
-		["rise_flourish_5", "Rise + Flourish ×5"],
+		["all_contexts_2", "Two Full Cycle"],
+		["fall_7", "Seven Descent"],
+		["rise_flourish_5", "Five Renaissance"],
 	]:
 		model.players[1]["revealed_submission"] = {
 			"normal_category": "pair", "context_category": expected[0],
 			"finalized_score": 31,
 		}
 		table.render(model)
-		assert_true(score.text.contains(expected[1]))
+		assert_true(score.tooltip_text.contains(expected[1]))
 	model.players[1]["revealed_submission"] = {
 		"context_category": "rise_flourish_5",
 		"score_breakdown": {
@@ -144,7 +190,7 @@ func test_context_hand_names_and_exact_multipliers_are_readable() -> void:
 		},
 	}
 	table.render(model)
-	assert_true(score.text.contains("Rise + Flourish ×5 5/2"))
+	assert_true(score.tooltip_text.contains("Five Renaissance 5/2"))
 	await _unmount(table)
 
 
@@ -156,8 +202,7 @@ func test_public_information_shows_piles_requests_and_spectator_has_no_local_han
 	public_model["replacement_requests"] = {"p2": {"0": 2, "1": 1, "2": 3}}
 	table.render(public_model)
 	assert_eq(table.get_node("Center/Piles/PileRise/Count").text, "68 left")
-	assert_true(table.get_node("TableLayer/TopSeat/Request").visible)
-	assert_eq(table.get_node("TableLayer/TopSeat/Request").text, "DRAW  Rise 2 · Flourish 1 · Fall 3")
+	assert_false(table.get_node("TableLayer/TopSeat/Request").visible)
 
 	var private_model := _active_player_model()
 	private_model.erase("pile_counts")
@@ -166,11 +211,45 @@ func test_public_information_shows_piles_requests_and_spectator_has_no_local_han
 	assert_eq(table.get_node("Center/Piles/PileRise/Count").text, "Hidden")
 	assert_false(table.get_node("TableLayer/TopSeat/Request").visible)
 
-	var spectator_model := _active_player_model()
+	var spectator_model := public_model
 	spectator_model.erase("private_player_id")
 	spectator_model.erase("private_hand")
 	table.render(spectator_model)
-	assert_false(table.get_node("TableLayer/BottomSeat/Hand").visible)
+	assert_true(table.get_node("TableLayer/TopSeat/Request").visible)
+	assert_eq(table.get_node("TableLayer/TopSeat/Request").text, "DRAW  Rise 2 · Flourish 1 · Fall 3")
+	for position in ["TopSeat", "BottomSeat"]:
+		var hand = table.get_node("TableLayer/" + position + "/Hand")
+		assert_true(hand.visible)
+		assert_eq(hand.get_child_count(), 6)
+		for card in hand.get_children():
+			assert_true(card.face_down)
+			assert_true(card.interaction_disabled)
+	var watched_cards: Array = []
+	for index in 6:
+		watched_cards.append({
+			"view_id": "watched-%d" % index,
+			"first": _half(2, 9, 1), "second": _half(0, 4, 2),
+		})
+	spectator_model.players[1]["spectator_hand"] = watched_cards
+	table.render(spectator_model)
+	var watched_hand: Control = table.get_node("TableLayer/TopSeat/Hand")
+	assert_eq(watched_hand.get_child_count(), 6)
+	assert_false(watched_hand.get_child(0).face_down)
+	assert_true(watched_hand.get_child(0).interaction_disabled)
+	assert_eq(watched_hand.get_child(0).first_face_text(), "Fall  9  Cloud")
+	spectator_model.players[1].erase("spectator_hand")
+	spectator_model.phase = 4
+	spectator_model.players[1].hand_count = 5
+	spectator_model.players[1]["revealed_submission"] = {
+		"cards": [_revealed_card("public", 2, 9, 1, 0, 4, 2, 1)], "provisional_score": 8,
+	}
+	table.render(spectator_model)
+	var revealed_hand = table.get_node("TableLayer/TopSeat/Hand")
+	assert_eq(revealed_hand.get_child_count(), 6)
+	var public_cards = revealed_hand.get_children().filter(func(card): return not card.face_down)
+	assert_eq(public_cards.size(), 1)
+	if public_cards.size() == 1:
+		assert_eq(public_cards[0].card_id, "public")
 	assert_eq(table.get_node("Header/Spectators").text, "SPECTATORS  2 / 4")
 	await _unmount(table)
 
@@ -186,7 +265,8 @@ func test_context_score_progress_fields_and_nil_round_render_clearly() -> void:
 	model["last_round_nil"] = true
 	model["active_fields"] = [
 		{"ability_id": "reverse_cycle", "source_player_id": "p3", "remaining_rounds": -1, "persistent": true},
-		{"ability_id": "fall_resonance", "source_player_id": "p2", "remaining_rounds": 1, "persistent": false},
+		{"ability_id": "fall_resonance", "source_player_id": "p2", "remaining_rounds": 1, "persistent": false,
+			"effect_parameters": {"field_rule": "additional_context", "context": 2}},
 	]
 	model["ability_catalog"] = {
 		"reverse_cycle": {"display_name": "Reverse Cycle", "rules_text": "Reverse the direction in which contexts cycle."},
@@ -218,18 +298,16 @@ func test_context_score_progress_fields_and_nil_round_render_clearly() -> void:
 	assert_eq(table.get_node("Header/Timer").text, "12.4s")
 	assert_eq(table.get_node("Center/ContextClock/Direction").text, "Fall  ←  Flourish  ←  Rise")
 	assert_eq(table.get_node("Center/ContextClock/Active").text, "ACTIVE  Flourish + Fall")
-	var score_text: String = table.get_node("TableLayer/BottomSeat/ScoreSummary").text
-	assert_true(score_text.contains("Straight 6"))
-	assert_true(score_text.contains("Flush 4"))
-	assert_true(score_text.contains("Straight +3"))
-	assert_true(score_text.contains("Flush -2"))
-	assert_true(score_text.contains("550 provisional"))
+	assert_eq(table.get_node("TableScenery/ActiveContexts").text, "ACTIVE  Flourish + Fall")
+	assert_true(table.get_node("TableScenery/ActiveContexts").is_visible_in_tree())
+	assert_false(table.get_node("TableLayer/BottomSeat").visible)
 	assert_eq(table.get_node("MatchScore/Progress").text, "SCORE RACE  ·  36 / 100")
-	var field_rows: VBoxContainer = table.get_node("Center/Fields/FieldScroll/FieldRows")
+	var field_rows: Container = table.get_node("Center/Fields/FieldScroll/FieldRows")
 	assert_eq(field_rows.get_child_count(), 2)
 	assert_true(field_rows.get_child(0).text.contains("Persistent"))
 	var field_info: Button = field_rows.get_child(1)
 	assert_true(field_info.text.contains("1 round"))
+	assert_true(field_info.text.contains("Fall also active"))
 	assert_true(field_info.tooltip_text.contains("Fall is also active this round."))
 	assert_true(field_info.text.contains(model.players[1].name))
 	field_info.pressed.emit()
@@ -240,6 +318,37 @@ func test_context_score_progress_fields_and_nil_round_render_clearly() -> void:
 	model["victory_target"] = 5
 	table.render(model)
 	assert_eq(table.get_node("MatchScore/Progress").text, "ROUND-WIN RACE  ·  2 / 5")
+	await _unmount(table)
+
+
+func test_active_effect_rows_show_signed_amounts_conditions_and_targets() -> void:
+	var table = await _mount_match()
+	if table == null:
+		return
+	var model := _active_player_model()
+	model["active_fields"] = [{
+		"ability_id": "mountain_favor", "remaining_rounds": 3,
+		"effect_parameters": {"field_rule": "per_selected_suit", "suit": 0, "numerator": 1, "denominator": 10},
+	}, {
+		"ability_id": "fall_ascendancy", "remaining_rounds": 1,
+		"effect_parameters": {"field_rule": "leading_context", "context": 2, "numerator": 1, "denominator": 4},
+	}]
+	model["active_score_modifiers"] = [{
+		"target_player_id": model.players[0].player_id, "source_definition_id": "family_nerf",
+		"factor_id": "card_hand", "category_id": "family", "delta": {"numerator": -3, "denominator": 1},
+	}]
+	table.render(model)
+	var rows: Container = table.get_node("Center/Fields/FieldScroll/FieldRows")
+	assert_eq(rows.get_child_count(), 3)
+	assert_true(rows.get_child(0).text.contains("+0.1 Field per Mountain scoring half"))
+	assert_true(rows.get_child(1).text.contains("+0.25 Field if Fall leads or ties for most"))
+	if rows.get_child_count() == 3:
+		assert_true(rows.get_child(2).text.contains("%s: -3 Hand if Family" % model.players[0].name))
+	model.active_score_modifiers = []
+	model.active_fields = []
+	model["active_contexts"] = [model.active_context]
+	table.render(model)
+	assert_eq(rows.get_child_count(), 0)
 	await _unmount(table)
 
 

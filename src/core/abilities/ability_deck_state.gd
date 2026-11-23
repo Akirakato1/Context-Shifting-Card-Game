@@ -96,6 +96,10 @@ func draw_count() -> int:
 	return _draw_cards.size()
 
 
+func capacity() -> int:
+	return _all_cards.size()
+
+
 func used_count() -> int:
 	return _used_cards.size()
 

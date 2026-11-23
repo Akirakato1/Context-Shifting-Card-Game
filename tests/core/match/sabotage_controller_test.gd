@@ -80,6 +80,14 @@ func test_forced_mulligan_resets_departing_card_reconciles_lock_and_reveals_only
 	var public_event = _event_for_audience(result.events, &"public")
 	var removed_id := str(target_event.payload.removed_card_id)
 	var removed = prior_cards[removed_id]
+	assert_true(target_event.payload.has("card_changes"))
+	if target_event.payload.has("card_changes"):
+		var change: Dictionary = target_event.payload.card_changes[0]
+		assert_true(change.before.has("first"))
+		assert_true(change.after.has("first"))
+		assert_eq(change.before.first.effective_rank, 10 if not removed.first.is_joker() else 0)
+	assert_false(public_event.payload.has("card_changes"))
+	assert_false(_event_for_recipient(result.events, &"one").payload.has("card_changes"))
 	assert_eq(target.hand.size(), 6)
 	assert_false(target.submission_locked_card_ids.has(StringName(removed_id)))
 	assert_eq(removed.first.effective_context(), removed.first.base_context)

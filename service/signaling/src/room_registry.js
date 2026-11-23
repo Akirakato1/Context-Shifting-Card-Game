@@ -38,14 +38,28 @@ export class RoomRegistry {
     tokenGenerator = defaultTokenGenerator,
     now = Date.now,
     hostReconnectGraceMs = 30_000,
+    onRoomChanged = null,
+    onDetachedHostExpired = null,
   } = {}) {
     this.codeGenerator = codeGenerator;
     this.tokenGenerator = tokenGenerator;
     this.now = now;
     this.hostReconnectGraceMs = hostReconnectGraceMs;
+    this.onRoomChanged = onRoomChanged;
+    this.onDetachedHostExpired = onDetachedHostExpired;
     this.rooms = new Map();
     this.hostRooms = new WeakMap();
     this.socketJoins = new WeakMap();
+  }
+
+  restoreRoom(room) {
+    this.rooms.set(room.code, room);
+    if (room.hostSocket) {
+      this.hostRooms.set(room.hostSocket, room.code);
+    }
+    for (const [joinNonce, join] of room.joins) {
+      this.socketJoins.set(join.socket, { code: room.code, joinNonce });
+    }
   }
 
   createHost(socket) {
@@ -75,6 +89,7 @@ export class RoomRegistry {
     };
     this.rooms.set(code, room);
     this.hostRooms.set(socket, code);
+    this.onRoomChanged?.(code, room);
     return { code, hostToken: room.hostToken };
   }
 
@@ -119,6 +134,7 @@ export class RoomRegistry {
     room.joins.set(joinNonce, join);
     room.lastActivityAt = timestamp;
     this.socketJoins.set(socket, { code: room.code, joinNonce });
+    this.onRoomChanged?.(room.code, room);
     return { joinNonce, peerId };
   }
 
@@ -131,6 +147,7 @@ export class RoomRegistry {
     join.approved = true;
     join.lastActivityAt = this.now();
     room.lastActivityAt = join.lastActivityAt;
+    this.onRoomChanged?.(room.code, room);
     return {
       peerId: join.peerId, socket: join.socket, role: join.role,
       displayName: join.displayName,
@@ -187,6 +204,7 @@ export class RoomRegistry {
       peerSockets.push(join.socket);
       this.socketJoins.delete(join.socket);
     }
+    this.onRoomChanged?.(code, null);
     return { code, peerSockets };
   }
 
@@ -205,6 +223,7 @@ export class RoomRegistry {
     room.hostDetachedAt = null;
     room.lastActivityAt = this.now();
     this.hostRooms.set(socket, room.code);
+    this.onRoomChanged?.(room.code, room);
     return { code: room.code };
   }
 
@@ -222,7 +241,10 @@ export class RoomRegistry {
       peerSockets.push(join.socket);
       this.socketJoins.delete(join.socket);
     }
-    return { code: room.code, peerSockets };
+    this.onRoomChanged?.(room.code, null);
+    const result = { code: room.code, peerSockets };
+    this.onDetachedHostExpired?.(result);
+    return result;
   }
 
   removeSocket(socket) {
@@ -236,6 +258,7 @@ export class RoomRegistry {
       room.hostSocket = null;
       room.hostDetachedAt = this.now();
       room.lastActivityAt = room.hostDetachedAt;
+      this.onRoomChanged?.(code, room);
       return {
         hostClosed: false,
         hostDetached: true,
@@ -251,6 +274,7 @@ export class RoomRegistry {
     room?.joins.delete(reference.joinNonce);
     if (room) {
       room.lastActivityAt = this.now();
+      this.onRoomChanged?.(room.code, room);
     }
     this.socketJoins.delete(socket);
     return { hostClosed: false };

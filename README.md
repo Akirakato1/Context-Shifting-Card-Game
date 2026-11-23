@@ -21,13 +21,13 @@ The English names are used in code and the current placeholder interface. The tr
 - Persistent card modifications, Joker half-cards, normal-hand evaluation, context-hand evaluation, abilities, fields, and two victory modes.
 - Windows x64 as the initial game-jam and itch.io target.
 
-The suits are finalized as Mountain, Cloud, and Sea. The 40-pattern context-hand catalogue and 19-pattern normal-hand catalogue have rarity-derived priorities and exact initial multipliers. Ability copy-count tuning, artwork, animation, sound, and music remain open to playtesting and production work.
+The suits are finalized as Mountain, Cloud, and Sea. The 40-pattern context-hand catalogue and 18-pattern normal-hand catalogue have rarity-derived priorities and exact initial multipliers. Ability copy-count tuning, artwork, animation, sound, and music remain open to playtesting and production work.
 
 ## Technology
 
 - [Godot 4.7.2](https://godotengine.org/) with typed GDScript
 - [`godotengine/webrtc-native` 1.2.2](https://github.com/godotengine/webrtc-native) for desktop WebRTC
-- Node.js 22.11+ for the lightweight signaling service
+- Node.js 22.12+ for local signaling and Cloudflare Workers deployment
 - Cloudflare Realtime TURN for optional connection relay
 
 The signaling service exchanges connection information and temporary ICE credentials only. It does not run the match or store cards, scores, deck order, or other authoritative game state.
@@ -50,9 +50,16 @@ The signaling service exchanges connection information and temporary ICE credent
    npm start
    ```
 
-5. Run the project from Godot. The checked-in development configuration connects to `ws://127.0.0.1:8080`.
+5. For local signaling, set `SHIFT_SIGNALING_URL=ws://127.0.0.1:8080` in the environment that launches Godot. The project setting supplies the public signaling endpoint by default.
 
 Permanent Cloudflare TURN credentials belong only in the signaling host's encrypted environment settings. Never place them in `project.godot`, a game export, or source control.
+
+### Optional audio assets
+
+The project can run without the third-party sound packs. To enable card interaction sounds and table ambience in local builds, download the packs from their creators and place the WAV files in these folders.
+
+- [Card Game SFX Lite by Willosuna](https://willosuna.itch.io/card-game-sfx-lite) goes in `assets/sound_effects/Card Game SFX Lite (Free)/` with the original `wav/oneshots/` and `wav/loops/` subfolders.
+- [Tabletop Games Sound Effect Pack by JDSherbert](https://jdsherbert.itch.io/tabletop-games-sfx-pack) goes in `assets/sound_effects/Tabletop Games SFX Pack/`. The game uses the WAV files for Deck Deal 2, Dice Pickup 2, and Piece Impact 2 with their original filenames.
 
 ## Tests
 

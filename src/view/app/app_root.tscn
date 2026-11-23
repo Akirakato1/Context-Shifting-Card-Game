@@ -1,7 +1,11 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene load_steps=5 format=3]
 
 [ext_resource type="Script" path="res://src/view/app/app_controller.gd" id="1_controller"]
 [ext_resource type="Theme" path="res://themes/placeholder_theme.tres" id="2_theme"]
+[ext_resource type="Script" path="res://src/view/app/cursor_artwork.gd" id="3_cursors"]
+
+[sub_resource type="Resource" id="CursorArtwork"]
+script = ExtResource("3_cursors")
 
 [node name="AppRoot" type="Control"]
 layout_mode = 3
@@ -12,6 +16,7 @@ grow_horizontal = 2
 grow_vertical = 2
 theme = ExtResource("2_theme")
 script = ExtResource("1_controller")
+cursor_artwork = SubResource("CursorArtwork")
 
 [node name="Backdrop" type="ColorRect" parent="."]
 layout_mode = 1

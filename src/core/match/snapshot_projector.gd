@@ -15,12 +15,34 @@ static func for_recipient(
 		state.active_context, state.ability_deck.active_fields()
 	)
 	var projected_fields := _active_fields(state)
+	var pile_counts := {}
+	for context in state.piles:
+		pile_counts[str(context)] = {
+			"draw_count": state.piles[context].draw_count(),
+			"capacity": MatchState.CONTEXT_PILE_CAPACITY,
+		}
+	var ability_pile_count := {
+		"draw_count": state.ability_deck.draw_count(),
+		"capacity": state.ability_deck.capacity(),
+	}
 	if role == GameTypes.RecipientRole.HOST:
 		var host_snapshot := state.to_dict()
 		host_snapshot["active_contexts"] = Array(active_contexts)
 		host_snapshot["active_fields"] = projected_fields
+		host_snapshot["pile_counts"] = pile_counts
+		host_snapshot["ability_pile_count"] = ability_pile_count
 		return host_snapshot
+	var can_watch_hands: bool = (
+		role == GameTypes.RecipientRole.SPECTATOR
+		and state.players.has(recipient_id)
+		and state.players[recipient_id].spectator
+		and state.phase in [
+			GameTypes.Phase.START, GameTypes.Phase.MAIN_1,
+			GameTypes.Phase.HAND_PLAY, GameTypes.Phase.MAIN_2,
+		]
+	)
 	var players: Array = []
+	var active_score_modifiers: Array = []
 	var player_ids := state.ordered_player_ids()
 	for player_id in player_ids:
 		var player = state.players[player_id]
@@ -38,12 +60,22 @@ static func for_recipient(
 			and player.locked_context != null
 		):
 			projected_player["revealed_submission"] = _revealed_submission(player)
+		if can_watch_hands and player.active and not player.pending:
+			projected_player["spectator_hand"] = _spectator_hand(player)
 		players.append(projected_player)
+		# Played score modifiers are public. The projection omits the consumed copy ID.
+		if player.active and not player.pending:
+			for modifier in player.factor_modifiers:
+				var projected_modifier := _project_modifier(modifier)
+				projected_modifier["target_player_id"] = str(player_id)
+				active_score_modifiers.append(projected_modifier)
 	var snapshot := {
 		"round_number": state.round_number, "phase": state.phase,
 		"active_context": state.active_context, "context_direction": state.context_direction,
 		"active_contexts": Array(active_contexts),
 		"players": players, "active_fields": projected_fields, "frozen": state.frozen,
+		"active_score_modifiers": active_score_modifiers,
+		"pile_counts": pile_counts, "ability_pile_count": ability_pile_count,
 		"match_complete": state.match_complete, "winner_id": str(state.winner_id),
 		"last_round_winner_id": str(state.last_round_winner_id),
 		"phase_started_msec": state.phase_started_msec,
@@ -51,12 +83,6 @@ static func for_recipient(
 		"reaction_deadline_msec": state.reaction_deadline_msec,
 		"public_history": state.public_history.duplicate(true),
 	}
-	var pile_counts := {}
-	for context in state.piles:
-		pile_counts[str(context)] = {
-			"draw_count": state.piles[context].draw_count(),
-		}
-	snapshot["pile_counts"] = pile_counts
 	if state.config.information_visibility == GameTypes.InformationVisibility.PUBLIC:
 		var replacement_requests := {}
 		for player_id in state.start_requests:
@@ -138,6 +164,29 @@ static func _revealed_submission(player) -> Dictionary:
 		result["provisional_score"] = player.provisional_score.final_score
 		result["score_breakdown"] = score_breakdown(player.provisional_score)
 	return result
+
+
+static func _spectator_hand(player) -> Array:
+	var result: Array = []
+	for index in player.hand.size():
+		var card = player.hand[index]
+		if player.submission_revealed and card in player.submitted_cards:
+			continue
+		result.append({
+			"view_id": "%d-%d" % [player.seat_index, index],
+			"first": _spectator_half(card.first),
+			"second": _spectator_half(card.second),
+		})
+	return result
+
+
+static func _spectator_half(half) -> Dictionary:
+	return {
+		"effective_context": half.effective_context(),
+		"effective_rank": half.effective_rank(),
+		"effective_suit": half.effective_suit(),
+		"kind": half.kind,
+	}
 
 
 static func score_breakdown(value, selected_faces: Array = []) -> Dictionary:

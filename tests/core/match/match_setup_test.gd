@@ -156,7 +156,7 @@ func test_production_normal_catalog_survives_config_round_trip() -> void:
 
 	var restored := MatchConfig.from_dict(config.to_dict())
 
-	assert_eq(restored.normal_definitions.size(), 19)
+	assert_eq(restored.normal_definitions.size(), 18)
 	assert_eq(restored.to_dict().normal_definitions, config.to_dict().normal_definitions)
 
 

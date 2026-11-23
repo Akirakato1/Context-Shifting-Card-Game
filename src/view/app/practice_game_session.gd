@@ -2,12 +2,14 @@ extends RefCounted
 
 signal command_result_received(request_message_id: String, result: Dictionary)
 signal snapshot_applied(snapshot: Dictionary, sequence: int)
+signal events_applied(events: Array, sequence: int)
 
 const Types := preload("res://src/core/common/game_types.gd")
 const Runtime := preload("res://src/view/app/runtime_game_session.gd")
 const Controller := preload("res://src/core/match/match_controller.gd")
 const State := preload("res://src/core/match/match_state.gd")
 const Command := preload("res://src/core/commands/game_command.gd")
+const DomainEvent := preload("res://src/core/events/domain_event.gd")
 const Projector := preload("res://src/core/match/snapshot_projector.gd")
 const HOST := &"host"
 const OPPONENTS := [&"mika", &"ren", &"jo"]
@@ -46,31 +48,33 @@ func _submit_local(request_message_id: String, command: Dictionary) -> void:
 		return
 	var result = _controller.submit(Command.new(StringName(command.command_id), HOST,
 		StringName(command.kind), command.payload), Time.get_ticks_msec())
-	_publish()
+	_publish(result.events)
 	command_result_received.emit(request_message_id, {"accepted": result.accepted, "error_code": str(result.error_code)})
 
 
 func poll() -> void:
-	if _closed or _controller == null or _controller.state.match_complete:
+	# Scoring can decide the winner before the final discards are done.
+	if _closed or _controller == null or _controller.state.phase == Types.Phase.COMPLETE:
 		return
 	var now := Time.get_ticks_msec()
-	var changed := not _controller.tick(now).is_empty()
+	var events := _controller.tick(now)
+	var changed := not events.is_empty()
 	if now >= _next_bot_move:
 		_next_bot_move = now + 1_100
 		for opponent in OPPONENTS:
 			if _controller.state.phase != _last_phase or _controller.state.round_number != _last_round:
 				break
-			changed = _play_bot(opponent, now) or changed
+			changed = _play_bot(opponent, now, events) or changed
 	if changed:
-		_publish()
+		_publish(events)
 
 
-func _play_bot(id: StringName, now: int) -> bool:
+func _play_bot(id: StringName, now: int, events: Array[DomainEvent]) -> bool:
 	var state := _controller.state
 	var player = state.players[id]
 	match state.phase:
 		Types.Phase.START, Types.Phase.MAIN_1, Types.Phase.MAIN_2:
-			return not player.ready and _bot_submit(id, &"set_ready", {"ready": true}, now)
+			return not player.ready and _bot_submit(id, &"set_ready", {"ready": true}, now, events)
 		Types.Phase.HAND_PLAY:
 			if player.hand_locked:
 				return false
@@ -89,24 +93,28 @@ func _play_bot(id: StringName, now: int) -> bool:
 					if card.half_at(i).effective_rank() > card.half_at(best).effective_rank():
 						best = i
 				cards.append({"card_id": str(card.card_id), "half_index": best, "joker_choices": choices})
-			if _bot_submit(id, &"stage_hand", {"cards": cards}, now):
-				return _bot_submit(id, &"lock_hand", {}, now)
+			if _bot_submit(id, &"stage_hand", {"cards": cards}, now, events):
+				return _bot_submit(id, &"lock_hand", {}, now, events)
 		Types.Phase.END:
 			if player.end_discard_complete:
 				return false
 			var ids: Array = []
 			for i in maxi(0, player.ability_hand.size() - state.ability_deck.end_hand_limit):
 				ids.append(str(player.ability_hand[i].copy_id))
-			return _bot_submit(id, &"choose_ability_discards", {"copy_ids": ids}, now)
+			return _bot_submit(id, &"choose_ability_discards", {"copy_ids": ids}, now, events)
 	return false
 
 
-func _bot_submit(id: StringName, kind: StringName, payload: Dictionary, now: int) -> bool:
+func _bot_submit(
+	id: StringName, kind: StringName, payload: Dictionary, now: int, events: Array[DomainEvent]
+) -> bool:
 	_bot_command_id += 1
-	return _controller.submit(Command.new(StringName("bot-%d" % _bot_command_id), id, kind, payload), now).accepted
+	var result := _controller.submit(Command.new(StringName("bot-%d" % _bot_command_id), id, kind, payload), now)
+	events.append_array(result.events)
+	return result.accepted
 
 
-func _publish() -> void:
+func _publish(events: Array = []) -> void:
 	var state := _controller.state
 	if _last_phase != state.phase or _last_round != state.round_number:
 		_next_bot_move = Time.get_ticks_msec() + 950
@@ -118,6 +126,9 @@ func _publish() -> void:
 	snapshot = _runtime._decorate_snapshot(snapshot, HOST, Types.RecipientRole.ACTIVE_PLAYER)
 	snapshot["is_practice"] = true
 	_sequence += 1
+	var projected := DomainEvent.for_recipient(events, HOST, Types.RecipientRole.ACTIVE_PLAYER)
+	if not projected.is_empty():
+		events_applied.emit(projected, _sequence)
 	snapshot_applied.emit(snapshot, _sequence)
 
 

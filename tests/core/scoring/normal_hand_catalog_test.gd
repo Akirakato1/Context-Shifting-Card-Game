@@ -7,7 +7,6 @@ func test_catalog_contains_all_approved_definitions_with_exact_balance_data() ->
 	var expected := {
 		&"high_card": [10, 1, &"high_card", 1, 1, &"high_card", &"rank", []],
 		&"pair": [20, 2, &"grouped_ranks", 5, 4, &"family", &"rank", [2]],
-		&"straight_3": [30, 3, &"straight", 3, 2, &"straight", &"rank", []],
 		&"two_pair": [40, 4, &"grouped_ranks", 7, 4, &"group", &"rank", [2, 2]],
 		&"flush_3": [50, 3, &"flush", 7, 4, &"flush", &"suit", []],
 		&"three_kind": [60, 3, &"grouped_ranks", 7, 4, &"family", &"rank", [3]],
@@ -31,7 +30,7 @@ func test_catalog_contains_all_approved_definitions_with_exact_balance_data() ->
 		assert_false(by_id.has(definition.id), "normal hand IDs must be unique")
 		by_id[definition.id] = definition
 
-	assert_eq(definitions.size(), 19)
+	assert_eq(definitions.size(), 18)
 	assert_eq(by_id.size(), expected.size())
 	for id in expected:
 		assert_true(by_id.has(id), "missing normal hand %s" % id)

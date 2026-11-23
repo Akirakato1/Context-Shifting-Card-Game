@@ -138,35 +138,38 @@ func test_definition_data_is_independent_from_physical_copy_recipe() -> void:
 		category_counts[definition.timing] += 1
 		copy_counts[definition.id] = int(copy_counts.get(definition.id, 0)) + 1
 	assert_eq(designs.size(), 54)
-	assert_eq(recipe.size(), 54)
+	assert_eq(recipe.size(), 52)
 	for definition in designs:
 		assert_false(definition.effect_parameters.has("copy_count"))
 	assert_eq(deck.size(), 90)
-	assert_eq(category_counts[AbilityDefinition.Timing.HAND_MANIPULATION], 45)
-	assert_eq(category_counts[AbilityDefinition.Timing.HAND_SHAPE], 18)
+	assert_eq(category_counts[AbilityDefinition.Timing.HAND_MANIPULATION], 49)
+	assert_eq(category_counts[AbilityDefinition.Timing.HAND_SHAPE], 16)
 	assert_eq(category_counts[AbilityDefinition.Timing.SABOTAGE], 12)
-	assert_eq(category_counts[AbilityDefinition.Timing.FIELD], 15)
+	assert_eq(category_counts[AbilityDefinition.Timing.FIELD], 13)
 	for definition in AbilityCatalog.manipulation_designs():
 		assert_eq(copy_counts[definition.id], 4 if definition.id in [
 			&"context_roulette", &"ride_the_cycle", &"against_the_cycle",
+			&"context_exchange", &"context_convergence", &"suit_imprint", &"mirror_rank",
 		] else 3)
 	for definition in AbilityCatalog.hand_shape_designs():
-		assert_eq(copy_counts[definition.id], 2 if definition.id in [
-			&"high_card_buff", &"high_card_nerf",
-		] else 1)
+		assert_eq(copy_counts[definition.id], 1)
 	for definition in AbilityCatalog.sabotage_designs():
 		assert_eq(copy_counts[definition.id], 2 if definition.id in [
 			&"suit_scramble", &"rank_scramble", &"context_scramble",
 		] else 1)
 	for definition in AbilityCatalog.field_designs():
-		assert_eq(copy_counts[definition.id], 1)
+		var count: int = recipe.get(definition.id, 0)
+		assert_eq(count, 0 if definition.id in [
+			&"even_rank_favor", &"odd_rank_favor",
+		] else 1)
+		assert_eq(copy_counts.get(definition.id, 0), count)
 
 
 func test_custom_recipe_supports_different_counts_per_definition() -> void:
-	var deck := AbilityCatalog.build_deck({&"high_card_buff": 3, &"flush_nerf": 1})
+	var deck := AbilityCatalog.build_deck({&"high_card_buff": 3, &"flush_nerf": 1, &"even_rank_favor": 1})
 	var counts := {}
 	for definition in deck: counts[definition.id] = counts.get(definition.id, 0) + 1
-	assert_eq(counts, {&"high_card_buff": 3, &"flush_nerf": 1})
+	assert_eq(counts, {&"high_card_buff": 3, &"flush_nerf": 1, &"even_rank_favor": 1})
 
 
 func test_unknown_noninteger_or_nonpositive_recipe_entries_reject() -> void:

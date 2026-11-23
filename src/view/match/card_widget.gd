@@ -7,20 +7,28 @@ signal half_choice_requested(card_id: StringName, half_index: int)
 signal half_target_requested(card_id: StringName, half_index: int)
 signal joker_choice_changed(card_id: StringName, half_index: int, context: int, suit: int)
 signal reorder_requested(card_id: StringName, delta: int)
-signal reorder_dropped(card_id: StringName, target_id: StringName)
+signal card_hovered
+signal interaction_rejected
 
 const GameTypes = preload("res://src/core/common/game_types.gd")
 const RANK_INK := preload("res://src/view/match/rank_ink.tres")
+const HOVER_AURA := preload("res://src/view/match/hover_card_aura.tres")
+const PRIMED_AURA := preload("res://src/view/match/primed_card_aura.tres")
 const CARD_ART_REGION := Rect2(130, 130, 1740, 2610)
 const DIVIDER_ART := preload("res://assets/artwork/card/card_divider.png")
+const BACK_ART := preload("res://assets/artwork/card/card_back.png")
 const CONTEXT_ART := {
 	GameTypes.Context.RISE: preload("res://assets/artwork/card/card_half_context_rise.png"),
 	GameTypes.Context.FLOURISH: preload("res://assets/artwork/card/card_half_context_flourish.png"),
 	GameTypes.Context.FALL: preload("res://assets/artwork/card/card_half_context_fall.png"),
 }
 
-## Panel style applied to a card staged in place for submission.
-@export var selected_panel_style: StyleBox
+## Optional transparent 2:3 frame over the front of the card.
+@export var frame_art: Texture2D
+## Optional replacement frame while the card is staged for submission.
+@export var selected_frame_art: Texture2D
+## Suit artwork in Mountain, Cloud, and Sea order.
+@export var suit_icons: Array[Texture2D]
 
 var card_id := ""
 var active_half_index := -1
@@ -39,17 +47,19 @@ var _first_debug_text := ""
 var _second_debug_text := ""
 var _drag_hand: Control
 var _left_click_pending := false
+var _hover_enabled := false
+var _hovered := false
 
-@onready var _panel_style: StyleBox = get_theme_stylebox("panel")
 @onready var _artwork: Control = $Artwork
 @onready var _top_art: TextureRect = $Artwork/TopHalf
 @onready var _bottom_art: TextureRect = $Artwork/BottomHalf
 @onready var _art_divider: TextureRect = $Artwork/Divider
-@onready var _back: Label = $Back
+@onready var _back: TextureRect = $Back
+@onready var _frame: TextureRect = $Frame
 @onready var _face: Control = $Face
-@onready var _first: Label = $Face/First
+@onready var _first: TextureRect = $Face/First
 @onready var _first_rank_art: HBoxContainer = $Face/FirstRankArt
-@onready var _second: Label = $Face/Second
+@onready var _second: TextureRect = $Face/Second
 @onready var _second_rank_art: HBoxContainer = $Face/SecondRankArt
 @onready var _first_choices: HBoxContainer = $Face/FirstChoices
 @onready var _first_context: OptionButton = $Face/FirstChoices/Context
@@ -60,6 +70,7 @@ var _left_click_pending := false
 @onready var _order_controls: HBoxContainer = $Face/OrderControls
 @onready var _move_left: Button = $Face/OrderControls/MoveLeft
 @onready var _move_right: Button = $Face/OrderControls/MoveRight
+@onready var _aura: Node2D = $Aura
 
 
 func _ready() -> void:
@@ -74,6 +85,11 @@ func _ready() -> void:
 	_populate_choices(_first_suit, suit_names)
 	_populate_choices(_second_suit, suit_names)
 	_art_divider.texture = _artwork_region(DIVIDER_ART)
+	_back.texture = _artwork_region(BACK_ART)
+	mouse_entered.connect(_on_mouse_entered)
+	mouse_exited.connect(_on_mouse_exited)
+	_aura.draw.connect(_draw_aura)
+	resized.connect(_aura.queue_redraw)
 
 
 func render(
@@ -85,6 +101,10 @@ func render(
 	_card = card.duplicate(true)
 	card_id = str(card.get("card_id", ""))
 	face_down = hidden
+	_hover_enabled = not hidden and bool(view_state.get("hover_enabled", false))
+	if not _hover_enabled:
+		_hovered = false
+	_aura.queue_redraw()
 	interaction_disabled = bool(view_state.get("interaction_disabled", hidden))
 	orientation_flipped = bool(view_state.get("orientation_flipped", false))
 	_staged = bool(view_state.get("staged", false))
@@ -105,19 +125,21 @@ func render(
 	targeting_half_selected.assign(view_state.get(
 		"targeting_half_selected", [false, false]
 	))
+	_update_cursor(bool(view_state.get("display_only", false)))
 	_order_controls.visible = bool(view_state.get("reorder_enabled", false)) and not hidden
 	_move_left.disabled = interaction_disabled
 	_move_right.disabled = interaction_disabled
 	_back.visible = hidden
 	_face.visible = not hidden
 	_artwork.visible = not hidden
+	var staged_in_place := _select_in_place and _staged
+	_frame.texture = selected_frame_art if staged_in_place and selected_frame_art != null else frame_art
+	_frame.visible = not hidden and _frame.texture != null
 	_first_choices.visible = false
 	_second_choices.visible = false
 	active_half_index = -1
-	var show_selected := not hidden and _select_in_place and _staged and selected_panel_style != null
-	add_theme_stylebox_override("panel", selected_panel_style if show_selected else _panel_style)
 	if targeting_selected:
-		modulate = Color("ffd45a")
+		modulate = Color.WHITE
 	elif targeting_eligible:
 		modulate = Color("77e8ff")
 	elif interaction_disabled and not hidden and not bool(view_state.get("display_only", false)):
@@ -160,19 +182,43 @@ func render(
 	_apply_half_targeting_style()
 
 
+func _update_cursor(display_only: bool) -> void:
+	var pointer := Control.CURSOR_ARROW
+	if not face_down:
+		if targeting_eligible or targeting_half_eligible.has(true):
+			pointer = Control.CURSOR_CROSS
+		elif _drag_hand != null or not interaction_disabled:
+			pointer = Control.CURSOR_POINTING_HAND
+		elif not targeting_kind.is_empty() or (_hover_enabled and not display_only):
+			pointer = Control.CURSOR_FORBIDDEN
+	mouse_default_cursor_shape = pointer
+	for half_index in 2:
+		var area: Control = get_node("Face/FirstHit" if half_index == 0 else "Face/SecondHit")
+		area.mouse_default_cursor_shape = pointer
+		if targeting_kind == &"half_card" and not targeting_half_eligible[half_index]:
+			area.mouse_default_cursor_shape = Control.CURSOR_FORBIDDEN
+
+
 func _gui_input(event: InputEvent) -> void:
 	if _drag_hand != null and event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		var select_on_release := _left_click_pending and not event.is_pressed()
 		_left_click_pending = event.is_pressed()
 		accept_event()
-		if select_on_release and not interaction_disabled and Rect2(Vector2.ZERO, size).has_point(event.position):
-			primary_clicked.emit(StringName(card_id))
+		if select_on_release and Rect2(Vector2.ZERO, size).has_point(event.position):
+			if interaction_disabled:
+				_reject_pointer_action()
+			else:
+				primary_clicked.emit(StringName(card_id))
 		return
-	if interaction_disabled or face_down:
+	if face_down:
 		return
 	if event is InputEventMouseButton and event.pressed:
+		if interaction_disabled and event.button_index in [MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT]:
+			_reject_pointer_action()
+			return
 		if event.button_index == MOUSE_BUTTON_LEFT:
 			if targeting_kind == &"half_card":
+				_reject_pointer_action()
 				return
 			primary_clicked.emit(StringName(card_id))
 			accept_event()
@@ -181,27 +227,52 @@ func _gui_input(event: InputEvent) -> void:
 			accept_event()
 
 
-func _get_drag_data(_at_position: Vector2) -> Variant:
+func _reject_pointer_action() -> void:
+	if _hover_enabled:
+		interaction_rejected.emit()
+		accept_event()
+
+
+func _on_mouse_entered() -> void:
+	if not _hover_enabled or _hovered:
+		return
+	_hovered = true
+	_aura.queue_redraw()
+	card_hovered.emit()
+
+
+func _on_mouse_exited() -> void:
+	if _hovered:
+		_hovered = false
+		_aura.queue_redraw()
+
+
+func _draw_aura() -> void:
+	if _hovered:
+		_aura.draw_style_box(HOVER_AURA, Rect2(Vector2.ZERO, size))
+	if targeting_selected or (_select_in_place and _staged and not face_down and selected_frame_art == null):
+		_aura.draw_style_box(PRIMED_AURA, Rect2(Vector2.ZERO, size))
+	if targeting_kind == &"half_card":
+		var half_height := size.y * 0.5
+		for index in range(2):
+			if targeting_half_selected[index]:
+				var is_top := (index == 0) != orientation_flipped
+				_aura.draw_style_box(PRIMED_AURA, Rect2(0, 0 if is_top else half_height, size.x, half_height))
+
+
+func _get_drag_data(at_position: Vector2) -> Variant:
 	if _drag_hand == null or not _left_click_pending:
 		return null
 	_left_click_pending = false
 	var drag_preview := Control.new()
 	var card_preview := duplicate(0) as Control
 	drag_preview.add_child(card_preview)
-	card_preview.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	card_preview.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
+	card_preview.size = size
 	card_preview.scale = get_global_transform().get_scale()
-	card_preview.position = -get_global_rect().size / 2.0
-	card_preview.modulate.a = 0.8
+	card_preview.position = -at_position * card_preview.scale
 	set_drag_preview(drag_preview)
 	return {"hand": _drag_hand, "card_id": StringName(card_id)}
-
-
-func _can_drop_data(_at_position: Vector2, data: Variant) -> bool:
-	return _drag_hand != null and data is Dictionary and data.get("hand") == _drag_hand and data.get("card_id", &"") != StringName(card_id)
-
-
-func _drop_data(_at_position: Vector2, data: Variant) -> void:
-	reorder_dropped.emit(data.card_id, StringName(card_id))
 
 
 func first_face_text() -> String:
@@ -225,15 +296,12 @@ func _half_text(half: Dictionary) -> String:
 	return "%s  %d  %s" % [GameTypes.context_name(context), rank, GameTypes.suit_name(suit)]
 
 
-func _render_suit(label: Label, half: Dictionary, choices: Control, selector: OptionButton) -> void:
+func _render_suit(icon: TextureRect, half: Dictionary, choices: Control, selector: OptionButton) -> void:
 	var suit := selector.selected if choices.visible else int(half.get("effective_suit", half.get("suit", half.get("base_suit", -1))))
-	var suit_names := _suit_names()
-	if suit >= 0 and suit < suit_names.size():
-		label.text = suit_names[suit].left(1).to_upper()
-		label.tooltip_text = suit_names[suit]
-	else:
-		label.text = ""
-		label.tooltip_text = ""
+	icon.texture = suit_icons[suit] if suit >= 0 and suit < suit_icons.size() else null
+	icon.tooltip_text = GameTypes.suit_name(suit) if icon.texture != null else ""
+	var icon_width := 29.0 if _select_in_place else 18.0
+	icon.custom_minimum_size = Vector2.ONE * icon_width if icon.texture != null else Vector2.ZERO
 
 
 func _suit_names() -> Array[String]:
@@ -317,13 +385,13 @@ func _apply_half_targeting_style() -> void:
 	if targeting_kind != &"half_card":
 		return
 	for index in range(2):
-		var label: Label = _first if index == 0 else _second
+		var icon := _first if index == 0 else _second
 		if targeting_half_selected[index]:
-			label.modulate = Color("ffd45a")
+			icon.modulate = Color("ffd45a")
 		elif targeting_half_eligible[index]:
-			label.modulate = Color("77e8ff")
+			icon.modulate = Color("77e8ff")
 		else:
-			label.modulate = Color("46505d")
+			icon.modulate = Color("46505d")
 
 
 func _apply_joker_choices(first: Dictionary, second: Dictionary, view_state: Dictionary) -> void:
@@ -349,11 +417,11 @@ func _apply_orientation() -> void:
 	_place_half(_second_rank_art, _second, _second_choices, $Face/SecondHit, orientation_flipped)
 
 
-func _place_half(rank_art: Control, suit: Label, choices: Control, hit_area: Control, is_top: bool) -> void:
+func _place_half(rank_art: Control, suit: TextureRect, choices: Control, hit_area: Control, is_top: bool) -> void:
 	var rank_size := rank_art.get_combined_minimum_size()
 	var suit_size := suit.get_combined_minimum_size()
 	var row_height := maxf(rank_size.y, suit_size.y)
-	var inset := 8.0
+	var inset := 12.0 if _select_in_place else 9.0
 	var gap := 5.0
 	var preset := Control.PRESET_TOP_LEFT if is_top else Control.PRESET_BOTTOM_RIGHT
 	var row_y := inset if is_top else -inset - row_height
@@ -425,6 +493,8 @@ func _handle_half_gui_input(event: InputEvent, half_index: int) -> void:
 		if targeting_kind == &"half_card":
 			if targeting_half_eligible[half_index]:
 				half_target_requested.emit(StringName(card_id), half_index)
+			else:
+				_reject_pointer_action()
 		elif targeting_kind in [&"full_card", &"card"]:
 			primary_clicked.emit(StringName(card_id))
 		elif _staged and not _select_in_place:

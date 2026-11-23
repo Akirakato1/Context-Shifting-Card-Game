@@ -10,7 +10,6 @@ static func definitions() -> Array[NormalHandDefinition]:
 	return [
 		_rank(&"high_card", 10, 1, &"high_card", 1, 1, ScoringCategories.HIGH_CARD),
 		_group(&"pair", 20, [2], 5, 4, ScoringCategories.FAMILY),
-		_rank(&"straight_3", 30, 3, &"straight", 3, 2, ScoringCategories.STRAIGHT),
 		_group(&"two_pair", 40, [2, 2], 7, 4, ScoringCategories.GROUP),
 		_flush(&"flush_3", 50, 3, 7, 4),
 		_group(&"three_kind", 60, [3], 7, 4, ScoringCategories.FAMILY),

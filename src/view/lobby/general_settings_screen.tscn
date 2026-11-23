@@ -32,9 +32,9 @@ anchor_top = 0.5
 anchor_right = 0.5
 anchor_bottom = 0.5
 offset_left = -380.0
-offset_top = -210.0
+offset_top = -375.0
 offset_right = 380.0
-offset_bottom = 210.0
+offset_bottom = 375.0
 mouse_filter = 2
 theme_override_styles/panel = ExtResource("3_panel")
 
@@ -46,18 +46,18 @@ anchor_top = 0.5
 anchor_right = 0.5
 anchor_bottom = 0.5
 offset_left = -310.0
-offset_top = -168.0
+offset_top = -352.0
 offset_right = 310.0
-offset_bottom = 168.0
+offset_bottom = 352.0
 grow_horizontal = 2
 grow_vertical = 2
-theme_override_constants/separation = 16
+theme_override_constants/separation = 11
 alignment = 1
 
 [node name="Title" type="Label" parent="Content"]
 layout_mode = 2
 theme_override_colors/font_color = Color(1, 0.84, 0.54, 1)
-theme_override_font_sizes/font_size = 52
+theme_override_font_sizes/font_size = 46
 text = "Settings"
 horizontal_alignment = 1
 
@@ -69,19 +69,116 @@ text = "Display mode"
 [node name="Modes" type="OptionButton" parent="Content"]
 custom_minimum_size = Vector2(0, 56)
 layout_mode = 2
-focus_neighbor_top = NodePath("../BackButton")
-focus_neighbor_bottom = NodePath("../BackButton")
-focus_next = NodePath("../BackButton")
-focus_previous = NodePath("../BackButton")
 theme_override_font_sizes/font_size = 24
 tooltip_text = "Window sizes are limited to the current display."
+
+[node name="DrawAnimation" type="Label" parent="Content"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 24
+text = "Card draw animation"
+
+[node name="DrawSpeed" type="OptionButton" parent="Content"]
+custom_minimum_size = Vector2(0, 52)
+layout_mode = 2
+theme_override_font_sizes/font_size = 24
+tooltip_text = "Controls card and ability draws. Skip reveals cards immediately."
+
+[node name="SoundEffects" type="HBoxContainer" parent="Content"]
+layout_mode = 2
+theme_override_constants/separation = 14
+
+[node name="Label" type="Label" parent="Content/SoundEffects"]
+custom_minimum_size = Vector2(184, 0)
+layout_mode = 2
+theme_override_font_sizes/font_size = 22
+text = "Sound effects"
+
+[node name="Slider" type="HSlider" parent="Content/SoundEffects"]
+custom_minimum_size = Vector2(0, 34)
+layout_mode = 2
+size_flags_horizontal = 3
+value = 100.0
+tooltip_text = "Sound effects volume"
+
+[node name="Value" type="Label" parent="Content/SoundEffects"]
+custom_minimum_size = Vector2(60, 0)
+layout_mode = 2
+theme_override_font_sizes/font_size = 21
+text = "100%"
+horizontal_alignment = 2
+
+[node name="Ambient" type="HBoxContainer" parent="Content"]
+layout_mode = 2
+theme_override_constants/separation = 14
+
+[node name="Label" type="Label" parent="Content/Ambient"]
+custom_minimum_size = Vector2(184, 0)
+layout_mode = 2
+theme_override_font_sizes/font_size = 22
+text = "Ambient sound"
+
+[node name="Slider" type="HSlider" parent="Content/Ambient"]
+custom_minimum_size = Vector2(0, 34)
+layout_mode = 2
+size_flags_horizontal = 3
+value = 100.0
+tooltip_text = "Ambient sound volume"
+
+[node name="Value" type="Label" parent="Content/Ambient"]
+custom_minimum_size = Vector2(60, 0)
+layout_mode = 2
+theme_override_font_sizes/font_size = 21
+text = "100%"
+horizontal_alignment = 2
+
+[node name="Music" type="HBoxContainer" parent="Content"]
+layout_mode = 2
+theme_override_constants/separation = 14
+
+[node name="Label" type="Label" parent="Content/Music"]
+custom_minimum_size = Vector2(184, 0)
+layout_mode = 2
+theme_override_font_sizes/font_size = 22
+text = "Music"
+
+[node name="Slider" type="HSlider" parent="Content/Music"]
+custom_minimum_size = Vector2(0, 34)
+layout_mode = 2
+size_flags_horizontal = 3
+value = 100.0
+tooltip_text = "Music volume"
+
+[node name="Value" type="Label" parent="Content/Music"]
+custom_minimum_size = Vector2(60, 0)
+layout_mode = 2
+theme_override_font_sizes/font_size = 21
+text = "100%"
+horizontal_alignment = 2
+
+[node name="Hotkeys" type="VBoxContainer" parent="Content"]
+layout_mode = 2
+
+[node name="Heading" type="HBoxContainer" parent="Content/Hotkeys"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Content/Hotkeys/Heading"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 24
+text = "Hotkeys"
+
+[node name="Reset" type="Button" parent="Content/Hotkeys/Heading"]
+layout_mode = 2
+text = "Reset keys"
+
+[node name="HotkeyStatus" type="Label" parent="Content"]
+visible = false
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.68, 0.52, 1)
+horizontal_alignment = 1
 
 [node name="BackButton" type="Button" parent="Content"]
 custom_minimum_size = Vector2(0, 54)
 layout_mode = 2
-focus_neighbor_top = NodePath("../Modes")
-focus_neighbor_bottom = NodePath("../Modes")
-focus_next = NodePath("../Modes")
-focus_previous = NodePath("../Modes")
 theme_override_font_sizes/font_size = 24
 text = "Back"

@@ -1,7 +1,11 @@
 extends PanelContainer
 
+signal card_hovered
+
 const AbilityDefinition = preload("res://src/core/abilities/ability_definition.gd")
 const GameTypes = preload("res://src/core/common/game_types.gd")
+const HOVER_AURA := preload("res://src/view/match/hover_card_aura.tres")
+const PRIMED_AURA := preload("res://src/view/match/primed_card_aura.tres")
 const CATEGORY_NAMES := ["Manipulation", "Field", "Buff / Nerf", "Sabotage"]
 const CATEGORY_COLORS := [
 	Color("78cfe1"), Color("9ed7a3"), Color("c7abf2"), Color("f29a91"),
@@ -31,6 +35,8 @@ var _fallback_frame: StyleBoxFlat
 var _custom_frame: StyleBox
 var _border := DEFAULT_ACCENT
 var _playable := false
+var _inventory_focused := false
+var _hovered := false
 
 @onready var _artwork: TextureRect = $Artwork
 @onready var _art_space: Control = $Face/ArtSpace
@@ -39,6 +45,7 @@ var _playable := false
 @onready var _count: Label = $Face/Copy/Layout/Heading/Count
 @onready var _timing: Label = $Face/Copy/Layout/Timing
 @onready var _rules: Label = $Face/Copy/Layout/Rules
+@onready var _aura: Node2D = $Aura
 
 
 func _ready() -> void:
@@ -46,8 +53,10 @@ func _ready() -> void:
 	_artwork.resized.connect(_artwork.queue_redraw)
 	_fallback_frame = get_theme_stylebox("panel").duplicate() as StyleBoxFlat
 	add_theme_stylebox_override("panel", _fallback_frame)
-	mouse_entered.connect(_update_border.bind(true))
-	mouse_exited.connect(_update_border.bind(false))
+	mouse_entered.connect(_on_mouse_entered)
+	mouse_exited.connect(_on_mouse_exited)
+	_aura.draw.connect(_draw_aura)
+	resized.connect(_aura.queue_redraw)
 
 
 func render(entry: Dictionary, ability_id: String, show_copies: bool, playable := false) -> void:
@@ -55,7 +64,7 @@ func render(entry: Dictionary, ability_id: String, show_copies: bool, playable :
 	var valid_timing := timing >= 0 and timing < CATEGORY_NAMES.size()
 	_playable = playable
 	mouse_filter = Control.MOUSE_FILTER_PASS if playable else Control.MOUSE_FILTER_IGNORE
-	mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND if playable else Control.CURSOR_ARROW
+	mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND if inventory_layout or playable else Control.CURSOR_ARROW
 	_title.text = str(entry.get("display_name", entry.get("label", ability_id.capitalize())))
 	_rules.text = str(entry.get("rules_text", ""))
 	_timing.text = _timing_text(timing, entry) if valid_timing else "Unconfigured"
@@ -82,7 +91,35 @@ func render(entry: Dictionary, ability_id: String, show_copies: bool, playable :
 		_context_emblem.visible = _context_emblem.texture != null
 		modulate = Color.WHITE if playable else Color("b7bdc8")
 	_artwork.queue_redraw()
-	_update_border(false)
+	_update_border(_hovered)
+
+
+func set_inventory_focused(focused: bool) -> void:
+	_inventory_focused = focused
+	_aura.queue_redraw()
+
+
+func _on_mouse_entered() -> void:
+	if not inventory_layout or _hovered:
+		return
+	_hovered = true
+	_update_border(true)
+	_aura.queue_redraw()
+	card_hovered.emit()
+
+
+func _on_mouse_exited() -> void:
+	if _hovered:
+		_hovered = false
+		_update_border(false)
+		_aura.queue_redraw()
+
+
+func _draw_aura() -> void:
+	if _hovered:
+		_aura.draw_style_box(HOVER_AURA, Rect2(Vector2.ZERO, size))
+	if inventory_layout and _inventory_focused:
+		_aura.draw_style_box(PRIMED_AURA, Rect2(Vector2.ZERO, size))
 
 
 func _timing_text(timing: int, entry: Dictionary) -> String:

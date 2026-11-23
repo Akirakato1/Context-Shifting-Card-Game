@@ -89,6 +89,32 @@ func test_non_host_cannot_edit_or_start_and_host_needs_two_players() -> void:
 	await _unmount(lobby)
 
 
+func test_lobby_ready_control_is_only_for_active_guests() -> void:
+	var lobby = await _mount(LOBBY_PATH)
+	var ready: CheckButton = lobby.get_node("Layout/Footer/ReadyButton")
+	var requests: Array[bool] = []
+	lobby.ready_requested.connect(func(value: bool): requests.append(value))
+
+	lobby.render(_lobby_model(true, false, 2, 0))
+	assert_false(ready.visible)
+	assert_true(lobby.get_node("Layout/Footer/StartButton").visible)
+	ready.toggled.emit(true)
+	assert_eq(requests, [])
+
+	var guest := _lobby_model(false, false, 2, 1)
+	lobby.render(guest)
+	assert_true(ready.visible)
+	ready.toggled.emit(true)
+	assert_eq(requests, [true])
+
+	guest["local_role"] = "spectator"
+	lobby.render(guest)
+	assert_false(ready.visible)
+	ready.toggled.emit(true)
+	assert_eq(requests, [true])
+	await _unmount(lobby)
+
+
 func test_lobby_errors_are_actionable_without_exposing_network_internals() -> void:
 	var lobby = await _mount(LOBBY_PATH)
 	if lobby == null:
@@ -109,6 +135,31 @@ func test_lobby_errors_are_actionable_without_exposing_network_internals() -> vo
 	status = lobby.get_node("Layout/StatusPanel/Status").text.to_lower()
 	assert_true(status.contains("relay fallback"))
 	assert_true(lobby.get_node("Layout/StatusPanel/RetryButton").visible)
+	await _unmount(lobby)
+
+
+func test_guest_shortcut_toggles_ready_only_when_control_is_available() -> void:
+	var lobby = await _mount(LOBBY_PATH)
+	assert_true(lobby.has_method("trigger_ready_shortcut"))
+	if not lobby.has_method("trigger_ready_shortcut"):
+		await _unmount(lobby)
+		return
+	var requests: Array[bool] = []
+	lobby.ready_requested.connect(func(value: bool): requests.append(value))
+	var guest := _lobby_model(false, false, 2, 0)
+	lobby.render(guest)
+	assert_true(lobby.trigger_ready_shortcut())
+	assert_true(lobby.trigger_ready_shortcut())
+	assert_eq(requests, [true, false])
+
+	lobby.get_node("Layout/Footer/SettingsButton").pressed.emit()
+	assert_false(lobby.trigger_ready_shortcut())
+	lobby.get_node("Layout/Footer/SettingsButton").pressed.emit()
+	lobby.render(_lobby_model(false, true, 2, 0))
+	assert_false(lobby.trigger_ready_shortcut())
+	lobby.render(_lobby_model(true, false, 2, 0))
+	assert_false(lobby.trigger_ready_shortcut())
+	assert_eq(requests, [true, false])
 	await _unmount(lobby)
 
 

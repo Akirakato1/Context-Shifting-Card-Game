@@ -95,6 +95,7 @@ class FactorModifierHandler extends RefCounted:
 		return [DomainEvent.new(
 			EventKinds.FACTOR_MODIFIER_APPLIED,
 			{"target_player_id": str(context.target_player_id),
+			"source_player_id": str(context.source_player_id),
 			"factor_id": str(modifier.factor_id), "category_id": str(modifier.category_id),
 			"numerator": modifier.delta.numerator, "denominator": modifier.delta.denominator,
 			"source_definition_id": str(modifier.source_definition_id)},
@@ -113,6 +114,7 @@ class ForceRedrawHandler extends RefCounted:
 		var target = state.players[context.target_player_id]
 		var removed_index: int = state.rng.pick_index(target.hand.size())
 		var removed: FullCardState = target.hand.pop_at(removed_index)
+		var before := removed.face_snapshot()
 		target.submission_locked_card_ids.erase(removed.card_id)
 		removed.leave_hand()
 		state.piles[removed.first.base_context].discard(removed.first)
@@ -139,14 +141,15 @@ class ForceRedrawHandler extends RefCounted:
 		return [
 			DomainEvent.new(EventKinds.SABOTAGE_RESOLVED, common_payload, &"public"),
 			DomainEvent.new(EventKinds.SABOTAGE_RESOLVED, {
-				"ability_id": common_payload.ability_id,
-				"target_player_id": common_payload.target_player_id,
 				"removed_card_id": str(removed.card_id),
 				"replacement_card_ids": replacement.map(func(card: FullCardState): return str(card.card_id)),
-			}, &"player", context.target_player_id),
+				"card_changes": [{"before": before,
+					"after": replacement[0].face_snapshot() if not replacement.is_empty() else {}}],
+			}.merged(common_payload), &"player", context.target_player_id),
 			DomainEvent.new(EventKinds.SABOTAGE_RESOLVED, {
-				"ability_id": common_payload.ability_id, "target_player_id": common_payload.target_player_id,
-				"success": true,
+				"ability_id": common_payload.ability_id,
+				"source_player_id": common_payload.source_player_id,
+				"target_player_id": common_payload.target_player_id, "success": true,
 			}, &"player", context.source_player_id),
 		]
 
@@ -160,9 +163,13 @@ class SabotageCardsHandler extends RefCounted:
 		)
 
 	func apply(context: Dictionary) -> Array[DomainEvent]:
+		var target = context.state.players[context.target_player_id]
+		var before := {}
+		for card: FullCardState in target.hand:
+			before[str(card.card_id)] = card.face_snapshot()
 		var detail := SabotageResolver.apply(
 			context.ability.definition,
-			context.state.players[context.target_player_id],
+			target,
 			context.state.rng,
 			context.state.context_direction
 		)
@@ -171,17 +178,22 @@ class SabotageCardsHandler extends RefCounted:
 			"source_player_id": str(context.source_player_id),
 			"target_player_id": str(context.target_player_id),
 		}
-		var target_payload := detail.duplicate(true)
-		target_payload["ability_id"] = common.ability_id
-		target_payload["target_player_id"] = common.target_player_id
+		var target_payload := detail.merged(common)
+		var changes: Array = []
+		var affected: Array = detail.get("card_ids", [])
+		var half_indexes: Array = detail.get("half_indexes", [])
+		for card: FullCardState in target.hand:
+			var id := str(card.card_id)
+			var index := affected.find(id)
+			if index >= 0:
+				changes.append({"before": before[id], "after": card.face_snapshot(),
+					"half_index": int(half_indexes[index]) if index < half_indexes.size() else -1})
+		target_payload["card_changes"] = changes
 		return [
 			DomainEvent.new(EventKinds.SABOTAGE_RESOLVED, common, &"public"),
 			DomainEvent.new(EventKinds.SABOTAGE_RESOLVED, target_payload, &"player", context.target_player_id),
-			DomainEvent.new(EventKinds.SABOTAGE_RESOLVED, {
-				"ability_id": common.ability_id,
-				"target_player_id": common.target_player_id,
-				"success": true,
-			}, &"player", context.source_player_id),
+			DomainEvent.new(EventKinds.SABOTAGE_RESOLVED, common.merged({"success": true}),
+				&"player", context.source_player_id),
 		]
 
 

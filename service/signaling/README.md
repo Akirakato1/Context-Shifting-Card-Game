@@ -6,7 +6,7 @@ This service creates temporary lobby codes and routes WebRTC setup messages. It 
 
 Requirements:
 
-- Node.js 22.11 or newer
+- Node.js 22.12 or newer
 - The dependencies locked in `package-lock.json`
 
 From this directory:
@@ -21,6 +21,21 @@ npm start
 The default listener binds to `0.0.0.0`. `PORT` defaults to `8080`. In production, place the service behind a provider that terminates HTTPS/WSS and configure the game with its public `wss://` URL.
 
 The service reads configuration from its process environment; it does not load `.env` files itself. [`.env.example`](.env.example) is a names-only deployment template. Set real values through the hosting provider's encrypted environment/secret settings, never by committing a populated file.
+
+## Deploy to Cloudflare Workers
+
+From this directory, install the locked dependencies with `npm ci`. Run `npm run dev:worker` to test the Worker locally. Authorize Wrangler under the Cloudflare account that owns Shift's TURN relay, then run `npm run deploy`.
+
+The Worker uses a SQLite-backed Durable Object to keep the existing WebSocket protocol. Socket attachments and stored lobby records let it resume existing lobbies after hibernation. The host reconnect grace period is still 30 seconds. This deployment needs no periodic keepalive request to prevent idle shutdown.
+
+Set `CLOUDFLARE_TURN_KEY_ID` and `CLOUDFLARE_TURN_API_TOKEN` as encrypted secrets on the Worker. You can use the dashboard's **Variables and Secrets** or run these interactive commands, which prompt for the values:
+
+```powershell
+npx wrangler secret put CLOUDFLARE_TURN_KEY_ID
+npx wrangler secret put CLOUDFLARE_TURN_API_TOKEN
+```
+
+Confirm `https://<worker-url>/health` reports the expected relay, then test that a host and approved guest actually receive usable relay credentials and can connect. Configure the game's `network/signaling_url` with the new `wss://` URL after validation. Old builds keep using their bundled URL unless overridden by the `SHIFT_SIGNALING_URL` environment variable. Room codes are specific to the service that issued them.
 
 ## Cloudflare TURN setup
 
@@ -62,7 +77,7 @@ The host must approve a join nonce before the service routes offers, answers, or
 - A dropped host signaling socket leaves the code detached for 30 seconds so the same host token can re-register it. Expiry invalidates the code and notifies pending peers.
 - Established WebRTC gameplay can continue during a signaling outage; signaling is still needed for late joins and new reconnect channels.
 
-Room records are in memory only. Restarting or sleeping the service invalidates every current code.
+The Node service stores rooms in memory and loses them on restart. The Cloudflare Worker keeps lobby records across hibernation and restores the indexes for its still-connected sockets. Records are removed on explicit host close or reconnect expiry.
 
 ## Hosting notes
 

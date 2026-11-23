@@ -10,6 +10,7 @@ signal session_failed(reason: String)
 const GameProtocol = preload("res://src/network/game_protocol.gd")
 const PeerTransport = preload("res://src/network/peer_transport.gd")
 const ReconnectStore = preload("res://src/network/reconnect_store.gd")
+const CommandKinds = preload("res://src/core/commands/command_kinds.gd")
 
 const MAX_BUFFERED_BATCHES := 8
 const MAX_SEQUENCE_GAP := 8
@@ -63,6 +64,19 @@ func submit_command(message_id: String, command: Dictionary) -> Error:
 		return ERR_INVALID_PARAMETER
 	var payload := command.duplicate(true)
 	payload["player_id"] = str(_player_id)
+	if (
+		payload.get("kind") == CommandKinds.SET_REPLENISHMENT_REQUEST
+		and payload.get("payload") is Dictionary
+		and payload["payload"].get("request") is Dictionary
+	):
+		var request: Dictionary = payload["payload"]["request"]
+		var wire_request := {}
+		for context in request:
+			var wire_context: Variant = str(context) if context is int else context
+			if wire_request.has(wire_context):
+				return ERR_INVALID_DATA
+			wire_request[wire_context] = request[context]
+		payload["payload"]["request"] = wire_request
 	var envelope := {
 		"v": GameProtocol.VERSION,
 		"kind": "command",

@@ -9,14 +9,23 @@ var _steps: Array = []
 var _choices: Dictionary = {}
 var _current_step := 0
 var _player_labels: Dictionary = {}
+var _on_table := false
 
+@onready var _panel: PanelContainer = $Panel
+@onready var _dimmer: ColorRect = $Dimmer
 @onready var _prompt: Label = $Panel/Layout/Prompt
 @onready var _remaining: Label = $Panel/Layout/Remaining
 @onready var _options: HBoxContainer = $Panel/Layout/Options
 @onready var _commit: Button = $Panel/Layout/CommitButton
 
 
-func begin(workflow: Dictionary, private_hand: Array = [], player_targets: Array = []) -> void:
+func begin(workflow: Dictionary, private_hand: Array = [], player_targets: Array = [], on_table := false) -> void:
+	_on_table = on_table
+	_dimmer.visible = not _on_table
+	_panel.anchor_top = 0.14 if _on_table else 0.5
+	_panel.anchor_bottom = _panel.anchor_top
+	_panel.offset_top = 5.0 if _on_table else -105.0
+	_panel.offset_bottom = 113.0 if _on_table else 105.0
 	_player_labels.clear()
 	_steps = _resolved_steps(workflow.get("steps", []), private_hand, player_targets)
 	_choices.clear()
@@ -79,6 +88,15 @@ func selected_values() -> Array:
 	).duplicate(true)
 
 
+func hand_choice_values() -> Array:
+	var values: Array = []
+	for index in _steps.size():
+		var step: Dictionary = _steps[index]
+		if str(step.get("kind", "")) in ["card", "full_card", "half_card"]:
+			values.append_array(_choices.get(str(step.get("key", "step_%d" % index)), []))
+	return values.duplicate(true)
+
+
 func current_step_index() -> int:
 	return _current_step
 
@@ -101,12 +119,14 @@ func _render_step() -> void:
 	_update_remaining(step, selected.size())
 	var kind := str(step.get("kind", "value"))
 	var eligible: Array = step.get("eligible", [])
-	if kind not in ["card", "full_card", "half_card"]:
+	var selects_on_table := _on_table and kind in ["player", "half_index"]
+	if kind not in ["card", "full_card", "half_card"] and not selects_on_table:
 		for value in eligible:
 			var button := Button.new()
 			button.text = str(_player_labels.get(str(value), str(value))).replace("_", " ").capitalize()
 			button.pressed.connect(func(): select_value(value))
 			_options.add_child(button)
+	_options.visible = not _on_table or _options.get_child_count() > 0
 	selection_changed.emit(
 		StringName(kind), eligible.duplicate(true), selected.duplicate(true)
 	)
@@ -141,6 +161,7 @@ func _update_completion() -> void:
 		elif selected_count != int(step.get("count", 1)):
 			complete = false
 	_commit.text = "ACTIVATE" if has_variable else "COMMIT"
+	_commit.visible = not _on_table or has_variable
 	_commit.disabled = not complete
 
 

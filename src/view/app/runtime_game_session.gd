@@ -12,6 +12,7 @@ const AbilityCatalog = preload("res://src/core/abilities/ability_catalog.gd")
 const ContextHandCatalog = preload("res://src/core/scoring/context_hand_catalog.gd")
 const ScoringReference = preload("res://src/view/app/scoring_reference.gd")
 const GameCommand = preload("res://src/core/commands/game_command.gd")
+const DomainEvent := preload("res://src/core/events/domain_event.gd")
 const MatchConfig = preload("res://src/core/match/match_config.gd")
 const MatchState = preload("res://src/core/match/match_state.gd")
 const MatchController = preload("res://src/core/match/match_controller.gd")
@@ -186,12 +187,12 @@ func update_lobby_setting(key: StringName, value: Variant) -> StringName:
 func _update_ability_deck_recipe(value: Variant) -> StringName:
 	if not value is Dictionary:
 		return &"invalid_ability_deck_recipe"
-	var known_ids := AbilityCatalog.provisional_deck_recipe()
+	var known_ids := AbilityCatalog.public_catalog({})
 	var recipe := {}
 	var total := 0
 	for id in value:
 		var copies: Variant = value[id]
-		if (not id is String and not id is StringName) or not known_ids.has(id):
+		if (not id is String and not id is StringName) or not known_ids.has(str(id)):
 			return &"invalid_ability_deck_recipe"
 		if not copies is int or copies < 0 or copies > AbilityCatalog.MAX_RECIPE_COPIES_PER_ABILITY:
 			return &"invalid_ability_deck_recipe"
@@ -235,16 +236,22 @@ func start_match() -> Error:
 	return OK
 
 
-func reset_for_rematch() -> Error:
+func start_rematch() -> Error:
+	return reset_for_rematch(true)
+
+
+func reset_for_rematch(start_immediately: bool = false) -> Error:
 	if _mode != "host" or _controller == null or _host_session == null:
 		return ERR_UNCONFIGURED
 	var state: MatchState = _controller.state
-	if state.phase != GameTypes.Phase.COMPLETE or not state.config.validate().is_empty():
+	if (
+		state.phase != GameTypes.Phase.COMPLETE or not state.match_complete
+		or not state.config.validate().is_empty()
+	):
 		return ERR_UNAVAILABLE
 	_controller.reset_for_rematch(Time.get_ticks_usec(), GameTypes.Phase.START)
-	for player_id in _controller.state.active_player_ids():
-		_host_session.sync_player_activation(player_id)
-	_host_session.publish_state_change([])
+	var events: Array = _controller.begin_match(_now_msec()) if start_immediately else []
+	_host_session.publish_state_change(events)
 	return OK
 
 
@@ -438,16 +445,9 @@ func _create_host_authority(first_peer_id: String) -> void:
 
 func _on_authoritative_state_changed(events: Array) -> void:
 	_local_sequence += 1
-	var projected: Array = []
-	for event in events:
-		if not event is Object:
-			continue
-		if event.audience == &"public" or (
-			event.audience == &"player" and event.recipient_id == _local_player_id
-		):
-			projected.append({
-				"kind": str(event.kind), "payload": event.payload.duplicate(true),
-			})
+	var projected := DomainEvent.for_recipient(
+		events, _local_player_id, GameTypes.RecipientRole.ACTIVE_PLAYER
+	)
 	if not projected.is_empty():
 		events_applied.emit(projected, _local_sequence)
 	_emit_host_snapshot()
@@ -704,7 +704,10 @@ func _ability_catalog(definitions: Array) -> Dictionary:
 			"tags": definition.get("tags", []).duplicate(true),
 			"field_duration": int(definition.get("field_duration", 0)),
 			"effect_id": str(definition.get("effect_id", "noop")),
+			"field_rule": str(definition.get("effect_parameters", {}).get("field_rule", "")),
 			"context_emblem": int(definition.get("effect_parameters", {}).get("context", -1)),
+			"suit_emblem": int(definition.get("effect_parameters", {}).get("suit", -1)),
+			"operation": str(definition.get("effect_parameters", {}).get("operation", "")),
 			"choice_schema": definition.get("choice_schema", {}).duplicate(true),
 			"copies": 1,
 		}

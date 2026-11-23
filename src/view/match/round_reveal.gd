@@ -1,7 +1,14 @@
 extends PanelContainer
 
+signal sound_requested(cue: StringName)
+
 const Card := preload("res://src/view/match/card_widget.tscn")
 const Types := preload("res://src/core/common/game_types.gd")
+const ScoringReference := preload("res://src/view/app/scoring_reference.gd")
+const REVEAL_SECONDS := 0.60
+const COUNT_SECONDS := 1.25
+const HOLD_SECONDS := Types.MAIN_2_REVIEW_MSEC_PER_PLAYER / 1000.0 - REVEAL_SECONDS - COUNT_SECONDS
+const SCORE_TICKS := 4
 
 var _sequence: Tween
 var _reveal_round := -1
@@ -12,12 +19,15 @@ var _private_player_id := ""
 var _selected_player_id := ""
 var _context := 0
 var _score_progress := 1.0
+var _last_score_tick := -1
 var _selected_tab_style: StyleBoxFlat
+var _scoring_catalog: Dictionary = {}
 
 @onready var _headline: Label = $Content/Headline
 @onready var _navigation: HBoxContainer = $Content/Navigation
 @onready var _player_buttons: HBoxContainer = $Content/Navigation/Players
 @onready var _cards: HBoxContainer = $Content/Cards
+@onready var _hand_name: Label = $Content/HandName
 @onready var _score: Label = $Content/Score
 
 
@@ -35,9 +45,14 @@ func render(model: Dictionary) -> void:
 	if phase == Types.Phase.MAIN_2:
 		_render_submissions(model, round_id)
 		return
+	_hand_name.hide()
 	if _navigation.visible:
 		_stop()
 		_navigation.hide()
+	# The local discard controls use the review area during End.
+	if phase == Types.Phase.END and not str(model.get("private_player_id", "")).is_empty():
+		_stop()
+		return
 	if phase in [Types.Phase.END, Types.Phase.START]:
 		var history: Array = model.get("public_history", [])
 		for idx in range(history.size() - 1, -1, -1):
@@ -66,6 +81,11 @@ func _render_submissions(model: Dictionary, round_id: int) -> void:
 	players.sort_custom(func(a: Dictionary, b: Dictionary): return int(a.seat_index) < int(b.seat_index))
 	var previous_submission := _selected_submission()
 	var previous_context := _context
+	var catalog: Dictionary = model.get("scoring_catalog", {})
+	if not catalog.is_empty():
+		_scoring_catalog = catalog
+	elif _scoring_catalog.is_empty():
+		_scoring_catalog = ScoringReference.default_catalog()
 	_context = int(model.get("active_context", 0))
 	_private_player_id = str(model.get("private_player_id", ""))
 	_players.clear()
@@ -81,6 +101,7 @@ func _render_submissions(model: Dictionary, round_id: int) -> void:
 
 	_headline.hide()
 	_navigation.show()
+	_hand_name.show()
 	_cards.show()
 	show()
 	if round_id != _reveal_round:
@@ -92,6 +113,7 @@ func _render_submissions(model: Dictionary, round_id: int) -> void:
 		if previous_submission.get("cards") != _selected_submission().get("cards") or previous_context != _context:
 			_render_cards()
 		_update_selection()
+		_update_hand_name()
 		_render_score()
 
 
@@ -119,14 +141,36 @@ func _start_reveal() -> void:
 	for index in player_ids.size():
 		if index > 0:
 			_sequence.tween_callback(_select_player.bind(player_ids[index], true))
-		_sequence.tween_method(_count_score, 0.0, 1.0, 0.45)
-		_sequence.tween_interval(0.60)
+		_sequence.tween_method(_fade_hand, 0.0, 1.0, REVEAL_SECONDS).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+		_sequence.tween_method(_count_score, 0.0, 1.0, COUNT_SECONDS)
+		_sequence.tween_callback(_finish_score_count)
+		_sequence.tween_interval(HOLD_SECONDS)
 	_sequence.tween_callback(_finish_reveal)
 
 
 func _count_score(progress: float) -> void:
 	_score_progress = progress
+	var submission := _selected_submission()
+	if int(submission.get("provisional_score", 0)) > 0 and not submission.get("cards", []).is_empty():
+		var tick := mini(floori(progress * SCORE_TICKS), SCORE_TICKS - 1)
+		if tick > _last_score_tick:
+			_last_score_tick = tick
+			sound_requested.emit(&"score")
 	_render_score()
+
+
+func _finish_score_count() -> void:
+	var breakdown: Dictionary = _selected_submission().get("score_breakdown", {})
+	for key in ["card_hand_factor", "context_hand_factor", "field_factor"]:
+		var factor: Dictionary = breakdown.get(key, {})
+		if int(factor.get("numerator", 1)) > int(factor.get("denominator", 1)):
+			sound_requested.emit(&"score_multiplier")
+			return
+
+
+func _fade_hand(progress: float) -> void:
+	_cards.modulate.a = progress
+	_hand_name.modulate.a = progress
 
 
 func _finish_reveal() -> void:
@@ -147,9 +191,14 @@ func _select_player(player_id: String, animate_score: bool = false) -> void:
 		return
 	_selected_player_id = player_id
 	_score_progress = 0.0 if animate_score else 1.0
+	_last_score_tick = -1
 	_render_cards()
 	_update_selection()
+	_update_hand_name()
+	_fade_hand(0.0 if animate_score else 1.0)
 	_render_score()
+	if animate_score and not _selected_submission().get("cards", []).is_empty():
+		sound_requested.emit(&"reveal")
 
 
 func _selected_submission() -> Dictionary:
@@ -174,6 +223,36 @@ func _render_cards() -> void:
 		widget.tooltip_text = "Scored: %s\nOther half: %s" % (
 			[second_face, first_face] if widget.active_half_index == 1 else [first_face, second_face]
 		)
+
+
+func _update_hand_name() -> void:
+	var submission := _selected_submission()
+	if submission.get("cards", []).is_empty():
+		_hand_name.text = ""
+		return
+	var breakdown: Dictionary = submission.get("score_breakdown", {})
+	var shapes := PackedStringArray()
+	for component: Dictionary in breakdown.get("card_hand_components", []):
+		var id := str(component.get("source_definition_id", component.get("category_id", "")))
+		if not id.is_empty():
+			shapes.append(_pattern_name("normal", id))
+	if shapes.is_empty():
+		var normal_id := str(submission.get("normal_category", ""))
+		shapes.append("Submitted Hand" if normal_id.is_empty() else _pattern_name("normal", normal_id))
+	var contexts: Array = breakdown.get("context_hand_components", [])
+	var context_id := str(submission.get("context_category", ""))
+	if not contexts.is_empty():
+		context_id = str(contexts[0].get("source_definition_id", context_id))
+	_hand_name.text = " + ".join(shapes)
+	if context_id not in ["", "no_context", "no_context_pattern"]:
+		_hand_name.text += "  ×  %s" % _pattern_name("context", context_id)
+
+
+func _pattern_name(group: String, id: String) -> String:
+	for entry: Dictionary in _scoring_catalog.get(group, []):
+		if str(entry.get("id", "")) == id:
+			return str(entry.get("display_name", id.capitalize()))
+	return id.capitalize()
 
 
 func _render_score() -> void:

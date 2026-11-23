@@ -2,6 +2,7 @@ extends "res://tests/test_case.gd"
 
 const GameTypes = preload("res://src/core/common/game_types.gd")
 const AbilityDefinition = preload("res://src/core/abilities/ability_definition.gd")
+const AbilityCatalog = preload("res://src/core/abilities/ability_catalog.gd")
 const AbilityState = preload("res://src/core/abilities/ability_state.gd")
 const FieldState = preload("res://src/core/abilities/field_state.gd")
 const FieldEffectResolver = preload("res://src/core/abilities/field_effect_resolver.gd")
@@ -71,21 +72,25 @@ func test_rank_favors_partition_normal_ranks_and_ignore_joker_zero() -> void:
 	assert_eq(components[1].value.denominator, 2)
 
 
-func test_ascendancy_requires_a_strict_untied_context_maximum() -> void:
-	var rise := _field(&"rise-ascendancy", {
-		"field_rule": &"strict_context_majority",
-		"context": GameTypes.Context.RISE,
-		"numerator": 1,
-		"denominator": 4,
+func test_ascendancy_awards_each_context_tied_for_most() -> void:
+	var definitions := AbilityCatalog.build_deck({
+		&"rise_ascendancy": 1, &"flourish_ascendancy": 1, &"fall_ascendancy": 1,
 	})
+	var fields: Array[FieldState] = []
+	for definition in definitions:
+		fields.append(FieldState.new(AbilityState.new(definition.id, definition), &"one"))
 
-	var winning := FieldEffectResolver.score_components([], _counts(4, 2, 2), [rise])
-	var tied := FieldEffectResolver.score_components([], _counts(4, 4, 0), [rise])
+	var winning := FieldEffectResolver.score_components([], _counts(4, 2, 2), fields)
+	var tied := FieldEffectResolver.score_components([], _counts(4, 4, 0), fields)
+	var three_way := FieldEffectResolver.score_components([], _counts(2, 2, 2), fields)
 
 	assert_eq(winning.size(), 1)
 	assert_eq(winning[0].value.numerator, 1)
 	assert_eq(winning[0].value.denominator, 4)
-	assert_eq(tied, [])
+	assert_eq(tied.size(), 2)
+	assert_false(tied.any(func(component): return component.source_definition_id == &"fall_ascendancy"))
+	assert_eq(three_way.size(), 3)
+	assert_eq(FieldEffectResolver.score_components([], _counts(0, 0, 0), fields), [])
 
 
 func test_zero_match_fields_emit_no_score_components() -> void:

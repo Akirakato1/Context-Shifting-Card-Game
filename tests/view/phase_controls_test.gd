@@ -4,7 +4,103 @@ const PHASE_CONTROLS_PATH := "res://src/view/match/phase_controls.tscn"
 const MATCH_SCREEN_PATH := "res://src/view/match/match_screen.tscn"
 
 
-func test_start_request_enforces_caps_exact_total_and_duplicate_ready_lock() -> void:
+func test_hand_action_changes_from_pass_to_submit_with_staging() -> void:
+	var controls = await _mount_controls()
+	var intents: Array[Dictionary] = []
+	controls.intent_requested.connect(func(kind: StringName, payload: Dictionary):
+		intents.append({"kind": kind, "payload": payload})
+	)
+	controls.render(_model(3, _hand(), {}))
+	var actions: Control = controls.get_node("HandPlayControls/ActionRow")
+	var buttons := actions.find_children("*", "Button", false, false)
+	assert_eq(buttons.size(), 1)
+	if buttons.size() != 1:
+		await _unmount(controls)
+		return
+	var action: Button = buttons[0]
+	assert_eq(action.text, "PASS")
+	controls.click_card(&"c1")
+	assert_eq(action.text, "SUBMIT HAND")
+	controls.click_card(&"c1")
+	assert_eq(action.text, "PASS")
+	action.pressed.emit()
+	controls.handle_command_result(&"stage_hand", true, &"", 3)
+	controls.handle_command_result(&"lock_hand", true, &"", 3)
+	action.pressed.emit()
+	assert_true(action.disabled)
+	assert_eq(intents, [{"kind": &"stage_hand", "payload": {"cards": []}}, {"kind": &"lock_hand", "payload": {}}])
+	await _unmount(controls)
+
+
+func test_ready_shortcut_respects_phase_focus_pending_and_host_readiness() -> void:
+	var controls = await _mount_controls()
+	var intents: Array[StringName] = []
+	controls.intent_requested.connect(func(kind: StringName, _payload: Dictionary): intents.append(kind))
+	if not controls.has_method("trigger_ready_shortcut"):
+		assert_true(false, "The table needs a way to invoke the active Ready action")
+		await _unmount(controls)
+		return
+	controls.render(_model(1, [], {"required_half_count": 2}))
+	assert_false(controls.trigger_ready_shortcut())
+	controls.render(_model(3, _hand(), {}))
+	assert_false(controls.trigger_ready_shortcut())
+	var main := _model(2, _hand(), {"private_player_id": "p1", "players": [{"player_id": "p1", "ready": false}]})
+	controls.render(main)
+	controls.set_inputs_locked(true)
+	assert_false(controls.trigger_ready_shortcut())
+	controls.set_inputs_locked(false)
+	controls.set_ability_focus_held(true)
+	controls.render(main)
+	assert_false(controls.trigger_ready_shortcut())
+	controls.set_ability_focus_held(false)
+	assert_true(controls.trigger_ready_shortcut())
+	assert_false(controls.trigger_ready_shortcut())
+	controls.handle_command_result(&"set_ready", true, &"", 2)
+	assert_false(controls.trigger_ready_shortcut())
+	var ready_button: Button = controls.get_node("MainControls/ReadyButton")
+	assert_true(ready_button.disabled)
+	assert_true(ready_button.text.contains("WAITING"))
+	main.players[0].ready = true
+	controls.render(main)
+	ready_button.pressed.emit()
+	assert_eq(intents, [&"set_ready"])
+	main.players[0].ready = false
+	controls.render(main)
+	assert_true(controls.trigger_ready_shortcut())
+	assert_eq(intents, [&"set_ready", &"set_ready"])
+	await _unmount(controls)
+
+
+func test_pending_hand_draw_keeps_its_slot_across_render_and_reorder() -> void:
+	var controls = await _mount_controls()
+	if controls == null:
+		return
+	if not controls.has_method("set_draw_pending"):
+		assert_true(false, "Hand draws need a pending state")
+		await _unmount(controls)
+		return
+	controls.set_draw_pending(&"c2", true)
+	controls.set_draw_pending(&"c3", true)
+	controls.render(_model(3, _hand(), {}))
+	await Engine.get_main_loop().process_frame
+	var widget: Control = controls.card_widget(&"c2")
+	assert_true(widget.is_visible_in_tree() and widget.size.x > 0, "Pending draws occupy their normal slots")
+	assert_eq(widget.modulate.a, 0.0)
+	assert_eq(controls.card_widget(&"c1").modulate.a, 1.0)
+
+	controls.reorder_hand(&"c2", 0)
+	controls.render(_model(3, _hand(), {}))
+	assert_eq(controls.local_hand_order()[0], &"c2")
+	assert_eq(controls.card_widget(&"c2").modulate.a, 0.0)
+	controls.set_draw_pending(&"c2", false)
+	assert_eq(controls.card_widget(&"c2").modulate.a, 1.0)
+	assert_eq(controls.card_widget(&"c3").modulate.a, 0.0)
+	controls.clear_pending_draws()
+	assert_eq(controls.card_widget(&"c3").modulate.a, 1.0)
+	await _unmount(controls)
+
+
+func test_start_request_autosaves_exact_totals_and_readies_only_the_latest_selection() -> void:
 	var controls = await _mount_controls()
 	if controls == null:
 		return
@@ -13,37 +109,94 @@ func test_start_request_enforces_caps_exact_total_and_duplicate_ready_lock() -> 
 		intents.append({"kind": kind, "payload": payload})
 	)
 	controls.render(_model(1, [], {"required_half_count": 6}))
-	var rise: SpinBox = controls.get_node("StartControls/RequestGrid/Rise")
-	var flourish: SpinBox = controls.get_node("StartControls/RequestGrid/Flourish")
-	var fall: SpinBox = controls.get_node("StartControls/RequestGrid/Fall")
-	assert_eq(rise.max_value, 5.0)
-	assert_eq(rise.suffix, " Rise")
-	assert_eq(flourish.suffix, " Flourish")
-	assert_eq(fall.suffix, " Fall")
-	rise.value = 2
-	flourish.value = 1
+	var keypads: Array = controls.get_node("StartControls/RequestGrid").get_children()
+	for keypad in keypads:
+		assert_eq(keypad.find_children("Count*", "Button", true, false).size(), 5)
+	if keypads[0].find_child("Count2", true, false) == null:
+		await _unmount(controls)
+		return
+	var rise_two: Button = keypads[0].find_child("Count2", true, false)
+	var rise_five: Button = keypads[0].find_child("Count5", true, false)
+	var flourish_one: Button = keypads[1].find_child("Count1", true, false)
+	var fall_one: Button = keypads[2].find_child("Count1", true, false)
+	var ready_button: Button = controls.get_node("StartControls/ReadyButton")
+	assert_false(controls.has_node("StartControls/ConfirmButton"))
+	rise_two.pressed.emit()
+	flourish_one.pressed.emit()
+	assert_true(rise_two.button_pressed)
+	assert_true(keypads[2].find_child("Count4", true, false).disabled)
 	assert_eq(controls.get_node("StartControls/Total").text, "3 / 6 selected")
-	assert_false(controls.get_node("StartControls/ConfirmButton").disabled)
-	controls.get_node("StartControls/ConfirmButton").pressed.emit()
-	assert_eq(intents, [{"kind": &"set_replenishment_request", "payload": {"request": {0: 2, 1: 1, 2: 0}}}])
+	assert_true(intents.is_empty())
+	assert_true(ready_button.disabled)
+	rise_five.pressed.emit()
+	assert_false(rise_two.button_pressed)
+	assert_true(fall_one.disabled)
+	fall_one.pressed.emit()
+	assert_eq(controls.get_node("StartControls/Total").text, "6 / 6 selected")
+	assert_eq(intents, [{"kind": &"set_replenishment_request", "payload": {"request": {0: 5, 1: 1, 2: 0}}}])
+	flourish_one.pressed.emit()
+	assert_false(flourish_one.button_pressed)
+	assert_false(fall_one.disabled)
+	assert_true(ready_button.disabled)
+	fall_one.pressed.emit()
+	assert_false(ready_button.disabled)
+	ready_button.pressed.emit()
+	ready_button.pressed.emit()
+	assert_eq(intents.size(), 1, "Ready waits for the save in flight")
 	controls.handle_command_result(&"set_replenishment_request", true, &"", 1)
-	assert_true(controls.get_node("StartControls/ReadyButton").disabled)
-	rise.value = 5
-	flourish.value = 1
-	fall.value = 1
-	assert_eq(controls.get_node("StartControls/Total").text, "7 / 6 selected")
-	assert_true(controls.get_node("StartControls/ConfirmButton").disabled)
-	fall.value = 0
-	assert_false(controls.get_node("StartControls/ConfirmButton").disabled)
-	controls.get_node("StartControls/ConfirmButton").pressed.emit()
-	controls.get_node("StartControls/ConfirmButton").pressed.emit()
-	assert_eq(intents[1], {"kind": &"set_replenishment_request", "payload": {"request": {0: 5, 1: 1, 2: 0}}})
+	assert_eq(intents.slice(1), [{"kind": &"set_replenishment_request", "payload": {"request": {0: 5, 1: 0, 2: 1}}}])
 	controls.handle_command_result(&"set_replenishment_request", true, &"", 1)
-	controls.get_node("StartControls/ReadyButton").pressed.emit()
-	controls.get_node("StartControls/ReadyButton").pressed.emit()
-	assert_eq(intents.size(), 3)
-	assert_eq(intents[2], {"kind": &"set_ready", "payload": {"ready": true}})
+	assert_eq(intents.slice(2), [{"kind": &"set_ready", "payload": {"ready": true}}])
+	controls.handle_command_result(&"set_ready", true, &"", 1)
+	assert_true(ready_button.disabled)
+	assert_true(fall_one.disabled)
 	await _unmount(controls)
+
+
+func test_start_request_rejection_keeps_the_player_unready_and_allows_a_retry() -> void:
+	var controls = await _mount_controls()
+	var intents: Array[StringName] = []
+	controls.intent_requested.connect(func(kind: StringName, _payload: Dictionary): intents.append(kind))
+	controls.render(_model(1, [], {"required_half_count": 2}))
+	var rise_two: Button = controls.find_child("Rise", true, false).find_child("Count2", true, false)
+	var ready_button: Button = controls.get_node("StartControls/ReadyButton")
+	rise_two.pressed.emit()
+	ready_button.pressed.emit()
+	controls.handle_command_result(&"set_replenishment_request", false, &"send_failed", 1)
+	assert_eq(intents, [&"set_replenishment_request"])
+	assert_false(ready_button.disabled)
+	assert_false(rise_two.disabled)
+	ready_button.pressed.emit()
+	controls.handle_command_result(&"set_replenishment_request", true, &"", 1)
+	assert_eq(intents, [&"set_replenishment_request", &"set_replenishment_request", &"set_ready"])
+	await _unmount(controls)
+
+
+func test_start_keypads_appear_directly_below_the_context_piles() -> void:
+	var scene: PackedScene = load(MATCH_SCREEN_PATH)
+	var match_view = scene.instantiate()
+	Engine.get_main_loop().root.add_child(match_view)
+	var model := _model(1, [], {"required_half_count": 12})
+	model["private_player_id"] = "p1"
+	match_view.render(model)
+	await Engine.get_main_loop().process_frame
+	for context in ["Rise", "Flourish", "Fall"]:
+		var keypad: Control = match_view.get_node_or_null("PhaseControls/" + context)
+		assert_true(keypad != null, "Expected a keypad on %s" % context)
+		if keypad == null:
+			continue
+		var pile: Control = match_view.get_node("Center/Piles/Pile" + context)
+		var keys := keypad.get_global_rect()
+		var stack := pile.get_global_rect()
+		assert_true(keypad.is_visible_in_tree() and keys.position.y >= stack.end.y)
+		assert_true(absf(keys.get_center().x - stack.get_center().x) < 2.0)
+		assert_true(keypad.find_child("Count1", true, false).disabled)
+		assert_false(keypad.find_child("Count2", true, false).disabled)
+	match_view.render(model.merged({"phase": 2}, true))
+	assert_true(match_view.find_children("Count1", "Button", true, false).all(
+		func(button: Button): return not button.is_visible_in_tree()
+	))
+	await _unmount(match_view)
 
 
 func test_hand_builder_stages_eligible_cards_requires_half_choice_and_defaults_joker() -> void:
@@ -60,7 +213,7 @@ func test_hand_builder_stages_eligible_cards_requires_half_choice_and_defaults_j
 	assert_false(controls.card_widget(&"c1").interaction_disabled)
 	assert_true(controls.card_widget(&"c3").interaction_disabled)
 	controls.click_card(&"c2")
-	assert_false(controls.get_node("HandPlayControls/ActionRow/LockButton").disabled)
+	assert_false(controls.get_node("HandPlayControls/ActionRow/SubmitButton").disabled)
 	assert_eq(controls.staged_selection(&"c2").half_index, 0)
 	controls.choose_half(&"c2", 1)
 	assert_eq(controls.staged_selection(&"c2").half_index, 1)
@@ -157,7 +310,7 @@ func test_orientation_and_reorder_stay_local_while_lock_payload_is_canonical() -
 	controls.click_card(&"c2")
 	controls.card_widget(&"c2").get_node("Face/OrderControls/MoveLeft").pressed.emit()
 	assert_eq(controls.staged_order(), [&"c2", &"c1"])
-	controls.get_node("HandPlayControls/ActionRow/LockButton").pressed.emit()
+	controls.get_node("HandPlayControls/ActionRow/SubmitButton").pressed.emit()
 	assert_eq(intents.size(), 1)
 	assert_eq(intents[0].kind, &"stage_hand")
 	assert_eq(intents[0].payload.cards, [
@@ -180,8 +333,8 @@ func test_phase_change_cancels_stale_actions_and_pass_waits_for_stage_ack() -> v
 		intents.append({"kind": kind, "payload": payload})
 	)
 	controls.render(_model(3, _hand(), {}))
-	controls.get_node("HandPlayControls/ActionRow/PassButton").pressed.emit()
-	controls.get_node("HandPlayControls/ActionRow/PassButton").pressed.emit()
+	controls.get_node("HandPlayControls/ActionRow/SubmitButton").pressed.emit()
+	controls.get_node("HandPlayControls/ActionRow/SubmitButton").pressed.emit()
 	assert_eq(intents, [{"kind": &"stage_hand", "payload": {"cards": []}}])
 	controls.render(_model(4, _hand(), {}))
 	assert_false(controls.get_node("HandPlayControls").visible)
@@ -189,9 +342,9 @@ func test_phase_change_cancels_stale_actions_and_pass_waits_for_stage_ack() -> v
 	assert_eq(intents.size(), 1)
 
 	controls.render(_model(3, _hand(), {}))
-	controls.get_node("HandPlayControls/ActionRow/PassButton").pressed.emit()
+	controls.get_node("HandPlayControls/ActionRow/SubmitButton").pressed.emit()
 	controls.handle_command_result(&"stage_hand", false, &"invalid_normal_hand", 3)
-	assert_false(controls.get_node("HandPlayControls/ActionRow/PassButton").disabled)
+	assert_false(controls.get_node("HandPlayControls/ActionRow/SubmitButton").disabled)
 	assert_true(controls.get_node("Status").text.contains("invalid"))
 	await _unmount(controls)
 
@@ -368,7 +521,7 @@ func test_match_screen_hosts_phase_controls_and_bubbles_intents() -> void:
 	var phase_controls = match_screen.get_node("PhaseControls")
 	assert_true(phase_controls.visible)
 	assert_eq(phase_controls.get_node("HandPlayControls/Hand/Cards").get_child_count(), 6)
-	phase_controls.get_node("HandPlayControls/ActionRow/PassButton").pressed.emit()
+	phase_controls.get_node("HandPlayControls/ActionRow/SubmitButton").pressed.emit()
 	assert_eq(intents, [{"kind": &"stage_hand", "payload": {"cards": []}}])
 	await _unmount(match_screen)
 

@@ -151,9 +151,9 @@ static func field_designs() -> Array[AbilityDefinition]:
 	for item in contexts:
 		result.append(_field_definition(
 			StringName("%s_ascendancy" % item[0]), "%s Ascendancy" % item[1],
-			"Add +0.25 to a player's field multiplier when %s has the strictly highest context tally in their submitted hand." % item[1],
+			"Add +0.25 to a player's field multiplier when %s has the most halves in their submitted hand, including ties." % item[1],
 			&"field_rule", 3,
-			{"field_rule": &"strict_context_majority", "context": item[2],
+			{"field_rule": &"leading_context", "context": item[2],
 			"numerator": 1, "denominator": 4}
 		))
 	return result
@@ -236,7 +236,10 @@ static func public_catalog(recipe: Dictionary) -> Dictionary:
 			"tags": definition.tags.map(func(tag): return str(tag)),
 			"field_duration": definition.field_duration,
 			"effect_id": str(definition.effect_id),
+			"field_rule": str(definition.effect_parameters.get("field_rule", "")),
 			"context_emblem": int(definition.effect_parameters.get("context", -1)),
+			"suit_emblem": int(definition.effect_parameters.get("suit", -1)),
+			"operation": str(definition.effect_parameters.get("operation", "")),
 			"choice_schema": definition.choice_schema,
 			"copies": int(recipe.get(id, 0)),
 		}
@@ -246,12 +249,15 @@ static func public_catalog(recipe: Dictionary) -> Dictionary:
 static func provisional_deck_recipe() -> Dictionary:
 	var recipe := {}
 	for definition in manipulation_designs(): recipe[definition.id] = 3
-	for id in [&"context_roulette", &"ride_the_cycle", &"against_the_cycle"]:
+	for id in [
+		&"context_roulette", &"ride_the_cycle", &"against_the_cycle",
+		&"context_exchange", &"context_convergence", &"suit_imprint", &"mirror_rank",
+	]:
 		recipe[id] = 4
 	for definition in hand_shape_designs(): recipe[definition.id] = 1
-	recipe[&"high_card_buff"] = 2
-	recipe[&"high_card_nerf"] = 2
-	for definition in field_designs(): recipe[definition.id] = 1
+	for definition in field_designs():
+		if definition.id not in [&"even_rank_favor", &"odd_rank_favor"]:
+			recipe[definition.id] = 1
 	for definition in sabotage_designs(): recipe[definition.id] = 1
 	for id in [&"suit_scramble", &"rank_scramble", &"context_scramble"]:
 		recipe[id] = 2

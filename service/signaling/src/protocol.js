@@ -1,3 +1,5 @@
+import { Buffer } from "node:buffer";
+
 export const PROTOCOL_VERSION = 1;
 export const MAX_MESSAGE_BYTES = 64 * 1024;
 

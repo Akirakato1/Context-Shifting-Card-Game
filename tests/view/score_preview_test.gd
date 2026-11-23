@@ -139,3 +139,39 @@ func test_cockpit_values_each_own_a_named_contribution_table() -> void:
 		tooltip.free()
 	controls.queue_free()
 	await Engine.get_main_loop().process_frame
+
+
+func test_cockpit_names_the_scored_hand_and_context_in_the_formula() -> void:
+	var controls := CONTROLS.instantiate() as PhaseControls
+	controls.table_cockpit = true
+	controls.size = Vector2(1246, 410)
+	Engine.get_main_loop().root.add_child(controls)
+	var normal := [
+		{"id": "full_house", "display_name": "Full House"},
+		{"id": "flush_5", "display_name": "5-card Flush"},
+	]
+	var context := [{"id": "rise_flourish_4", "display_name": "Four Renaissance",
+		"requirements_text": "4 Rise / 4 Flourish"}]
+	var hand_components := [{"source_definition_id": "full_house"}, {"source_definition_id": "flush_5"}]
+	var context_components := [{"source_definition_id": "rise_flourish_4"}]
+	controls.render({"phase": 3, "scoring_catalog": {"normal": normal, "context": context},
+		"submission_preview": {"score_breakdown": {
+			"card_hand_components": hand_components, "context_hand_components": context_components,
+			"card_hand_factor": {"numerator": 19, "denominator": 4}, "final_score": 48,
+		}},
+	})
+	await Engine.get_main_loop().process_frame
+	var factors := controls.get_node("HandPlayControls/Preview/Factors")
+	var hand_name := factors.get_node_or_null("HandName") as Label
+	var context_name := factors.get_node_or_null("ContextName") as Label
+	assert_true(hand_name != null and context_name != null)
+	if hand_name != null and context_name != null:
+		assert_eq(hand_name.text, "Full House + 5-card Flush")
+		assert_eq(context_name.text, "Four Renaissance")
+		assert_eq(factors.get_node("ContextValue").rows[1][0], "Four Renaissance (4 Rise / 4 Flourish)")
+		assert_eq(factors.get_node("HandValue").text, "19/4")
+	controls.render({"phase": 3, "submission_preview": {"score_breakdown": {"base_value": 6}}})
+	if context_name != null:
+		assert_eq(context_name.text, "No Context Pattern")
+	controls.queue_free()
+	await Engine.get_main_loop().process_frame

@@ -69,6 +69,7 @@ func test_rematch_and_lobby_actions_emit_once_and_preserve_room_occupants() -> v
 	assert_eq(rematches[0].room_code, "ABC234")
 	assert_eq(rematches[0].occupant_ids, ["p1", "p2", "p3", "p4", "s1"])
 	assert_eq(rematches[0].reset_values, {"round_number": 1, "match_scores": 0, "round_wins": 0})
+	assert_false(rematches[0].host_settings_unlocked)
 
 	results.render(_result_model())
 	results.get_node("Layout/Actions/LobbyButton").pressed.emit()
@@ -88,6 +89,13 @@ func test_non_host_sees_waiting_rematch_state() -> void:
 	assert_false(results.get_node("Layout/Actions/RematchButton").visible)
 	assert_true(results.get_node("Layout/Waiting").visible)
 	assert_true(results.get_node("Layout/Waiting").text.contains("host"))
+	assert_true(results.get_node("Layout/Waiting").text.contains("rematch"))
+
+	model["local_role"] = "spectator"
+	results.render(model)
+	assert_eq(results.get_node("Layout/Eyebrow").text, "Match Complete")
+	assert_false(results.get_node("Layout/Actions/RematchButton").visible)
+	assert_false(results.get_node("Layout/Actions/LobbyButton").visible)
 	await _unmount(results)
 
 

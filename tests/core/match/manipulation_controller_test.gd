@@ -99,6 +99,15 @@ func test_success_consumes_ability_clears_pending_and_persists_override() -> voi
 	assert_eq(state.ability_deck.used_count(), 1)
 	assert_true(state.players[&"one"].pending_manipulation.is_empty())
 	assert_true(state.players[&"one"].completed_manipulation_ids.has(&"rise_infusion"))
+	assert_eq(committed.events.size(), 1)
+	if committed.events.size() == 1:
+		var event = committed.events[0]
+		assert_eq(event.kind, &"manipulation_resolved")
+		assert_eq(event.audience, &"player")
+		assert_eq(event.recipient_id, &"one")
+		assert_eq(event.payload.card_changes.size(), 1)
+		assert_eq(event.payload.card_changes[0].before.first.effective_context, GameTypes.Context.FALL)
+		assert_eq(event.payload.card_changes[0].after.first.effective_context, GameTypes.Context.RISE)
 
 
 func test_cancel_and_timeout_keep_uncommitted_ability() -> void:

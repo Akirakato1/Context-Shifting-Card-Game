@@ -132,6 +132,13 @@ func show_error(reason: StringName) -> void:
 	_start_button.disabled = not _can_edit_settings() or int(_model.get("active_player_count", 0)) < 2
 
 
+func trigger_ready_shortcut() -> bool:
+	if _rendering or not _ready_button.is_visible_in_tree() or _ready_button.disabled:
+		return false
+	_ready_button.button_pressed = not _ready_button.button_pressed
+	return true
+
+
 func _render_players(player_models: Array) -> void:
 	for child in _players.get_children():
 		_players.remove_child(child)
@@ -176,13 +183,14 @@ func _toggle_settings() -> void:
 
 
 func _update_page() -> void:
+	var is_host := bool(_model.get("is_host", false))
 	$Layout/Body/Roster.visible = not _settings_open
 	$Layout/Body/Settings.visible = _settings_open
 	$Layout/Header/Title.text = "Lobby Settings" if _settings_open else "Table Lobby"
 	$Layout/Body/Settings/Heading.text = "Match rules" if _can_edit_settings() else "Match rules · view only"
 	_settings_button.text = "Back to Lobby" if _settings_open else "Lobby Settings"
-	_ready_button.visible = not _settings_open and str(_model.get("local_role", "active")) != "spectator"
-	_start_button.visible = not _settings_open and bool(_model.get("is_host", false))
+	_ready_button.visible = not _settings_open and not is_host and str(_model.get("local_role", "active")) == "active"
+	_start_button.visible = not _settings_open and is_host
 
 
 func _copy_room_code() -> void:
@@ -241,7 +249,7 @@ func _on_reconnect_timer_changed(value: float) -> void:
 
 
 func _on_ready_toggled(ready: bool) -> void:
-	if _rendering or _ready_button.disabled or _settings_open:
+	if _rendering or _ready_button.disabled or not _ready_button.visible:
 		return
 	ready_requested.emit(ready)
 
