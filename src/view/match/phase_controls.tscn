@@ -1,4 +1,4 @@
-[gd_scene load_steps=4 format=3]
+[gd_scene load_steps=5 format=3]
 
 [ext_resource type="Script" path="res://src/view/match/phase_controls.gd" id="1_script"]
 
@@ -20,6 +20,18 @@ content_margin_left = 12.0
 content_margin_top = 10.0
 content_margin_right = 12.0
 content_margin_bottom = 10.0
+
+[sub_resource type="StyleBoxFlat" id="Style_ready"]
+bg_color = Color(0.25, 0.19, 0.40, 1)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.72, 0.57, 0.91, 1)
+corner_radius_top_left = 7
+corner_radius_top_right = 7
+corner_radius_bottom_right = 7
+corner_radius_bottom_left = 7
 
 [node name="PhaseControls" type="Control"]
 custom_minimum_size = Vector2(900, 0)
@@ -61,25 +73,38 @@ text = "0 / 0 selected"
 horizontal_alignment = 1
 
 [node name="ReadyButton" type="Button" parent="StartControls"]
+custom_minimum_size = Vector2(224, 56)
 layout_mode = 2
+size_flags_horizontal = 4
+theme_override_fonts/font = SubResource("Font_scores")
+theme_override_font_sizes/font_size = 24
+theme_override_styles/normal = SubResource("Style_ready")
 text = "READY FOR MAIN 1"
 
 [node name="MainControls" type="HBoxContainer" parent="."]
 visible = false
 layout_mode = 2
 alignment = 1
+theme_override_constants/separation = 22
 
 [node name="Hint" type="Label" parent="MainControls"]
 layout_mode = 2
-text = "Play legal abilities, then mark ready."
+theme_override_fonts/font = SubResource("Font_scores")
+theme_override_font_sizes/font_size = 22
 
 [node name="ReactionNotice" type="Label" parent="MainControls"]
 layout_mode = 2
 theme_override_colors/font_color = Color(1, 0.76, 0.36, 1)
+theme_override_fonts/font = SubResource("Font_scores")
+theme_override_font_sizes/font_size = 20
 text = ""
 
 [node name="ReadyButton" type="Button" parent="MainControls"]
+custom_minimum_size = Vector2(214, 56)
 layout_mode = 2
+theme_override_fonts/font = SubResource("Font_scores")
+theme_override_font_sizes/font_size = 27
+theme_override_styles/normal = SubResource("Style_ready")
 text = "READY"
 
 [node name="HandPlayControls" type="Control" parent="."]

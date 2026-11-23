@@ -59,7 +59,7 @@ func test_ready_shortcut_respects_phase_focus_pending_and_host_readiness() -> vo
 	assert_false(controls.trigger_ready_shortcut())
 	var ready_button: Button = controls.get_node("MainControls/ReadyButton")
 	assert_true(ready_button.disabled)
-	assert_true(ready_button.text.contains("WAITING"))
+	assert_eq(ready_button.text, "READY ✓")
 	main.players[0].ready = true
 	controls.render(main)
 	ready_button.pressed.emit()

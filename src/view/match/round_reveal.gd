@@ -9,6 +9,14 @@ const REVEAL_SECONDS := 0.60
 const COUNT_SECONDS := 1.25
 const HOLD_SECONDS := Types.MAIN_2_REVIEW_MSEC_PER_PLAYER / 1000.0 - REVEAL_SECONDS - COUNT_SECONDS
 const SCORE_TICKS := 4
+const SCORE_MILESTONE := 100.0
+const MAX_SCORE_GROWTH := 0.25
+const SCORE_PULSE_GROWTH := 0.19
+const SCORE_SHAKE_DISTANCE := 7.0
+const SCORE_POWER_COLORS := [
+	Color("ffd166"), Color("ffad5a"), Color("ff8780"),
+	Color("e4a1ff"), Color("8fcfff"), Color("8cebd1"),
+]
 
 var _sequence: Tween
 var _reveal_round := -1
@@ -20,6 +28,10 @@ var _selected_player_id := ""
 var _context := 0
 var _score_progress := 1.0
 var _last_score_tick := -1
+var _last_milestone := 0
+var _score_tier := 0
+var _score_energy := 0.0
+var _score_pulse: Tween
 var _selected_tab_style: StyleBoxFlat
 var _scoring_catalog: Dictionary = {}
 
@@ -28,10 +40,15 @@ var _scoring_catalog: Dictionary = {}
 @onready var _player_buttons: HBoxContainer = $Content/Navigation/Players
 @onready var _cards: HBoxContainer = $Content/Cards
 @onready var _hand_name: Label = $Content/HandName
-@onready var _score: Label = $Content/Score
+@onready var _score_prefix: Label = $Content/ScoreLine/Prefix
+@onready var _score_slot: Control = $Content/ScoreLine/ValueSlot
+@onready var _score_value: Label = $Content/ScoreLine/ValueSlot/Value
+@onready var _score_unit: Label = $Content/ScoreLine/Unit
 
 
 func _ready() -> void:
+	_score_value.resized.connect(_center_score_pivot)
+	_center_score_pivot()
 	_selected_tab_style = StyleBoxFlat.new()
 	_selected_tab_style.bg_color = Color("324656")
 	_selected_tab_style.border_color = Color("ffd166")
@@ -151,12 +168,44 @@ func _start_reveal() -> void:
 func _count_score(progress: float) -> void:
 	_score_progress = progress
 	var submission := _selected_submission()
+	_render_score()
 	if int(submission.get("provisional_score", 0)) > 0 and not submission.get("cards", []).is_empty():
 		var tick := mini(floori(progress * SCORE_TICKS), SCORE_TICKS - 1)
-		if tick > _last_score_tick:
-			_last_score_tick = tick
+		if _score_tier > _last_milestone:
+			for _milestone in range(_last_milestone, _score_tier):
+				sound_requested.emit(&"score_milestone")
+			_last_milestone = _score_tier
+			_start_score_pulse()
+		elif tick > _last_score_tick:
 			sound_requested.emit(&"score")
-	_render_score()
+		_last_score_tick = maxi(_last_score_tick, tick)
+
+
+func _start_score_pulse() -> void:
+	_stop_score_pulse()
+	_apply_score_power(1.0)
+	_score_pulse = create_tween()
+	_score_pulse.tween_method(_apply_score_power, 1.0, 0.0, 0.30)
+
+
+func _apply_score_power(energy: float) -> void:
+	_score_energy = energy
+	var growth := minf(float(_score_tier) * 0.065, MAX_SCORE_GROWTH)
+	_score_value.scale = Vector2.ONE * (1.0 + growth + SCORE_PULSE_GROWTH * energy)
+	_score_value.position.x = sin((1.0 - energy) * TAU * 3.0) * SCORE_SHAKE_DISTANCE * energy
+	var tint: Color = SCORE_POWER_COLORS[_score_tier % SCORE_POWER_COLORS.size()]
+	_score_value.self_modulate = tint.lerp(Color.WHITE, 0.20 * energy)
+
+
+func _center_score_pivot() -> void:
+	_score_value.pivot_offset = _score_value.size * 0.5
+
+
+func _stop_score_pulse() -> void:
+	if _score_pulse != null:
+		_score_pulse.kill()
+	_score_pulse = null
+	_score_energy = 0.0
 
 
 func _finish_score_count() -> void:
@@ -192,6 +241,8 @@ func _select_player(player_id: String, animate_score: bool = false) -> void:
 	_selected_player_id = player_id
 	_score_progress = 0.0 if animate_score else 1.0
 	_last_score_tick = -1
+	_last_milestone = 0
+	_stop_score_pulse()
 	_render_cards()
 	_update_selection()
 	_update_hand_name()
@@ -259,17 +310,36 @@ func _render_score() -> void:
 	var submission := _selected_submission()
 	var cards: Array = submission.get("cards", [])
 	if cards.is_empty():
-		_score.text = "Passed · 0 points"
+		_show_score_message("Passed · 0 points")
 		return
 	var breakdown: Dictionary = submission.get("score_breakdown", {})
 	var factors := ""
 	if not breakdown.is_empty():
-		factors = "%d × %s × %s × %s = " % [
+		factors = "%d × %s × %s × %s =" % [
 			int(breakdown.get("base_value", 0)), _ratio(breakdown.get("card_hand_factor", {})),
 			_ratio(breakdown.get("context_hand_factor", {})), _ratio(breakdown.get("field_factor", {})),
 		]
-	var points := roundi(_score_progress * float(submission.get("provisional_score", 0)))
-	_score.text = "%s%d provisional points" % [factors, points]
+	var total := int(submission.get("provisional_score", 0))
+	var points := roundi(_score_progress * float(total))
+	_score_prefix.text = factors
+	_score_prefix.visible = not factors.is_empty()
+	_score_slot.show()
+	_score_unit.show()
+	_score_value.text = str(points)
+	var font := _score_value.get_theme_font("font")
+	var font_size := _score_value.get_theme_font_size("font_size")
+	var final_digits_width := font.get_string_size(str(total), HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+	var max_scale := 1.0 + MAX_SCORE_GROWTH + SCORE_PULSE_GROWTH
+	_score_slot.custom_minimum_size.x = ceilf(final_digits_width * max_scale) + SCORE_SHAKE_DISTANCE * 2.0
+	_score_tier = maxi(0, floori(float(points) / SCORE_MILESTONE))
+	_apply_score_power(_score_energy)
+
+
+func _show_score_message(message: String) -> void:
+	_score_prefix.text = message
+	_score_prefix.show()
+	_score_slot.hide()
+	_score_unit.hide()
 
 
 func _ratio(factor: Dictionary) -> String:
@@ -285,13 +355,14 @@ func _show_award(result: Dictionary, model: Dictionary) -> void:
 	var winner := str(result.get("winner_id", ""))
 	_headline.text = "Tied round" if winner.is_empty() else "Round winner"
 	_headline.show()
-	_score.text = "No match progress awarded"
+	var message := "No match progress awarded"
 	for player: Dictionary in model.get("players", []):
 		if str(player.get("player_id", "")) == winner:
 			var points := int(result.get("scores", {}).get(winner, 0))
 			var award := "+1 win" if int(model.get("victory_mode", 0)) == 1 else "+%d points" % points
-			_score.text = "%s  %s" % [player.get("name", "Player"), award]
+			message = "%s  %s" % [player.get("name", "Player"), award]
 			break
+	_show_score_message(message)
 	show()
 	_sequence = create_tween()
 	_sequence.tween_interval(2.3)
@@ -306,6 +377,7 @@ func _clear_children(container: Control) -> void:
 
 func _stop() -> void:
 	_stop_sequence()
+	_stop_score_pulse()
 	hide()
 
 

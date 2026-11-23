@@ -9,9 +9,9 @@ signal discards_confirmed(copy_ids: Array[String])
 
 const AbilityCard = preload("res://src/view/match/ability_card.gd")
 const AbilityCardScene = preload("res://src/view/match/ability_inventory_card.tscn")
+const DETAILS_EYE := preload("res://assets/artwork/svg/ability_details_eye.svg")
+const DETAILS_EYE_HIDDEN := preload("res://assets/artwork/svg/ability_details_eye_hidden.svg")
 const CARD_SEPARATION := 7.0
-const INVENTORY_CARD_HEIGHT := 125.0
-const DISCARD_CARD_HEIGHT := 116.0
 const DRAG_THRESHOLD := 7.0
 const REORDER_DURATION := 0.14
 
@@ -19,6 +19,8 @@ var _abilities: Dictionary = {}
 var _legal_ids: Array[StringName] = []
 var _order: Array[StringName] = []
 var _cards_by_id: Dictionary[StringName, AbilityCard] = {}
+var _detail_overrides: Dictionary[StringName, bool] = {}
+var _show_all_details := false
 var _pending_draws: Dictionary[StringName, bool] = {}
 var _card_targets: Dictionary[StringName, Vector2] = {}
 var _card_tweens: Dictionary[StringName, Tween] = {}
@@ -37,11 +39,12 @@ var _discard_pending := false
 var _expanded_before_discard := false
 
 @onready var _drawer: PanelContainer = $Drawer
-@onready var _heading: Label = $Drawer/Layout/Heading
+@onready var _discard_prompt: Label = $Drawer/Layout/DiscardPrompt
 @onready var _scroll: ScrollContainer = $Drawer/Layout/Scroll
 @onready var _cards: Control = $Drawer/Layout/Scroll/Cards
 @onready var _drag_overlay: Control = $DragOverlay
 @onready var _toggle: Button = $ToggleButton
+@onready var _details_mode: Button = $DetailsMode
 @onready var _confirm_keep: Button = $Drawer/Layout/ConfirmKeep
 
 
@@ -49,6 +52,7 @@ func _ready() -> void:
 	_cards.resized.connect(_layout_cards)
 	visibility_changed.connect(_on_visibility_changed)
 	_confirm_keep.pressed.connect(_on_confirm_keep_pressed)
+	_details_mode.toggled.connect(_set_all_details)
 
 
 func _exit_tree() -> void:
@@ -103,6 +107,7 @@ func render(abilities: Array, phase: int, catalog: Dictionary, input_locked: boo
 			_cards.remove_child(card)
 			card.queue_free()
 			_cards_by_id.erase(copy_id)
+			_detail_overrides.erase(copy_id)
 			_card_targets.erase(copy_id)
 			_order.erase(copy_id)
 	for copy_id in snapshot_order:
@@ -114,10 +119,11 @@ func render(abilities: Array, phase: int, catalog: Dictionary, input_locked: boo
 			card.minimum_size_changed.connect(_layout_cards, CONNECT_DEFERRED)
 			_cards_by_id[copy_id] = card
 			_order.append(copy_id)
+			_add_detail_button(card, copy_id)
 		var card := _cards_by_id[copy_id]
 		var model: Dictionary = _abilities[copy_id]
-		card.custom_minimum_size.y = DISCARD_CARD_HEIGHT if _discarding else INVENTORY_CARD_HEIGHT
 		card.render(model, str(model.get("ability_id", "")), false, _discarding or _can_play(copy_id))
+		_update_card_details(copy_id)
 		_update_draw_presentation(copy_id)
 	_drawer.visible = _expanded
 	_update_toggle()
@@ -154,6 +160,69 @@ func set_draw_pending(copy_id: StringName, pending: bool) -> void:
 	_update_draw_presentation(copy_id)
 
 
+func _add_detail_button(card: AbilityCard, copy_id: StringName) -> void:
+	var button := Button.new()
+	button.name = "DetailsButton"
+	button.toggle_mode = true
+	button.flat = true
+	button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	button.add_theme_constant_override("icon_max_width", 23)
+	card.get_node("Face").add_child(button)
+	button.anchor_left = 1.0
+	button.anchor_right = 1.0
+	button.offset_left = -42.0
+	button.offset_right = -6.0
+	button.toggled.connect(_set_card_details.bind(copy_id))
+
+
+func _set_card_details(enabled: bool, copy_id: StringName) -> void:
+	_finish_drag(false)
+	_detail_overrides[copy_id] = enabled
+	_update_card_details(copy_id)
+	_layout_cards()
+	if enabled:
+		_scroll_to_card.call_deferred(copy_id)
+
+
+func _scroll_to_card(copy_id: StringName) -> void:
+	if _cards_by_id.has(copy_id):
+		_scroll.ensure_control_visible(_cards_by_id[copy_id])
+
+
+func _set_all_details(enabled: bool) -> void:
+	_finish_drag(false)
+	_show_all_details = enabled
+	_detail_overrides.clear()
+	for copy_id in _order:
+		_update_card_details(copy_id)
+	if enabled and not _abilities.is_empty():
+		_expanded = true
+		_drawer.show()
+	_details_mode.icon = DETAILS_EYE_HIDDEN if enabled else DETAILS_EYE
+	_details_mode.tooltip_text = "Hide all ability descriptions" if enabled else "Show all ability descriptions"
+	_update_toggle()
+	_layout_cards()
+
+
+func _shows_details(copy_id: StringName) -> bool:
+	return _detail_overrides.get(copy_id, _show_all_details)
+
+
+func _update_card_details(copy_id: StringName) -> void:
+	var card := _cards_by_id[copy_id]
+	var enabled := _shows_details(copy_id)
+	card.set_tray_details(enabled)
+	var button: Button = card.get_node("Face/DetailsButton")
+	button.set_pressed_no_signal(enabled)
+	button.icon = DETAILS_EYE_HIDDEN if enabled else DETAILS_EYE
+	button.tooltip_text = "Hide ability description" if enabled else "Show ability description"
+	button.anchor_top = 0.0 if enabled else 0.5
+	button.anchor_bottom = button.anchor_top
+	button.offset_top = 5.0 if enabled else -18.0
+	button.offset_bottom = button.offset_top + 36.0
+
+
 func clear_pending_draws() -> void:
 	var pending_ids := _pending_draws.keys()
 	_pending_draws.clear()
@@ -167,6 +236,7 @@ func _update_draw_presentation(copy_id: StringName) -> void:
 		return
 	var pending := _pending_draws.has(copy_id)
 	card.modulate.a = 0.0 if pending else 1.0
+	card.get_node("Face/DetailsButton").disabled = pending
 	var ignore_input := pending or _input_locked or card.get_parent() == _drag_overlay
 	card.mouse_filter = Control.MOUSE_FILTER_IGNORE if ignore_input else Control.MOUSE_FILTER_PASS
 
@@ -213,17 +283,17 @@ func _set_discard_requirement(required: int) -> void:
 		_discard_pending = false
 		_confirm_keep.tooltip_text = ""
 		_expanded = _expanded_before_discard
-		_update_heading()
 	_kept_ids.assign(_kept_ids.filter(func(copy_id: StringName) -> bool: return _abilities.has(copy_id)))
 	if _kept_ids.size() > _keep_limit:
 		_kept_ids.resize(_keep_limit)
 
 
 func _update_discard_controls() -> void:
+	_discard_prompt.visible = _discarding
 	_confirm_keep.visible = _discarding
 	if not _discarding:
 		return
-	_heading.text = "Discard down to %d\nSelect cards to keep · %d / %d" % [_keep_limit, _kept_ids.size(), _keep_limit]
+	_discard_prompt.text = "Discard down to %d\nSelect cards to keep · %d / %d" % [_keep_limit, _kept_ids.size(), _keep_limit]
 	_confirm_keep.disabled = _input_locked or _discard_pending or _kept_ids.size() != _keep_limit
 	_confirm_keep.text = "CONFIRM KEEP %d" % _keep_limit
 	if _discard_pending:
@@ -293,6 +363,7 @@ func _on_toggle_pressed() -> void:
 func _update_toggle() -> void:
 	_toggle.text = "ABILITIES  %d  %s" % [_abilities.size(), "▼" if _expanded else "▲"]
 	_toggle.disabled = _discarding or (_abilities.is_empty() and not _expanded)
+	_details_mode.disabled = _abilities.is_empty()
 
 
 func _can_play(copy_id: StringName) -> bool:
@@ -307,14 +378,9 @@ func _set_focused_id(copy_id: StringName, notify := true) -> void:
 	_focused_id = copy_id
 	if _cards_by_id.has(copy_id):
 		_cards_by_id[copy_id].set_inventory_focused(true)
-	_update_heading()
 	if notify:
 		interaction_sound.emit(&"unprime" if copy_id.is_empty() else &"prime")
 		ability_primed.emit(copy_id, _abilities.get(copy_id, {}).duplicate(true))
-
-
-func _update_heading() -> void:
-	_heading.text = ("Right-click to target or prime" if _focused_id.is_empty() else "Left-click to play") + " · Drag to reorder"
 
 
 func _on_ability_gui_input(event: InputEvent, card: AbilityCard, copy_id: StringName) -> void:
@@ -464,14 +530,16 @@ func _layout_cards(animate := false) -> void:
 	for copy_id in layout_order:
 		var card := _cards_by_id[copy_id]
 		var minimum := card.get_combined_minimum_size()
+		var width := maxf(_cards.size.x, minimum.x)
+		var height := card.tray_height(width, _shows_details(copy_id))
 		var target := Vector2(0.0, y)
-		y += minimum.y + CARD_SEPARATION
+		y += height + CARD_SEPARATION
 		min_width = maxf(min_width, minimum.x)
 		var target_changed: bool = _card_targets.get(copy_id, Vector2.INF) != target
 		_card_targets[copy_id] = target
 		if card.get_parent() == _drag_overlay:
 			continue
-		card.size = Vector2(maxf(_cards.size.x, minimum.x), minimum.y)
+		card.size = Vector2(width, height)
 		if target_changed:
 			_stop_card_tween(copy_id)
 			if animate and card.position != target:

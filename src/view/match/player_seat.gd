@@ -27,6 +27,7 @@ var _base_info_mouse_filter := Control.MOUSE_FILTER_PASS
 
 @onready var _info: HBoxContainer = $Info
 @onready var _name: Label = $Info/Name
+@onready var _ready_status: Label = $Info/ReadyStatus
 @onready var _score: Label = $Summary/ScoreSummary
 @onready var _seat_tally: Label = $Summary/SeatTally
 @onready var _request: Label = $Request
@@ -131,6 +132,13 @@ func render(
 	var display_name := str(player.get("name", player.get("player_id", "OPEN SEAT")))
 	_name.text = ("YOU  ·  " + display_name) if is_local else display_name
 	_name.tooltip_text = display_name if occupied else ""
+	_ready_status.visible = (
+		occupied and bool(player.get("active", false)) and not bool(player.get("pending", false))
+		and phase in [GameTypes.Phase.START, GameTypes.Phase.MAIN_1, GameTypes.Phase.MAIN_2]
+	)
+	var ready := bool(player.get("ready", false))
+	_ready_status.text = "READY" if ready else "DECIDING"
+	_ready_status.modulate = Color("8fedc2") if ready else Color("f4ca8b")
 	$Summary.visible = occupied
 	var use_wins := victory_mode == GameTypes.VictoryMode.ROUND_WIN_RACE
 	var count := int(player.get("ability_count", 0))
@@ -154,6 +162,7 @@ func render(
 		spectator_hand = player.get("spectator_hand", [])
 		backs = maxi(int(player.get("hand_count", 0)) - spectator_hand.size(), 0)
 	_render_hand(cards, spectator_hand, backs)
+	_hand.modulate = Color("c2c8d2") if phase == GameTypes.Phase.MAIN_2 else Color.WHITE
 	_score.visible = not revealed.is_empty()
 	var score_key := "finalized_score" if is_end else "provisional_score"
 	var score := int(revealed.get(score_key, revealed.get("score_breakdown", {}).get("final_score", 0)))

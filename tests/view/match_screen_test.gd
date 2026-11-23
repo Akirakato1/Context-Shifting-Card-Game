@@ -52,7 +52,8 @@ func test_main_two_submissions_stay_available_and_update_from_public_snapshots()
 	var reveal: Control = table.get_node("RoundReveal")
 	var tabs: HBoxContainer = reveal.get_node("Content/Navigation/Players")
 	var cards: HBoxContainer = reveal.get_node("Content/Cards")
-	var score: Label = reveal.get_node("Content/Score")
+	var score: Label = reveal.get_node("Content/ScoreLine/ValueSlot/Value")
+	var status: Label = reveal.get_node("Content/ScoreLine/Prefix")
 	var timeline: Tween = reveal.get("_sequence")
 	timeline.pause()
 	timeline.custom_step(13.0)
@@ -70,19 +71,20 @@ func test_main_two_submissions_stay_available_and_update_from_public_snapshots()
 	assert_true(reveal.get_global_rect().end.y < table.get_node("PhaseControls/MainControls").get_global_rect().position.y)
 	tabs.get_child(1).pressed.emit()
 	assert_eq(cards.get_child_count(), 0)
-	assert_eq(score.text, "Passed · 0 points")
+	assert_eq(status.text, "Passed · 0 points")
+	assert_false(score.is_visible_in_tree())
 	tabs.get_child(2).pressed.emit()
 	assert_true(tabs.get_child(2).button_pressed)
 	assert_false(tabs.get_child(1).button_pressed)
 	assert_eq(cards.get_child_count(), 6)
-	assert_eq(score.text, "55 provisional points")
+	assert_eq(score.text, "55")
 	var left_score := table.get_node("TableLayer/LeftSeat/Summary/ScoreSummary") as Label
 	assert_true(left_score.is_visible_in_tree())
 	assert_eq(left_score.text, "55 provisional points")
 	model.players[2].revealed_submission.provisional_score = 88
 	table.render(model)
 	assert_eq(cards.get_child_count(), 6)
-	assert_eq(score.text, "88 provisional points")
+	assert_eq(score.text, "88")
 	assert_eq(left_score.text, "88 provisional points")
 	model.erase("private_player_id")
 	model.erase("private_hand")
@@ -95,6 +97,36 @@ func test_main_two_submissions_stay_available_and_update_from_public_snapshots()
 	model.phase = 5
 	table.render(model)
 	assert_false(reveal.visible)
+	await _unmount(table)
+
+
+func test_main_phase_surfaces_ready_status_and_ability_controls() -> void:
+	var table = await _mount_match()
+	if table == null:
+		return
+	var model := _active_player_model()
+	model.phase = 2
+	table.render(model)
+	assert_eq(table.get_node("PhaseBadge/Phase").text, "MAIN PHASE 1")
+	var hint := table.get_node_or_null("PhaseInstruction") as Label
+	assert_true(hint != null and hint.text.to_lower().contains("right-click"))
+	assert_true(table.get_node("Header/Timer").get_theme_font_size("font_size") >= 32)
+	var ready: Button = table.get_node("PhaseControls/MainControls/ReadyButton")
+	assert_true(ready.custom_minimum_size.y >= 52)
+	assert_true(table.get_node("PhaseControls/HandPlayControls/Hand/Cards").modulate != Color.WHITE)
+	var other := table.get_node_or_null("TableLayer/TopSeat/Info/ReadyStatus") as Label
+	assert_true(other != null and other.text == "READY" and other.is_visible_in_tree())
+	if other != null:
+		model.phase = 4
+		model.players[1].ready = false
+		table.render(model)
+		assert_eq(table.get_node("PhaseBadge/Phase").text, "MAIN PHASE 2")
+		assert_eq(other.text, "DECIDING")
+		assert_true(other.is_visible_in_tree())
+		model.phase = 3
+		table.render(model)
+		assert_false(other.visible)
+		assert_eq(table.get_node("PhaseControls/HandPlayControls/Hand/Cards").modulate, Color.WHITE)
 	await _unmount(table)
 
 
@@ -153,8 +185,8 @@ func test_end_opens_and_focuses_tray_and_confirms_only_the_unkept_cards() -> voi
 	assert_true(confirm.disabled)
 	await Engine.get_main_loop().process_frame
 	await Engine.get_main_loop().process_frame
-	for card: Control in cards.get_children():
-		var point := card.get_global_transform_with_canvas() * (card.size / 2.0)
+	var click := func(control: Control):
+		var point := control.get_global_transform_with_canvas() * (control.size / 2.0)
 		for pressed in [true, false]:
 			var event := InputEventMouseButton.new()
 			event.position = point
@@ -162,8 +194,15 @@ func test_end_opens_and_focuses_tray_and_confirms_only_the_unkept_cards() -> voi
 			event.button_index = MOUSE_BUTTON_LEFT
 			event.pressed = pressed
 			table.get_viewport().push_input(event, true)
+	var first_card: Control = cards.get_child(0)
+	click.call(first_card.get_node("Face/DetailsButton"))
+	assert_true(first_card.find_child("Rules").visible)
+	assert_true(drawer.get_node("Layout/DiscardPrompt").text.contains("0 / 2"))
+	await Engine.get_main_loop().process_frame
+	for card: Control in cards.get_children():
+		click.call(card)
 	assert_false(confirm.disabled)
-	assert_true(drawer.get_node("Layout/Heading").text.contains("2 / 2"))
+	assert_true(drawer.get_node("Layout/DiscardPrompt").text.contains("2 / 2"))
 	assert_true(table.get_node("TableLayer/TopSeat/Summary/SeatTally").text.contains("Discarding"))
 	model.players[1]["discard_complete"] = true
 	table.render(model)
@@ -212,6 +251,45 @@ func test_round_reveal_showcases_the_full_named_hand_for_each_player() -> void:
 		assert_true(reveal._score_progress > 0.0 and reveal._score_progress < 1.0)
 		timeline.custom_step(2.0)
 		assert_eq(title.text, "Full House  ×  Two Full Cycle")
+	await _unmount(table)
+
+
+func test_round_reveal_powers_up_at_every_hundred_and_resets_for_the_next_hand() -> void:
+	var table = await _mount_match()
+	if table == null:
+		return
+	var model := _active_player_model()
+	model.phase = 4
+	var cards := [_revealed_card("milestone", 2, 9, 1, 0, 4, 2, 1)]
+	model.players[0]["revealed_submission"] = {"cards": cards, "provisional_score": 315}
+	model.players[1]["revealed_submission"] = {"cards": cards, "provisional_score": 115}
+	var reveal = table.get_node("RoundReveal")
+	var cues: Array[StringName] = []
+	reveal.sound_requested.connect(func(cue: StringName):
+		if cue == &"score_milestone":
+			cues.append(cue)
+	)
+	table.render(model)
+	reveal._sequence.pause()
+	reveal._count_score(99.0 / 315)
+	assert_eq(cues.size(), 0)
+	reveal._count_score(100.0 / 315)
+	assert_eq(cues.size(), 1)
+	reveal._count_score(199.0 / 315)
+	assert_eq(cues.size(), 1)
+	reveal._count_score(300.0 / 315)
+	assert_eq(cues.size(), 3, "A skipped frame still crosses both milestones")
+	var value := reveal.get_node_or_null("Content/ScoreLine/ValueSlot/Value") as Label
+	assert_true(value != null)
+	if value != null:
+		assert_eq(value.text, "300")
+		assert_true(value.scale.x > 1.0)
+		var powered_color := value.self_modulate
+		reveal._select_player("p2", true)
+		assert_eq(value.scale, Vector2.ONE)
+		assert_false(value.self_modulate == powered_color)
+		reveal._count_score(100.0 / 115)
+		assert_eq(cues.size(), 4)
 	await _unmount(table)
 
 

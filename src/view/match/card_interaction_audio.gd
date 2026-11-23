@@ -15,6 +15,7 @@ const CUES := {
 	&"deal": [CARD_PACK + "card_deal_01.wav", -21.0, 1.0, 0.0],
 	&"reveal": [CARD_PACK + "card_foil_shine_01.wav", -22.0, 1.0, 0.0],
 	&"score": [CARD_PACK + "score_tick_01.wav", -22.0, 1.0, 0.0],
+	&"score_milestone": [CARD_PACK + "dice_shake_01.wav", -17.0, 1.15, 0.0],
 	&"score_multiplier": [CARD_PACK + "mult_up_01.wav", -20.0, 1.0, 0.0],
 	&"round_win": [CARD_PACK + "hand_win_01.wav", -15.0, 1.0, 0.0],
 	&"round_loss": [CARD_PACK + "hand_lose_01.wav", -19.0, 1.0, 0.0],

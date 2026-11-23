@@ -77,6 +77,8 @@ func test_ability_drawer_expands_upward_and_enforces_all_four_timings() -> void:
 	assert_false(panel.get_node("Drawer").visible)
 	panel.get_node("ToggleButton").pressed.emit()
 	assert_true(panel.get_node("Drawer").visible)
+	var header := panel.get_node_or_null("Drawer/Layout/Heading") as Label
+	assert_true(header == null or not header.visible)
 	assert_eq(panel.legal_ability_ids(), [&"field-copy", &"buff-copy", &"sabotage-copy"])
 	await Engine.get_main_loop().process_frame
 	var cards := panel.get_node("Drawer/Layout/Scroll/Cards") as Control
@@ -533,6 +535,44 @@ func test_ability_drawer_displays_name_and_rules_text() -> void:
 	assert_true(art != null and art.texture != null)
 	if art != null and art.texture != null:
 		assert_true(art.texture.resource_path.ends_with("card_ability_manipulation.png"))
+	await _unmount(panel)
+
+
+func test_ability_drawer_expands_individual_descriptions_and_switches_all_with_the_eye() -> void:
+	var panel = await _mount(ABILITY_PANEL_PATH)
+	if panel == null:
+		return
+	panel.position = Vector2(230, 240)
+	panel.render(_abilities(), 2, _catalog(), false)
+	panel.get_node("ToggleButton").pressed.emit()
+	await Engine.get_main_loop().process_frame
+	await Engine.get_main_loop().process_frame
+	var cards: Control = panel.get_node("Drawer/Layout/Scroll/Cards")
+	var first := cards.get_child(0) as Control
+	var second := cards.get_child(1) as Control
+	var first_rules := first.find_child("Rules") as Label
+	var second_rules := second.find_child("Rules") as Label
+	assert_false(first_rules.visible)
+	assert_false(second_rules.visible)
+	var eye := first.get_node_or_null("Face/DetailsButton") as Button
+	var all_eyes := panel.get_node_or_null("DetailsMode") as Button
+	assert_true(eye != null and all_eyes != null)
+	if eye != null and all_eyes != null:
+		var activations: Array[StringName] = []
+		panel.ability_activated.connect(func(copy_id: StringName, _ability: Dictionary): activations.append(copy_id))
+		var compact_height := first.size.y
+		_click_card(eye, MOUSE_BUTTON_LEFT)
+		await Engine.get_main_loop().process_frame
+		assert_true(first_rules.visible)
+		assert_false(second_rules.visible)
+		assert_true(first.size.y > compact_height)
+		assert_true(activations.is_empty())
+		panel.render(_abilities(), 2, _catalog(), false)
+		assert_true(first_rules.visible, "A snapshot preserves a locally expanded description")
+		all_eyes.button_pressed = true
+		assert_true(first_rules.visible and second_rules.visible)
+		all_eyes.button_pressed = false
+		assert_false(first_rules.visible or second_rules.visible)
 	await _unmount(panel)
 
 

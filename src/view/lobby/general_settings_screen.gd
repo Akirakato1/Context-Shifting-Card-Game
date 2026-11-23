@@ -3,6 +3,7 @@ extends Control
 signal back_requested
 
 const DisplayPreferences = preload("res://src/view/app/display_preferences.gd")
+const DisplayDiagnostics = preload("res://src/view/app/display_diagnostics.gd")
 const GameplayPreferences = preload("res://src/view/app/gameplay_preferences.gd")
 
 var preferences: GameplayPreferences
@@ -10,6 +11,7 @@ var _binding_action: StringName
 var _binding_buttons: Dictionary[StringName, Button] = {}
 @onready var _modes: OptionButton = $Content/Modes
 @onready var _display_status: Label = $Content/DisplayStatus
+@onready var _copy_display_diagnostics: Button = $Content/CopyDisplayDiagnostics
 @onready var _draw_speed: OptionButton = $Content/DrawSpeed
 @onready var _hotkeys: VBoxContainer = $Content/Hotkeys
 @onready var _hotkey_status: Label = $Content/HotkeyStatus
@@ -20,6 +22,7 @@ func _ready() -> void:
 		preferences = GameplayPreferences.new()
 	DisplayPreferences.populate_modes(_modes)
 	_modes.item_selected.connect(_on_display_mode_selected)
+	_copy_display_diagnostics.pressed.connect(_on_copy_display_diagnostics)
 	get_window().size_changed.connect(_refresh_display_status)
 	_refresh_display_status()
 	_draw_speed.add_item("Skip", GameplayPreferences.DRAW_SKIP)
@@ -34,7 +37,8 @@ func _ready() -> void:
 	var back: Button = $Content/BackButton
 	back.pressed.connect(func(): back_requested.emit())
 	var focus_order: Array[Control] = [
-		_modes, _draw_speed, $Content/SoundEffects/Slider, $Content/Ambient/Slider, $Content/Music/Slider,
+		_modes, _copy_display_diagnostics, _draw_speed,
+		$Content/SoundEffects/Slider, $Content/Ambient/Slider, $Content/Music/Slider,
 	]
 	for binding: Button in _binding_buttons.values():
 		focus_order.append(binding)
@@ -59,6 +63,22 @@ func _on_display_mode_selected(index: int) -> void:
 	DisplayPreferences.apply(get_window(), mode)
 	DisplayPreferences.save_mode(mode)
 	_refresh_display_status.call_deferred()
+	_copy_display_diagnostics.text = "Copy display diagnostics"
+	if DisplayServer.get_name() != "headless":
+		await RenderingServer.frame_post_draw
+		DisplayDiagnostics.record(get_window(), mode, "display mode changed")
+
+
+func _on_copy_display_diagnostics() -> void:
+	var report := DisplayDiagnostics.record(get_window(), _modes.get_selected_id(), "report requested")
+	if report.is_empty():
+		return
+	if DisplayServer.has_feature(DisplayServer.FEATURE_CLIPBOARD):
+		DisplayServer.clipboard_set(report)
+		_copy_display_diagnostics.text = "Display diagnostics copied"
+	else:
+		_copy_display_diagnostics.text = "See display-diagnostics.log"
+	_copy_display_diagnostics.tooltip_text = ProjectSettings.globalize_path(DisplayDiagnostics.PATH)
 
 
 func _refresh_display_status() -> void:

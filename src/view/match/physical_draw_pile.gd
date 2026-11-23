@@ -5,11 +5,6 @@ const STACK_BASE_Y := 66.0
 const MAX_HEIGHT := 25.0
 const LAYER_GAP := 2.7
 static var _face_uvs := PackedVector2Array([Vector2.ZERO, Vector2.RIGHT, Vector2.ONE, Vector2.DOWN])
-# The existing half-card artwork ends on a diagonal through its transparent canvas.
-static var _half_art_uvs := PackedVector2Array([
-	Vector2(0.071, 0.063), Vector2(0.929, 0.063),
-	Vector2(0.929, 0.425), Vector2(0.071, 0.559),
-])
 
 @export var pile_name := "":
 	set(value):
@@ -24,10 +19,10 @@ static var _half_art_uvs := PackedVector2Array([
 	set(value):
 		landscape = value
 		queue_redraw()
-## Existing context half-card artwork, sampled from its upper half.
-@export var fallback_context_art: Texture2D:
+## Context half-card artwork used on both halves of the pile's top card.
+@export var context_half_art: Texture2D:
 	set(value):
-		fallback_context_art = value
+		context_half_art = value
 		queue_redraw()
 ## Optional full card-back illustration projected onto the top of the stack.
 @export var top_art: Texture2D:
@@ -129,8 +124,16 @@ func _draw_top(top: PackedVector2Array) -> void:
 	draw_colored_polygon(top, accent_color.darkened(0.68))
 	if top_art != null:
 		draw_colored_polygon(top, Color.WHITE, _face_uvs, top_art)
-	elif fallback_context_art != null:
-		draw_colored_polygon(top, Color.WHITE, _half_art_uvs, fallback_context_art)
+	elif context_half_art != null:
+		var crop := CardWidget.CARD_ART_REGION
+		var texture_size := context_half_art.get_size()
+		var half_uvs := PackedVector2Array()
+		for corner in _face_uvs:
+			half_uvs.append((crop.position + corner * crop.size) / texture_size)
+		draw_colored_polygon(top, Color.WHITE, half_uvs, context_half_art)
+		# The bottom is the same crop turned 180 degrees, as on a hand card.
+		var flipped := PackedVector2Array([half_uvs[2], half_uvs[3], half_uvs[0], half_uvs[1]])
+		draw_colored_polygon(top, Color.WHITE, flipped, context_half_art)
 	else:
 		_draw_ability_back(top)
 	var border := Color(accent_color.lightened(0.42), 0.86)

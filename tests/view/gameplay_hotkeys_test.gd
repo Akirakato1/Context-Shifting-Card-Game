@@ -44,6 +44,7 @@ func test_settings_can_change_and_restore_a_saved_binding() -> void:
 	await Engine.get_main_loop().process_frame
 	var status: Label = screen.get_node("Content/DisplayStatus")
 	assert_true(status.text.contains("%d × %d" % [window.size.x, window.size.y]))
+	assert_true(screen.has_node("Content/CopyDisplayDiagnostics"))
 	assert_true(DisplayPreferences.describe_window(1440, Vector2i(1920, 1080)).ends_with("below selected size"))
 	assert_false(DisplayPreferences.describe_window(1440, Vector2i(2560, 1440)).ends_with("below selected size"))
 	var binding := screen.get_node_or_null("Content/Hotkeys/ready/Binding") as Button

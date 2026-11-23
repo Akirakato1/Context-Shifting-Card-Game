@@ -308,6 +308,7 @@ func render(model: Dictionary) -> void:
 		$HandPlayControls/Preview.visible = hand_playing
 		$HandPlayControls/ActionRow.visible = hand_playing
 		_invalid_reason.visible = hand_playing
+		_hand_cards_node.modulate = Color("919bb0") if _phase == PHASE_MAIN_1 else Color.WHITE
 	_end.visible = _phase == PHASE_END and (not table_cockpit or _required_ability_discards() == 0)
 	_timeout_notice.text = str(_model.get("timeout_notice", ""))
 	_timeout_notice.visible = not _timeout_notice.text.is_empty()
@@ -1339,19 +1340,21 @@ func _refresh_buttons() -> void:
 	elif _phase == PHASE_START:
 		_update_start_total()
 	elif _phase in [PHASE_MAIN_1, PHASE_MAIN_2]:
+		var active: Array = _model.get("players", []).filter(func(player: Dictionary) -> bool:
+			return bool(player.get("active", false)) and not bool(player.get("pending", false))
+		)
+		var local_id := str(_model.get("private_player_id", ""))
+		var ready_count := active.filter(func(player: Dictionary) -> bool:
+			return bool(player.get("ready", false)) or (_ready_on_host and str(player.get("player_id", "")) == local_id)
+		).size()
+		$MainControls/Hint.text = "%d / %d players ready" % [ready_count, active.size()] if not active.is_empty() else ""
 		_main_ready.disabled = (
 			_input_locked or _ability_focus_held or _pending.has(&"set_ready") or _ready_on_host
 		)
 		_main_ready.text = "READY"
 		if _ready_on_host:
-			var waiting: bool = _model.get("players", []).any(func(player: Dictionary) -> bool:
-				return (
-					bool(player.get("active", false)) and not bool(player.get("pending", false))
-					and not bool(player.get("ready", false))
-				)
-			)
 			_main_ready.text = (
-				"REVIEWING SUBMISSIONS…" if _phase == PHASE_MAIN_2 and not waiting else "WAITING FOR PLAYERS…"
+				"REVIEWING…" if _phase == PHASE_MAIN_2 and ready_count == active.size() else "READY ✓"
 			)
 	elif _phase == PHASE_END:
 		_update_end_button()

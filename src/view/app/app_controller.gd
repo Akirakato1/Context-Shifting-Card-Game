@@ -16,6 +16,7 @@ const UICommandGateway = preload("res://src/view/common/ui_command_gateway.gd")
 const RuntimeGameSession = preload("res://src/view/app/runtime_game_session.gd")
 const PracticeGameSession = preload("res://src/view/app/practice_game_session.gd")
 const DisplayPreferences = preload("res://src/view/app/display_preferences.gd")
+const DisplayDiagnostics = preload("res://src/view/app/display_diagnostics.gd")
 const GameplayPreferences = preload("res://src/view/app/gameplay_preferences.gd")
 const CursorArtwork = preload("res://src/view/app/cursor_artwork.gd")
 const GameTypes = preload("res://src/core/common/game_types.gd")
@@ -47,7 +48,11 @@ var _player_name := ""
 
 
 func _ready() -> void:
-	DisplayPreferences.apply(get_window(), DisplayPreferences.load_mode())
+	var mode := DisplayPreferences.load_mode()
+	DisplayPreferences.apply(get_window(), mode)
+	DisplayDiagnostics.record(get_window(), mode, "launch", true)
+	if DisplayServer.get_name() != "headless":
+		RenderingServer.frame_post_draw.connect(_record_first_frame.bind(mode), CONNECT_ONE_SHOT | CONNECT_DEFERRED)
 	if cursor_artwork != null:
 		cursor_artwork.apply()
 	gameplay_preferences.apply_audio()
@@ -63,6 +68,10 @@ func _ready() -> void:
 			var result := write_startup_smoke_marker(marker_path)
 			get_tree().quit(0 if result == OK else 1)
 			return
+
+
+func _record_first_frame(mode: int) -> void:
+	DisplayDiagnostics.record(get_window(), mode, "first rendered frame")
 
 
 func _init() -> void:

@@ -14,7 +14,9 @@ The clock tracks the current context. Abilities can change which contexts are ac
 
 - **Practice** starts an untimed round-win match against three bots.
 - **Create Lobby** hosts a match for two to four active players and up to four spectators. Share the six-character code so others can use **Join Lobby**.
-- During **Hand Play**, use the live score breakdown to compare submissions. In **Main 2**, review the revealed hands and play any final buffs or nerfs before round scores become final.
+- During **Hand Play**, use the live score breakdown to compare submissions. In **Main Phase 2**, review the revealed hands and play any final buffs or nerfs. The score counter pulses and changes color at every 100-point milestone.
+- During the Main Phases, each seat shows whether that player is ready. The **Ready** button sits beside the total ready count.
+- Open **Abilities** and right-click a playable card to begin. Use the eye on a card to expand its description, or the eye beside **Abilities** to switch the entire tray between concise and expanded views.
 - If the match continues and you have more than two abilities at **End**, the ability tray opens. Select exactly two cards to keep and confirm. Everyone can choose at the same time.
 
 ## Current scope
@@ -22,7 +24,7 @@ The clock tracks the current context. Abilities can change which contexts are ac
 - Host-authoritative multiplayer over direct WebRTC, with Cloudflare TURN fallback.
 - Simultaneous timed phases, reconnect grace, late player entry, and spectator-safe public state.
 - Joker half-cards, separate card and context hand scoring, and score-race or round-win victory modes.
-- Illustrated cards, context backgrounds, a context clock, deck animations, and adjustable hotkeys, audio levels, and animation speed.
+- Illustrated cards and piles, context backgrounds and clock, animated draws, and adjustable hotkeys, audio levels, and animation speed.
 - Windows x64 as the initial game-jam and itch.io target.
 
 ## Technology
@@ -64,7 +66,7 @@ Permanent Cloudflare TURN credentials belong only in the signaling host's encryp
 
 The project can run without the third-party sound packs. To enable card interaction sounds and table ambience in local builds, download the packs from their creators and place the WAV files in these folders.
 
-- [Card Game SFX Lite by Willosuna](https://willosuna.itch.io/card-game-sfx-lite) goes in `assets/sound_effects/Card Game SFX Lite (Free)/` with the original `wav/oneshots/` and `wav/loops/` subfolders.
+- Card Game SFX Lite provides card sounds, the table ambience, and the dice shake at score milestones. Place it in `assets/sound_effects/Card Game SFX Lite (Free)/` with the original `wav/oneshots/` and `wav/loops/` subfolders. [Card Game SFX Lite by Willosuna](https://willosuna.itch.io/card-game-sfx-lite)
 - [Tabletop Games Sound Effect Pack by JDSherbert](https://jdsherbert.itch.io/tabletop-games-sfx-pack) goes in `assets/sound_effects/Tabletop Games SFX Pack/`. The game uses the WAV files for Deck Deal 2, Dice Pickup 2, and Piece Impact 2 with their original filenames.
 
 ## Tests
@@ -94,6 +96,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/export_windows.ps1
 ```
 
 The release archive is written to `build/zeitklus-windows-x64.zip`. See the [release checklist](docs/release-checklist.md) before publishing to itch.io.
+
+### Report a display issue in Wineskin
+
+1. Launch `Zeitklus.exe` in your Wineskin wrapper. In **Settings**, select the mode that looks pixelated, such as **2560 × 1440**.
+2. Reproduce the issue. In the same session, click **Settings → Copy display diagnostics**.
+3. Share the pasted report and a screenshot of the affected screen.
+
+The game starts a fresh `display-diagnostics.log` in its data folder each launch. The report includes the selected resolution, the window and screen sizes the game sees through Wine, Godot’s render size, and the reported DPI and scale. It stays local until you share it.
 
 ## Repository layout
 

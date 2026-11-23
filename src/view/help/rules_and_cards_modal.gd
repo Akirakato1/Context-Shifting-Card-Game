@@ -120,7 +120,7 @@ func _build_how_to_play() -> void:
 		"Round scores are finalized. If someone wins the match, go straight to Results. Otherwise, anyone holding more than two abilities selects two to keep in their ability tray. Everyone can choose at the same time.")
 	_label(
 		content,
-		"In the Abilities drawer, right-click an available card to focus it, then left-click that card to play it. Drag cards to reorder them.",
+		"Open Abilities and right-click a playable card to begin. Use a card’s eye to read its description, or use the eye beside Abilities to show all descriptions. Drag cards to reorder them.",
 		20, INK
 	)
 	_label(content, "Scoring", 27, GOLD)

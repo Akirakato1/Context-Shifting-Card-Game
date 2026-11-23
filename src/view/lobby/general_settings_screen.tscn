@@ -77,6 +77,13 @@ layout_mode = 2
 theme_override_colors/font_color = Color(0.67, 0.76, 0.86, 1)
 theme_override_font_sizes/font_size = 16
 
+[node name="CopyDisplayDiagnostics" type="Button" parent="Content"]
+custom_minimum_size = Vector2(0, 32)
+layout_mode = 2
+size_flags_horizontal = 0
+text = "Copy display diagnostics"
+tooltip_text = "Copy the launch report and the current display measurements."
+
 [node name="DrawAnimation" type="Label" parent="Content"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 24

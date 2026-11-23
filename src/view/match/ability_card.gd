@@ -42,6 +42,8 @@ var _hovered := false
 @onready var _artwork: TextureRect = $Artwork
 @onready var _art_space: Control = $Face/ArtSpace
 @onready var _context_emblem: TextureRect = $Face/ArtSpace/ContextEmblem
+@onready var _copy: Control = $Face/Copy
+@onready var _copy_layout: VBoxContainer = $Face/Copy/Layout
 @onready var _title: Label = $Face/Copy/Layout/Heading/Title
 @onready var _count: Label = $Face/Copy/Layout/Heading/Count
 @onready var _timing: Label = $Face/Copy/Layout/Timing
@@ -101,6 +103,42 @@ func render(entry: Dictionary, ability_id: String, show_copies: bool, playable :
 func set_inventory_focused(focused: bool) -> void:
 	_inventory_focused = focused
 	_aura.queue_redraw()
+
+
+func set_tray_details(expanded: bool) -> void:
+	custom_minimum_size.y = 0.0
+	_timing.visible = expanded
+	_rules.visible = expanded
+	_artwork.stretch_mode = TextureRect.STRETCH_SCALE if expanded else TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	_copy.anchor_left = 0.285 if expanded else 0.25
+	_copy.anchor_right = 0.85
+	_copy.anchor_top = 0.13 if expanded else 0.0
+	_copy.anchor_bottom = 0.92 if expanded else 1.0
+	_copy_layout.alignment = BoxContainer.ALIGNMENT_BEGIN if expanded else BoxContainer.ALIGNMENT_CENTER
+	_art_space.anchor_top = 0.73 if expanded else 0.15
+	_art_space.anchor_bottom = 0.93 if expanded else 0.85
+	_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_title.max_lines_visible = 2
+	_title.add_theme_font_size_override("font_size", 22)
+	_timing.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_timing.max_lines_visible = 2
+	_timing.add_theme_font_size_override("font_size", 14)
+	_rules.add_theme_font_size_override("font_size", 16)
+	tooltip_text = "%s\n%s\n%s" % [_title.text, _timing.text, _rules.text] if expanded else _title.text
+
+
+func tray_height(width: float, expanded: bool) -> float:
+	if not expanded:
+		return 66.0
+	var text_width := width * (_copy.anchor_right - _copy.anchor_left) - 6.0
+	var content_height := 12.0
+	for label: Label in [_title, _timing, _rules]:
+		var font := label.get_theme_font("font")
+		content_height += font.get_multiline_string_size(
+			label.text, HORIZONTAL_ALIGNMENT_LEFT, text_width,
+			label.get_theme_font_size("font_size"), label.max_lines_visible
+		).y
+	return maxf(146.0, ceilf(content_height / (_copy.anchor_bottom - _copy.anchor_top)))
 
 
 func _on_mouse_entered() -> void:

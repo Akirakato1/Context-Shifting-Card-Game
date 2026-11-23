@@ -17,7 +17,7 @@ const GameplayPreferences := preload("res://src/view/app/gameplay_preferences.gd
 const AbilityFocusShader := preload("res://src/view/match/ability_focus.gdshader")
 const AbilityEffectAnimation := preload("res://src/view/match/ability_effect_animation.gd")
 const MAX_FOCUS_REGIONS := 6
-const PHASE_NAMES := ["SETUP", "START", "MAIN 1", "HAND PLAY", "MAIN 2", "END", "COMPLETE"]
+const PHASE_NAMES := ["SETUP", "START", "MAIN PHASE 1", "HAND PLAY", "MAIN PHASE 2", "END", "COMPLETE"]
 const OPENING_DRAW_WINDOW_MSEC := 2000
 const DRAW_STAGGER := 0.15
 const CONTEXT_EMBLEMS := [
@@ -61,6 +61,7 @@ var _draw_speed := GameplayPreferences.DRAW_NORMAL
 @export var context_sort_art: Array[Texture2D]
 
 @onready var _phase: Label = $PhaseBadge/Phase
+@onready var _phase_instruction: Label = $PhaseInstruction
 @onready var _round: Label = $Header/Round
 @onready var _timer: Label = $Header/Timer
 @onready var _progress: Label = $MatchScore/Progress
@@ -85,6 +86,8 @@ var _draw_speed := GameplayPreferences.DRAW_NORMAL
 
 func _ready() -> void:
 	_configure_artwork()
+	_phase_instruction.add_theme_font_override("font", _phase_controls.score_font)
+	_timer.add_theme_font_override("font", _phase_controls.score_font)
 	_card_audio.name = "CardInteractionAudio"
 	add_child(_card_audio)
 	_table_targets.name = "TableAbilityTargets"
@@ -165,6 +168,7 @@ func _ready() -> void:
 	resized.connect(_position_cockpit)
 	var toggle: Button = $AbilityPanel/ToggleButton
 	toggle.offset_top = -88
+	$AbilityPanel/DetailsMode.offset_top = toggle.offset_top
 	_position_cockpit()
 	_top_seat.seat_position = &"top"
 	_left_seat.seat_position = &"left"
@@ -423,6 +427,10 @@ func handle_command_result(
 func _render_header() -> void:
 	var phase_index := int(_model.get("phase", 0))
 	_phase.text = PHASE_NAMES[phase_index] if phase_index >= 0 and phase_index < PHASE_NAMES.size() else "UNKNOWN"
+	var has_player := not str(_model.get("private_player_id", "")).is_empty()
+	_phase_instruction.visible = has_player and phase_index in [
+		GameTypes.Phase.MAIN_1, GameTypes.Phase.HAND_PLAY, GameTypes.Phase.MAIN_2,
+	]
 	_round.text = "ROUND %d" % int(_model.get("round_number", 0))
 	var deadline := int(_model.get("phase_deadline_msec", -1))
 	var server_now := int(_model.get(
@@ -500,6 +508,8 @@ func _render_seats() -> void:
 	var requests: Dictionary = _model.get("replacement_requests", {})
 	var context_catalog: Array = _model.get("scoring_catalog", {}).get("context", [])
 	_bottom_seat.visible = viewing_as_spectator or phase in [GameTypes.Phase.MAIN_2, GameTypes.Phase.END]
+	_bottom_seat.offset_top = 42.0 if phase == GameTypes.Phase.MAIN_2 else 0.0
+	_bottom_seat.offset_bottom = _bottom_seat.offset_top + 53.0
 	_bottom_seat.render(
 		local_player, phase, viewing_as_spectator, not viewing_as_spectator,
 		victory_mode, _request_for(requests, local_player), context_catalog
@@ -897,6 +907,9 @@ func _clear_active_ability() -> void:
 
 func _refresh_ability_focus() -> void:
 	var ability := _active_ability if not _active_ability.is_empty() else _primed_ability
+	_phase_instruction.text = "Open Abilities and right-click a playable card."
+	if _active_ability.is_empty() and not _primed_ability.is_empty():
+		_phase_instruction.text = "Left-click the highlighted ability to play it."
 	var timing := int(ability.get("timing", -1))
 	var has_focus := not ability.is_empty() and not bool(_model.get("frozen", false))
 	_phase_controls.set_ability_focus_held(has_focus)
