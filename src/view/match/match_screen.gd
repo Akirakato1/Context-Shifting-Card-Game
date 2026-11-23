@@ -8,7 +8,6 @@ signal leave_requested
 
 const GameTypes = preload("res://src/core/common/game_types.gd")
 const MatchState = preload("res://src/core/match/match_state.gd")
-const Rational = preload("res://src/core/common/rational.gd")
 const Rules := preload("res://src/view/help/rules_and_cards_modal.tscn")
 const AbilityDefinition := preload("res://src/core/abilities/ability_definition.gd")
 const TableScenery := preload("res://src/view/match/table_scenery.gd")
@@ -17,7 +16,6 @@ const CardInteractionAudio := preload("res://src/view/match/card_interaction_aud
 const GameplayPreferences := preload("res://src/view/app/gameplay_preferences.gd")
 const AbilityFocusShader := preload("res://src/view/match/ability_focus.gdshader")
 const AbilityEffectAnimation := preload("res://src/view/match/ability_effect_animation.gd")
-const CLOCK_FOCUS_RECT := Rect2(19, 731, 324, 327)
 const MAX_FOCUS_REGIONS := 6
 const PHASE_NAMES := ["SETUP", "START", "MAIN 1", "HAND PLAY", "MAIN 2", "END", "COMPLETE"]
 const OPENING_DRAW_WINDOW_MSEC := 2000
@@ -71,9 +69,7 @@ var _draw_speed := GameplayPreferences.DRAW_NORMAL
 @onready var _left_seat = $TableLayer/LeftSeat
 @onready var _right_seat = $TableLayer/RightSeat
 @onready var _bottom_seat = $TableLayer/BottomSeat
-@onready var _clock_direction: Label = $Center/ContextClock/Direction
-@onready var _clock_active: Label = $Center/ContextClock/Active
-@onready var _field_rows: GridContainer = $Center/Fields/FieldScroll/FieldRows
+@onready var _active_effects = $Center/Fields
 @onready var _round_result: Label = $Center/RoundResult
 @onready var _phase_controls = $PhaseControls
 @onready var _ability_panel: AbilityPanel = $AbilityPanel
@@ -112,13 +108,13 @@ func _ready() -> void:
 	_ability_effects.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	for seat in [_top_seat, _left_seat, _right_seat]:
 		seat.ability_target_requested.connect(_on_seat_target_requested)
-	$TableScenery/ActiveContexts.add_theme_font_override("font", _phase_controls.score_font)
 	$RoundReveal/Content/HandName.add_theme_font_override("font", _phase_controls.score_font)
 	_rules = Rules.instantiate()
 	add_child(_rules)
 	_field_details = AcceptDialog.new()
 	_field_details.dialog_autowrap = true
 	add_child(_field_details)
+	_active_effects.details_requested.connect(_show_field_details)
 	$MenuButton.pressed.connect(func():
 		_cancel_ability_focus()
 		if _history_drawer.visible:
@@ -229,7 +225,7 @@ func render(model: Dictionary) -> void:
 	_rules.render(_model)
 	_render_header()
 	_render_context_and_piles()
-	_render_fields()
+	_active_effects.render(_model, _phase_controls.score_font)
 	_render_seats()
 	_render_phase_controls()
 	_render_abilities()
@@ -396,7 +392,7 @@ func handle_command_result(
 	_phase_controls.handle_command_result(kind, accepted, error_code, authoritative_phase)
 	if not accepted and kind in [
 		&"stage_hand", &"lock_hand", &"stage_manipulation", &"commit_manipulation",
-		&"play_public_ability",
+		&"play_public_ability", &"configure_joker",
 	]:
 		_card_audio.play(&"invalid")
 	if kind == &"stage_manipulation" and not accepted:
@@ -457,16 +453,6 @@ func _render_context_and_piles() -> void:
 	var direction := int(_model.get("context_direction", 1))
 	var is_selecting_hand := int(_model.get("phase", 0)) == GameTypes.Phase.HAND_PLAY and not str(_model.get("private_player_id", "")).is_empty()
 	$TableScenery.render(active_context, direction, active_contexts, is_selecting_hand)
-	_clock_direction.text = (
-		"Rise  →  Flourish  →  Fall"
-		if direction >= 0
-		else "Fall  ←  Flourish  ←  Rise"
-	)
-	var active_names: Array[String] = []
-	for context in active_contexts:
-		active_names.append(_context_name(int(context)))
-	_clock_active.text = "ACTIVE  %s" % " + ".join(active_names)
-	$TableScenery/ActiveContexts.text = _clock_active.text
 	var counts: Dictionary = _model.get("pile_counts", {})
 	for context in 3:
 		var pile = get_node("Center/Piles/Pile%s" % _context_name(context))
@@ -478,110 +464,6 @@ func _render_context_and_piles() -> void:
 	$Center/Piles/PileAbility.render(ability_count, int(ability_deck.get("capacity", maxi(ability_count, 1))))
 	_round_result.visible = bool(_model.get("last_round_nil", false))
 	_round_result.text = "NIL ROUND  ·  no progress awarded" if _round_result.visible else ""
-
-
-func _render_fields() -> void:
-	for child in _field_rows.get_children():
-		_field_rows.remove_child(child)
-		child.queue_free()
-	var catalog: Dictionary = _model.get("ability_catalog", {})
-	var player_names := {}
-	for player: Dictionary in _model.get("players", []):
-		var player_id := str(player.get("player_id", ""))
-		player_names[player_id] = str(player.get("name", player_id))
-	var fields: Array = _model.get("active_fields", [])
-	var modifiers: Array = _model.get("active_score_modifiers", [])
-	_field_rows.columns = 2 if fields.size() + modifiers.size() > 2 else 1
-	for field in fields:
-		if not field is Dictionary:
-			continue
-		var ability_id := str(field.get("ability_id", "field"))
-		var definition: Dictionary = catalog.get(ability_id, {})
-		var field_name := str(definition.get("display_name", ability_id.replace("_", " ").capitalize()))
-		var rules := str(definition.get("rules_text", ""))
-		var source_id := str(field.get("source_player_id", "?"))
-		var source_name := str(player_names.get(source_id, source_id))
-		var duration_text := "Persistent" if bool(field.get("persistent", false)) else "%d round%s" % [
-			int(field.get("remaining_rounds", 0)),
-			"" if int(field.get("remaining_rounds", 0)) == 1 else "s",
-		]
-		var summary := _field_summary(field)
-		var label := "%s  ·  %s  ·  by %s" % [field_name, duration_text, source_name]
-		if not summary.is_empty():
-			label = "%s  ·  %s" % [summary, duration_text if _field_rows.columns > 1 else label]
-		_add_effect_row(label, field_name, rules)
-	for modifier: Dictionary in modifiers:
-		var source_id := str(modifier.get("source_definition_id", ""))
-		var definition: Dictionary = catalog.get(source_id, {})
-		var name := str(definition.get("display_name", source_id.capitalize()))
-		var target_id := str(modifier.get("target_player_id", ""))
-		var target_name := str(player_names.get(target_id, target_id))
-		var factor: String = {"card_hand": "Hand", "context_hand": "Context", "field": "Field"}.get(modifier.get("factor_id"), "")
-		var category := str(modifier.get("category_id", "")).capitalize()
-		var delta := _signed_effect_delta(modifier.get("delta", {}))
-		var summary := "%s: %s %s if %s" % [target_name, delta, factor, category]
-		var rules := str(definition.get("rules_text", summary))
-		var color := Color("ffc0bc") if delta.begins_with("-") else Color("c4edc7")
-		_add_effect_row("%s  ·  This round" % summary, name, rules, color)
-	$Center/Fields/FieldScroll.visible = _field_rows.get_child_count() > 0
-	$Center/Fields/Heading.text = "ACTIVE EFFECTS  ·  SELECT FOR DETAILS" if _field_rows.get_child_count() > 0 else "NO ACTIVE EFFECTS"
-
-
-func _add_effect_row(label: String, effect_name: String, rules: String, color := Color("eef4ff")) -> void:
-	var row := Button.new()
-	row.flat = true
-	row.clip_text = true
-	row.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_theme_font_override("font", _phase_controls.score_font)
-	row.add_theme_font_size_override("font_size", 18)
-	row.add_theme_color_override("font_color", color)
-	row.text = label
-	row.tooltip_text = rules
-	if not rules.is_empty():
-		row.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-		row.pressed.connect(_show_field_details.bind(effect_name, rules))
-	_field_rows.add_child(row)
-
-
-func _field_summary(field: Dictionary) -> String:
-	if str(field.get("ability_id", "")) == "reverse_cycle":
-		var direction := int(_model.get("context_direction", 1))
-		var next := posmod(int(_model.get("active_context", 0)) + direction, 3)
-		return "Cycle %s · next %s" % ["reversed" if direction < 0 else "forward", _context_name(next)]
-	var params: Dictionary = field.get("effect_parameters", {})
-	var delta := _signed_effect_delta(params)
-	match str(params.get("field_rule", "")):
-		"additional_context":
-			return "%s also active" % _context_name(int(params.context))
-		"per_selected_suit":
-			return "%s Field per %s scoring half" % [delta, GameTypes.suit_name(int(params.suit))]
-		"per_selected_rank_set":
-			var ranks: Array = params.ranks
-			return "%s Field per %s scoring half" % [delta, _rank_field_targets(ranks)]
-		"strict_context_majority":
-			return "%s Field if %s leads" % [delta, _context_name(int(params.context))]
-		"leading_context":
-			return "%s Field if %s leads or ties for most" % [delta, _context_name(int(params.context))]
-	return ""
-
-
-func _rank_field_targets(ranks: Array) -> String:
-	if ranks == [2, 4, 6, 8, 10]:
-		return "even-ranked"
-	if ranks == [1, 3, 5, 7, 9]:
-		return "odd-ranked"
-	return "rank %s" % "/".join(ranks.map(func(rank): return str(rank)))
-
-
-func _signed_effect_delta(parameters: Dictionary) -> String:
-	var delta := Rational.new(int(parameters.get("numerator", 0)), int(parameters.get("denominator", 1)))
-	var value := str(delta.numerator)
-	if delta.denominator > 1:
-		value = "%d/%d" % [delta.numerator, delta.denominator]
-		if 1000 % delta.denominator == 0:
-			value = ("%.3f" % (float(delta.numerator) / delta.denominator)).rstrip("0").rstrip(".")
-	return "+" + value if delta.numerator > 0 else value
 
 
 func _show_field_details(field_name: String, rules: String) -> void:
@@ -645,10 +527,8 @@ func present_ability_events(events: Array) -> void:
 		var bounds: Rect2 = seat.ability_target_rect() if seat.visible else _phase_controls.hand_focus_rect()
 		seats[id] = transform * bounds
 	var board := TableScenery.TABLE_RECT
-	var clock := CLOCK_FOCUS_RECT
 	_ability_effects.set_regions(
 		scenery_to_effects * Rect2(board.position * view_scale, board.size * view_scale),
-		scenery_to_effects * Rect2(clock.position * view_scale, clock.size * view_scale),
 		seats
 	)
 	_ability_effects.present(events, _model)
@@ -1051,10 +931,13 @@ func _update_focus_regions() -> void:
 				str(ability.get("effect_id", "")) in ["context_jump", "reverse_direction"]
 				or str(ability.get("field_rule", "")) == "additional_context"
 			)
-			var bounds := CLOCK_FOCUS_RECT if clock_effect else TableScenery.TABLE_RECT
-			var scenery: Control = $TableScenery
+			var scenery: TableScenery = $TableScenery
 			var view_scale := scenery.size / TableScenery.BASE
-			regions.append(scenery.get_global_transform() * Rect2(bounds.position * view_scale, bounds.size * view_scale))
+			var board := TableScenery.TABLE_RECT
+			var bounds: Rect2 = scenery.clock_rect() if clock_effect else Rect2(
+				board.position * view_scale, board.size * view_scale
+			)
+			regions.append(scenery.get_global_transform() * bounds)
 		AbilityDefinition.Timing.HAND_SHAPE:
 			regions.append_array(_table_targets.target_rects())
 		AbilityDefinition.Timing.SABOTAGE:

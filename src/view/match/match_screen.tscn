@@ -1,4 +1,4 @@
-[gd_scene load_steps=21 format=3]
+[gd_scene load_steps=23 format=3]
 
 [ext_resource type="Script" path="res://src/view/match/match_screen.gd" id="1_script"]
 [ext_resource type="PackedScene" path="res://src/view/match/player_seat.tscn" id="2_seat"]
@@ -19,6 +19,8 @@
 [ext_resource type="Texture2D" path="res://assets/artwork/card/card_half_context_flourish.png" id="17_flourish_pile"]
 [ext_resource type="Texture2D" path="res://assets/artwork/card/card_half_context_fall.png" id="18_fall_pile"]
 [ext_resource type="Script" path="res://src/view/match/draw_animation.gd" id="19_draw_animation"]
+[ext_resource type="Script" path="res://src/view/match/context_clock.gd" id="20_clock"]
+[ext_resource type="Script" path="res://src/view/match/active_effects.gd" id="21_effects"]
 
 [sub_resource type="ButtonGroup" id="ButtonGroup_sort"]
 
@@ -53,20 +55,10 @@ table_art = ExtResource("11_table")
 table_source_region = Rect2(0, 265, 2560, 955)
 table_shading = Array[Texture2D]([ExtResource("12_rise_shade"), ExtResource("13_flourish_shade"), ExtResource("14_fall_shade")])
 
-[node name="ActiveContexts" type="Label" parent="TableScenery"]
-layout_mode = 1
-anchor_left = 0.0099
-anchor_top = 0.932
-anchor_right = 0.1786
-anchor_bottom = 0.967
-mouse_filter = 2
-theme_override_colors/font_color = Color(1, 0.88, 0.57, 1)
-theme_override_colors/font_shadow_color = Color(0.04, 0.06, 0.10, 1)
-theme_override_constants/shadow_offset_x = 1
-theme_override_constants/shadow_offset_y = 1
-theme_override_font_sizes/font_size = 18
-horizontal_alignment = 1
-vertical_alignment = 1
+[node name="ContextClock" type="Control" parent="TableScenery"]
+layout_mode = 0
+mouse_filter = 1
+script = ExtResource("20_clock")
 
 [node name="Header" type="HBoxContainer" parent="."]
 layout_mode = 1
@@ -166,26 +158,6 @@ offset_bottom = 306.0
 grow_horizontal = 2
 mouse_filter = 2
 
-[node name="ContextClock" type="VBoxContainer" parent="Center"]
-visible = false
-layout_mode = 1
-anchor_right = 0.46
-offset_bottom = 87.0
-
-[node name="Direction" type="Label" parent="Center/ContextClock"]
-layout_mode = 2
-theme_override_colors/font_color = Color(0.58, 0.7, 0.82, 1)
-theme_override_font_sizes/font_size = 18
-text = "Rise  →  Flourish  →  Fall"
-horizontal_alignment = 1
-
-[node name="Active" type="Label" parent="Center/ContextClock"]
-layout_mode = 2
-theme_override_colors/font_color = Color(1, 0.82, 0.38, 1)
-theme_override_font_sizes/font_size = 24
-text = "ACTIVE  Rise"
-horizontal_alignment = 1
-
 [node name="Piles" type="HBoxContainer" parent="Center"]
 layout_mode = 1
 anchor_left = 0.0
@@ -221,27 +193,26 @@ pile_name = "Abilities"
 landscape = true
 
 [node name="Fields" type="VBoxContainer" parent="Center"]
+visible = false
 layout_mode = 1
 anchor_right = 1.0
-offset_top = -51.0
-offset_bottom = 30.0
-
-[node name="Heading" type="Label" parent="Center/Fields"]
-layout_mode = 2
-theme_override_colors/font_color = Color(0.63, 0.71, 0.8, 1)
-text = "NO ACTIVE EFFECTS"
-horizontal_alignment = 1
+offset_top = -24.0
+offset_bottom = 33.0
+mouse_filter = 2
+script = ExtResource("21_effects")
 
 [node name="FieldScroll" type="ScrollContainer" parent="Center/Fields"]
-custom_minimum_size = Vector2(0, 60)
 layout_mode = 2
+size_flags_vertical = 3
+mouse_filter = 1
 horizontal_scroll_mode = 0
 
-[node name="FieldRows" type="GridContainer" parent="Center/Fields/FieldScroll"]
+[node name="FieldRows" type="HFlowContainer" parent="Center/Fields/FieldScroll"]
 layout_mode = 2
 size_flags_horizontal = 3
 theme_override_constants/h_separation = 12
-theme_override_constants/v_separation = 0
+theme_override_constants/v_separation = 3
+alignment = 1
 
 [node name="RoundResult" type="Label" parent="Center"]
 visible = false

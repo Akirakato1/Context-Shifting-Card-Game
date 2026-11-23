@@ -226,7 +226,15 @@ func test_practice_public_field_uses_the_live_clock_animation() -> void:
 			"payload": {"copy_id": str(field.copy_id), "choices": {}}})
 		assert_eq(state.context_direction, -1)
 		assert_eq(effects.get_node("EffectTitle").text, "Reverse Cycle")
-		assert_eq(effects.get("_cue").get("direction"), -1)
+		var clock: Control = screen.get_node("TableScenery/ContextClock")
+		assert_eq(clock.get("_direction"), -1)
+		var reversal: Tween = clock.get("_direction_tween")
+		assert_true(reversal != null)
+		if reversal != null:
+			reversal.pause()
+			reversal.custom_step(0.12)
+			var reverse_art := clock.get_node("ReverseCycle") as TextureRect
+			assert_true(reverse_art.self_modulate.a > 0.0 and reverse_art.self_modulate.a < 1.0)
 		assert_eq(effects.get("_pending").size(), 0)
 		assert_eq(effects.mouse_filter, Control.MOUSE_FILTER_IGNORE)
 	await _unmount(app)

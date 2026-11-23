@@ -6,9 +6,12 @@ const AbilityDefinition = preload("res://src/core/abilities/ability_definition.g
 const AbilityState = preload("res://src/core/abilities/ability_state.gd")
 const FieldState = preload("res://src/core/abilities/field_state.gd")
 
-var starting_hand_size := 2
-var start_draw_count := 2
-var end_hand_limit := 3
+const DEFAULT_START_DRAW_COUNT := 3
+const DEFAULT_END_HAND_LIMIT := 2
+
+var starting_hand_size := DEFAULT_START_DRAW_COUNT
+var start_draw_count := DEFAULT_START_DRAW_COUNT
+var end_hand_limit := DEFAULT_END_HAND_LIMIT
 
 var _draw_cards: Array[AbilityState] = []
 var _used_cards: Array[AbilityState] = []

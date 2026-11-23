@@ -5,6 +5,8 @@ signal commit_requested(choices: Dictionary)
 signal closed(reason: StringName)
 signal selection_changed(kind: StringName, eligible: Array, selected: Array)
 
+const GameTypes := preload("res://src/core/common/game_types.gd")
+
 var _steps: Array = []
 var _choices: Dictionary = {}
 var _current_step := 0
@@ -123,7 +125,10 @@ func _render_step() -> void:
 	if kind not in ["card", "full_card", "half_card"] and not selects_on_table:
 		for value in eligible:
 			var button := Button.new()
-			button.text = str(_player_labels.get(str(value), str(value))).replace("_", " ").capitalize()
+			if kind == "suit":
+				button.text = GameTypes.suit_name(int(value))
+			else:
+				button.text = str(_player_labels.get(str(value), str(value))).replace("_", " ").capitalize()
 			button.pressed.connect(func(): select_value(value))
 			_options.add_child(button)
 	_options.visible = not _on_table or _options.get_child_count() > 0
@@ -186,6 +191,7 @@ func _resolved_steps(raw_steps: Variant, private_hand: Array, player_targets: Ar
 		return []
 	var card_ids: Array = []
 	var half_targets: Array = []
+	var ordinary_half_targets: Array = []
 	for card in private_hand:
 		if not card is Dictionary:
 			continue
@@ -194,7 +200,11 @@ func _resolved_steps(raw_steps: Variant, private_hand: Array, player_targets: Ar
 			continue
 		card_ids.append(card_id)
 		for half_index in range(2):
-			half_targets.append({"card_id": card_id, "half_index": half_index})
+			var half_target := {"card_id": card_id, "half_index": half_index}
+			half_targets.append(half_target)
+			var half: Dictionary = card.get("first" if half_index == 0 else "second", {})
+			if int(half.get("kind", GameTypes.HalfKind.NORMAL)) != GameTypes.HalfKind.JOKER:
+				ordinary_half_targets.append(half_target)
 	var result: Array = []
 	var player_ids: Array = []
 	for target in player_targets:
@@ -211,7 +221,8 @@ func _resolved_steps(raw_steps: Variant, private_hand: Array, player_targets: Ar
 		if kind == "full_card" or (kind == "card" and not step.has("eligible")):
 			step["eligible"] = card_ids.duplicate()
 		elif kind == "half_card":
-			step["eligible"] = half_targets.duplicate(true)
+			var candidates := ordinary_half_targets if bool(step.get("ordinary_only", false)) else half_targets
+			step["eligible"] = candidates.duplicate(true)
 		elif kind == "player":
 			step["eligible"] = player_ids.duplicate()
 		result.append(step)

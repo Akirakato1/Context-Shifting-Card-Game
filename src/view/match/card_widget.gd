@@ -12,8 +12,10 @@ signal interaction_rejected
 
 const GameTypes = preload("res://src/core/common/game_types.gd")
 const RANK_INK := preload("res://src/view/match/rank_ink.tres")
+const JOKER_RANK_INK := preload("res://src/view/match/joker_rank_ink.tres")
 const HOVER_AURA := preload("res://src/view/match/hover_card_aura.tres")
 const PRIMED_AURA := preload("res://src/view/match/primed_card_aura.tres")
+const JOKER_MIMIC := preload("res://src/view/match/joker_mimic.tres")
 const CARD_ART_REGION := Rect2(130, 130, 1740, 2610)
 const DIVIDER_ART := preload("res://assets/artwork/card/card_divider.png")
 const BACK_ART := preload("res://assets/artwork/card/card_back.png")
@@ -21,6 +23,12 @@ const CONTEXT_ART := {
 	GameTypes.Context.RISE: preload("res://assets/artwork/card/card_half_context_rise.png"),
 	GameTypes.Context.FLOURISH: preload("res://assets/artwork/card/card_half_context_flourish.png"),
 	GameTypes.Context.FALL: preload("res://assets/artwork/card/card_half_context_fall.png"),
+}
+const JOKER_NEUTRAL_ART := preload("res://assets/artwork/card/card_joker_white.png")
+const JOKER_CONTEXT_ART := {
+	GameTypes.Context.RISE: preload("res://assets/artwork/card/card_joker_blue.png"),
+	GameTypes.Context.FLOURISH: preload("res://assets/artwork/card/card_joker_green.png"),
+	GameTypes.Context.FALL: preload("res://assets/artwork/card/card_joker_red.png"),
 }
 
 ## Optional transparent 2:3 frame over the front of the card.
@@ -148,8 +156,8 @@ func render(
 		modulate = Color.WHITE
 	if hidden:
 		return
-	var first: Dictionary = card.get("first", {})
-	var second: Dictionary = card.get("second", {})
+	var first: Dictionary = _card.get("first", {})
+	var second: Dictionary = _card.get("second", {})
 	var active_contexts: Array = view_state.get("active_contexts", [])
 	if active_contexts.is_empty() and active_context >= 0:
 		active_contexts = [active_context]
@@ -159,6 +167,7 @@ func render(
 		second = _resolved_half(resolved_halves[1])
 		if not view_state.has("orientation_flipped"):
 			orientation_flipped = int(card.get("selected_half_index", 0)) == 1
+	_apply_joker_choices(first, second, view_state.get("joker_choices", []))
 	_first_debug_text = _half_text(first)
 	_second_debug_text = _half_text(second)
 	_render_rank_art(_first_rank_art, _half_rank(first))
@@ -171,12 +180,14 @@ func render(
 		active_half_index = 0
 	elif _half_matches_contexts(second, active_contexts):
 		active_half_index = 1
-	_apply_joker_choices(first, second, view_state)
-	_render_suit(_first, first, _first_choices, _first_suit)
-	_render_suit(_second, second, _second_choices, _second_suit)
-	for selector in [_first_context, _first_suit, _second_context, _second_suit]:
-		selector.disabled = interaction_disabled
-	_apply_orientation()
+	var edit_jokers := bool(view_state.get("joker_editable", _staged and not interaction_disabled))
+	var wait_for_host := bool(view_state.get("joker_edit_pending", false))
+	if edit_jokers:
+		_render_joker_selectors(first, _first_choices, _first_context, _first_suit, wait_for_host)
+		_render_joker_selectors(second, _second_choices, _second_context, _second_suit, wait_for_host)
+	_render_suit(_first, first)
+	_render_suit(_second, second)
+	_apply_orientation(first, second)
 	_apply_context_art(first, second)
 	_apply_active_style()
 	_apply_half_targeting_style()
@@ -296,11 +307,21 @@ func _half_text(half: Dictionary) -> String:
 	return "%s  %d  %s" % [GameTypes.context_name(context), rank, GameTypes.suit_name(suit)]
 
 
-func _render_suit(icon: TextureRect, half: Dictionary, choices: Control, selector: OptionButton) -> void:
-	var suit := selector.selected if choices.visible else int(half.get("effective_suit", half.get("suit", half.get("base_suit", -1))))
+func _shown_suit(half: Dictionary) -> int:
+	return int(half.get("joker_suit", half.get("effective_suit", half.get("suit", half.get("base_suit", -1)))))
+
+
+func _shown_context(half: Dictionary) -> int:
+	return int(half.get("joker_context", half.get("effective_context", half.get("base_context", -1))))
+
+
+func _render_suit(icon: TextureRect, half: Dictionary) -> void:
+	var suit := _shown_suit(half)
 	icon.texture = suit_icons[suit] if suit >= 0 and suit < suit_icons.size() else null
 	icon.tooltip_text = GameTypes.suit_name(suit) if icon.texture != null else ""
 	var icon_width := 29.0 if _select_in_place else 18.0
+	if int(half.get("kind", 0)) == GameTypes.HalfKind.JOKER:
+		icon_width = 21.0 if _select_in_place else 14.0
 	icon.custom_minimum_size = Vector2.ONE * icon_width if icon.texture != null else Vector2.ZERO
 
 
@@ -325,11 +346,14 @@ func _render_rank_art(container: HBoxContainer, rank: int) -> void:
 	for digit in digits:
 		var texture_rect := TextureRect.new()
 		texture_rect.name = "Digit%s" % digit
-		texture_rect.custom_minimum_size = Vector2(30, 42) if _select_in_place else Vector2(18, 24)
+		if rank == 0:
+			texture_rect.custom_minimum_size = Vector2(19, 25) if _select_in_place else Vector2(13, 17)
+		else:
+			texture_rect.custom_minimum_size = Vector2(30, 42) if _select_in_place else Vector2(18, 24)
 		texture_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		texture_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 		texture_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		texture_rect.material = RANK_INK
+		texture_rect.material = JOKER_RANK_INK if rank == 0 else RANK_INK
 		texture_rect.texture = load("res://assets/artwork/card_number/png/card_number_%s.png" % digit)
 		container.add_child(texture_rect)
 
@@ -351,18 +375,19 @@ func _resolved_half(half: Dictionary) -> Dictionary:
 
 
 func _apply_context_art(first: Dictionary, second: Dictionary) -> void:
-	var first_art := _half_context_art(first, _first_choices, _first_context)
-	var second_art := _half_context_art(second, _second_choices, _second_context)
-	_top_art.texture = second_art if orientation_flipped else first_art
-	_bottom_art.texture = first_art if orientation_flipped else second_art
+	_render_half_art(_top_art, second if orientation_flipped else first)
+	_render_half_art(_bottom_art, first if orientation_flipped else second)
 
 
-func _half_context_art(half: Dictionary, choices: Control, selector: OptionButton) -> Texture2D:
-	var context := int(half.get("effective_context", half.get("base_context", -1)))
-	if choices.visible:
-		context = selector.selected
+func _render_half_art(layer: TextureRect, half: Dictionary) -> void:
+	var context := _shown_context(half)
+	var is_joker := int(half.get("kind", 0)) == GameTypes.HalfKind.JOKER
+	var mimicking := is_joker and _shown_suit(half) >= 0
 	var texture: Texture2D = CONTEXT_ART.get(context)
-	return _artwork_region(texture) if texture != null else null
+	if is_joker:
+		texture = JOKER_CONTEXT_ART.get(context, JOKER_NEUTRAL_ART) if mimicking else JOKER_NEUTRAL_ART
+	layer.texture = _artwork_region(texture) if texture != null else null
+	layer.material = JOKER_MIMIC if mimicking else null
 
 
 func _artwork_region(texture: Texture2D) -> AtlasTexture:
@@ -394,42 +419,60 @@ func _apply_half_targeting_style() -> void:
 			icon.modulate = Color("46505d")
 
 
-func _apply_joker_choices(first: Dictionary, second: Dictionary, view_state: Dictionary) -> void:
-	if not bool(view_state.get("staged", false)):
-		return
-	var choices: Array = view_state.get("joker_choices", [])
+func _apply_joker_choices(first: Dictionary, second: Dictionary, choices: Array) -> void:
 	for raw_choice in choices:
 		if not raw_choice is Dictionary:
 			continue
 		var half_index := int(raw_choice.get("half_index", -1))
-		if half_index == 0 and int(first.get("kind", 0)) == 1:
-			_first_choices.visible = true
-			_first_context.select(int(raw_choice.get("context", 0)))
-			_first_suit.select(int(raw_choice.get("suit", 0)))
-		elif half_index == 1 and int(second.get("kind", 0)) == 1:
-			_second_choices.visible = true
-			_second_context.select(int(raw_choice.get("context", 0)))
-			_second_suit.select(int(raw_choice.get("suit", 0)))
+		if half_index not in [0, 1]:
+			continue
+		var half := first if half_index == 0 else second
+		if int(half.get("kind", 0)) == GameTypes.HalfKind.JOKER:
+			half["joker_context"] = int(raw_choice.get("context", 0))
+			half["joker_suit"] = int(raw_choice.get("suit", 0))
 
 
-func _apply_orientation() -> void:
-	_place_half(_first_rank_art, _first, _first_choices, $Face/FirstHit, not orientation_flipped)
-	_place_half(_second_rank_art, _second, _second_choices, $Face/SecondHit, orientation_flipped)
+func _render_joker_selectors(
+	half: Dictionary, choices: Control, context: OptionButton, suit: OptionButton, disabled: bool
+) -> void:
+	if int(half.get("kind", 0)) != GameTypes.HalfKind.JOKER:
+		return
+	choices.show()
+	var chosen_suit := _shown_suit(half)
+	context.select(_shown_context(half) if chosen_suit >= 0 else -1)
+	suit.select(chosen_suit)
+	if chosen_suit < 0:
+		context.text = "Context"
+		suit.text = "Suit"
+	context.tooltip_text = "Joker context"
+	suit.tooltip_text = "Joker suit"
+	context.disabled = disabled
+	suit.disabled = disabled
 
 
-func _place_half(rank_art: Control, suit: TextureRect, choices: Control, hit_area: Control, is_top: bool) -> void:
+func _apply_orientation(first: Dictionary, second: Dictionary) -> void:
+	_place_half(_first_rank_art, _first, _first_choices, $Face/FirstHit, not orientation_flipped,
+		int(first.get("kind", 0)) == GameTypes.HalfKind.JOKER)
+	_place_half(_second_rank_art, _second, _second_choices, $Face/SecondHit, orientation_flipped,
+		int(second.get("kind", 0)) == GameTypes.HalfKind.JOKER)
+
+
+func _place_half(
+	rank_art: Control, suit: TextureRect, choices: Control, hit_area: Control, is_top: bool, is_joker: bool
+) -> void:
 	var rank_size := rank_art.get_combined_minimum_size()
 	var suit_size := suit.get_combined_minimum_size()
 	var row_height := maxf(rank_size.y, suit_size.y)
 	var inset := 12.0 if _select_in_place else 9.0
+	var vertical_inset := 4.0 if is_joker else inset
 	var gap := 5.0
 	var preset := Control.PRESET_TOP_LEFT if is_top else Control.PRESET_BOTTOM_RIGHT
-	var row_y := inset if is_top else -inset - row_height
+	var row_y := vertical_inset if is_top else -vertical_inset - row_height
 	var rank_x := inset if is_top else -inset - rank_size.x
 	var suit_x := rank_x + rank_size.x + gap if is_top else rank_x - gap - suit_size.x
 	_place_corner_mark(rank_art, preset, Rect2(rank_x, row_y, rank_size.x, row_height))
 	_place_corner_mark(suit, preset, Rect2(suit_x, row_y, suit_size.x, row_height))
-	var choice_edge := 0.23 if is_top else 0.76
+	var choice_edge := 0.34 if is_top else 0.61
 	choices.anchor_top = choice_edge
 	choices.anchor_bottom = choice_edge
 	hit_area.anchor_top = 0.0 if is_top else 0.5
@@ -453,19 +496,19 @@ func _populate_choices(button: OptionButton, values: Array) -> void:
 
 
 func _on_first_context_selected(index: int) -> void:
-	joker_choice_changed.emit(StringName(card_id), 0, index, _first_suit.selected)
+	joker_choice_changed.emit(StringName(card_id), 0, index, maxi(0, _first_suit.selected))
 
 
 func _on_first_suit_selected(index: int) -> void:
-	joker_choice_changed.emit(StringName(card_id), 0, _first_context.selected, index)
+	joker_choice_changed.emit(StringName(card_id), 0, maxi(0, _first_context.selected), index)
 
 
 func _on_second_context_selected(index: int) -> void:
-	joker_choice_changed.emit(StringName(card_id), 1, index, _second_suit.selected)
+	joker_choice_changed.emit(StringName(card_id), 1, index, maxi(0, _second_suit.selected))
 
 
 func _on_second_suit_selected(index: int) -> void:
-	joker_choice_changed.emit(StringName(card_id), 1, _second_context.selected, index)
+	joker_choice_changed.emit(StringName(card_id), 1, maxi(0, _second_context.selected), index)
 
 
 func _on_move_left_pressed() -> void:

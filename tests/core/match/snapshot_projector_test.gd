@@ -47,7 +47,7 @@ func test_all_visibility_modes_expose_live_draw_pile_counts_only() -> void:
 		state.ability_deck.draw(&"one", 3, state.rng)
 		for role in [GameTypes.RecipientRole.HOST, GameTypes.RecipientRole.SPECTATOR]:
 			var snapshot := SnapshotProjector.for_recipient(state, &"", role)
-			assert_eq(snapshot.get("ability_pile_count", {}), {"draw_count": 5, "capacity": 12})
+			assert_eq(snapshot.get("ability_pile_count", {}), {"draw_count": 3, "capacity": 12})
 			var pile_counts: Dictionary = snapshot.get("pile_counts", {})
 			for context in state.piles:
 				assert_eq(pile_counts.get(str(context), {}), {
@@ -151,7 +151,7 @@ func test_end_snapshot_exposes_required_discards_only_to_owner() -> void:
 	var state := _state(GameTypes.InformationVisibility.PUBLIC)
 	state.phase = GameTypes.Phase.END
 	state.players[&"one"].ability_hand.append_array(
-		state.ability_deck.draw(&"one", 3, state.rng)
+		state.ability_deck.draw(&"one", 2, state.rng)
 	)
 	var owner := SnapshotProjector.for_recipient(
 		state, &"one", GameTypes.RecipientRole.ACTIVE_PLAYER
@@ -164,8 +164,8 @@ func test_end_snapshot_exposes_required_discards_only_to_owner() -> void:
 	)
 
 	assert_eq(owner.private_abilities.size(), 5)
-	assert_eq(owner.required_ability_discards, 2)
-	assert_eq(opponent.required_ability_discards, 0)
+	assert_eq(owner.required_ability_discards, 3)
+	assert_eq(opponent.required_ability_discards, 1)
 	assert_false(spectator.has("required_ability_discards"))
 
 

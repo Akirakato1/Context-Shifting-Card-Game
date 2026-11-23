@@ -62,14 +62,16 @@ func test_command_driven_next_start_promotes_pending_player_and_sends_owner_snap
 	fixture.transport.clear_sent()
 
 	fixture.state.phase = GameTypes.Phase.END
+	fixture.state.ability_deck.discard(fixture.state.players[&"one"].ability_hand.pop_back())
 	fixture.state.players[&"one"].end_discard_complete = true
 	fixture.state.players[&"two"].end_discard_complete = false
+	var discard_id := str(fixture.state.players[&"two"].ability_hand[0].copy_id)
 	fixture.transport.inject_message("peer-two", GameProtocol.encode(_peer_envelope(
 		"command", "finish-end-message", "two", {
 			"command_id": "finish-end-command",
 			"player_id": "two",
 			"kind": "choose_ability_discards",
-			"payload": {"copy_ids": []},
+			"payload": {"copy_ids": [discard_id]},
 		}
 	)))
 
@@ -179,11 +181,19 @@ func test_owner_resync_keeps_joker_choices_private() -> void:
 		"half_index": 0,
 		"joker_choices": [{
 			"half_index": 0,
-			"context": GameTypes.Context.FALL,
-			"suit": GameTypes.Suit.SEA,
+			"context": GameTypes.Context.RISE,
+			"suit": GameTypes.Suit.CLOUD,
 		}],
 	}])
 	fixture.state.players[&"one"].has_staged_submission = true
+	fixture.transport.inject_message("peer-one", GameProtocol.encode(_peer_envelope(
+		"command", "joker-mimic", "one", {
+			"player_id": "one", "command_id": "mimic-1", "kind": "configure_joker",
+			"payload": {"card_id": str(joker.card_id), "half_index": 0,
+				"context": GameTypes.Context.FALL, "suit": GameTypes.Suit.SEA},
+		}
+	)))
+	assert_true(_last_kind(fixture.transport, "peer-one", "command_result").payload.accepted)
 
 	for peer_id in ["peer-one", "peer-two", "peer-watch"]:
 		fixture.host.send_snapshot(peer_id)
@@ -194,9 +204,11 @@ func test_owner_resync_keeps_joker_choices_private() -> void:
 		owner.private_staging.staged_submission[0].joker_choices[0].context,
 		GameTypes.Context.FALL
 	)
+	assert_eq(owner.private_hand[0].first.get("joker_suit", -1), GameTypes.Suit.SEA)
 	assert_false(JSON.stringify(opponent.private_staging).contains(str(joker.card_id)))
 	assert_false(spectator.has("private_staging"))
 	assert_false(JSON.stringify(spectator).contains(str(joker.card_id)))
+	assert_false(JSON.stringify(spectator).contains("joker_suit"))
 
 
 func _session(active_ids: Array, spectator_ids: Array) -> Dictionary:

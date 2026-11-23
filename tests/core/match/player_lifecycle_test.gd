@@ -48,7 +48,7 @@ func test_late_active_join_waits_for_next_start_and_does_not_affect_current_read
 		&"rise_fall": 2,
 		&"flourish_fall": 2,
 	})
-	assert_eq(state.players[&"four"].ability_hand.size(), 4)
+	assert_eq(state.players[&"four"].ability_hand.size(), 5)
 
 
 func test_spectator_cap_and_spectators_never_affect_readiness() -> void:
@@ -68,7 +68,7 @@ func test_spectator_cap_and_spectators_never_affect_readiness() -> void:
 
 
 func test_short_ability_draw_for_late_entry_is_legal() -> void:
-	var state := _state(73, 3, 9)
+	var state := _state(73, 3, 10)
 	var controller := MatchController.new(state)
 	controller.submit(GameCommand.new(&"join", &"four", CommandKinds.JOIN_ACTIVE), 1)
 	state.phase = GameTypes.Phase.START
@@ -79,8 +79,7 @@ func test_short_ability_draw_for_late_entry_is_legal() -> void:
 	controller = MatchController.new(state)
 	controller.tick(0)
 	controller.tick(5001)
-	assert_true(state.players[&"four"].ability_hand.size() >= 2)
-	assert_true(state.players[&"four"].ability_hand.size() <= 4)
+	assert_eq(state.players[&"four"].ability_hand.size(), 1)
 	assert_eq(state.players[&"four"].hand.size(), 6)
 
 

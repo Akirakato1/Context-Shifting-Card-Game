@@ -40,3 +40,51 @@ func test_context_art_is_wired_and_crossfades_with_the_board_shade() -> void:
 		assert_eq(shade_material.get_shader_parameter("weights"), Vector3(0, 0, 1))
 	table.queue_free()
 	await Engine.get_main_loop().process_frame
+
+
+func test_context_clock_animates_art_and_backlights_only_extra_context_names() -> void:
+	var scene := load("res://src/view/match/match_screen.tscn") as PackedScene
+	var table := scene.instantiate()
+	Engine.get_main_loop().root.add_child(table)
+	var scenery := table.get_node("TableScenery")
+	var clock := scenery.get_node_or_null("ContextClock") as Control
+	assert_true(clock != null, "The clock uses the authored dial and pointer")
+	if clock != null:
+		scenery.show_placeholder_guides = false
+		scenery.render(0, 1, [0])
+		var pointer := clock.get_node("Pointer") as TextureRect
+		var forward := clock.get_node("ForwardCycle") as TextureRect
+		var reverse := clock.get_node("ReverseCycle") as TextureRect
+		var names := clock.get_node("Names") as TextureRect
+		assert_eq(pointer.texture.resource_path.get_file(), "clock_arow.png")
+		assert_eq(names.texture.resource_path.get_file(), "clock_text.png")
+		assert_eq(forward.texture.resource_path.get_file(), "clock_directionarrow_1.png")
+		assert_eq(reverse.texture.resource_path.get_file(), "clock_directionarrow_2.png")
+		assert_eq(reverse.self_modulate.a, 0.0)
+		var initial_angle := pointer.rotation
+		scenery.render(0, -1, [0, 2])
+		var fade: Tween = clock.get("_light_tween")
+		fade.pause()
+		fade.custom_step(1.0)
+		assert_eq(names.material.get_shader_parameter("backlight"), Vector3(0, 0, 1))
+		assert_eq(pointer.rotation, initial_angle)
+		var flip: Tween = clock.get("_direction_tween")
+		flip.pause()
+		flip.custom_step(1.0)
+		assert_eq(reverse.self_modulate.a, 1.0)
+		scenery.render(2, -1, [2])
+		var sweep: Tween = clock.get("_pointer_tween")
+		sweep.pause()
+		sweep.custom_step(0.19)
+		assert_true(pointer.rotation < initial_angle)
+		var intermediate := pointer.rotation
+		scenery.render(2, -1, [2])
+		assert_eq(clock.get("_pointer_tween"), sweep)
+		sweep.custom_step(1.0)
+		assert_true(pointer.rotation < intermediate)
+		fade = clock.get("_light_tween")
+		fade.pause()
+		fade.custom_step(1.0)
+		assert_eq(names.material.get_shader_parameter("backlight"), Vector3.ZERO)
+	table.queue_free()
+	await Engine.get_main_loop().process_frame

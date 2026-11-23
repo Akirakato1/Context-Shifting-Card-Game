@@ -85,7 +85,9 @@ func submit(command: GameCommand, now_msec: int) -> CommandResult:
 		return CommandResult.new(false, &"phase_deadline_passed")
 
 	var result: CommandResult
-	if state.phase == GameTypes.Phase.START:
+	if command.kind == CommandKinds.CONFIGURE_JOKER:
+		result = _configure_joker(command)
+	elif state.phase == GameTypes.Phase.START:
 		result = _submit_start(command, now_msec)
 	elif state.phase == GameTypes.Phase.MAIN_1:
 		result = _submit_main_one(command, now_msec)
@@ -183,6 +185,8 @@ func _is_identifier(value: Variant) -> bool:
 
 
 func _command_allowed_in_current_phase(kind: StringName) -> bool:
+	if kind == CommandKinds.CONFIGURE_JOKER:
+		return state.phase in [GameTypes.Phase.START, GameTypes.Phase.MAIN_1, GameTypes.Phase.HAND_PLAY]
 	match state.phase:
 		GameTypes.Phase.START:
 			return kind in [CommandKinds.SET_REPLENISHMENT_REQUEST, CommandKinds.SET_READY]
@@ -256,7 +260,7 @@ func _prepare_start_phase() -> Array[DomainEvent]:
 				state.piles, state.rng, state.allocate_card_id
 			)
 			pending_player.ability_hand = state.ability_deck.draw(
-				player_id, state.ability_deck.starting_hand_size, state.rng
+				player_id, mini(state.ability_deck.starting_hand_size, state.ability_deck.end_hand_limit), state.rng
 			)
 	for player_id in state.seat_order:
 		var player = state.players[player_id]
@@ -322,21 +326,14 @@ func _finish_start(now_msec: int) -> Array[DomainEvent]:
 				&"player", player_id
 			))
 
-	for player_id in state.seat_order:
-		var player = state.players[player_id]
-		if not player.active or player.pending:
-			continue
-		var drawn: Array[AbilityState] = state.ability_deck.draw(
-			player_id, state.ability_deck.start_draw_count, state.rng
-		)
-		player.ability_hand.append_array(drawn)
-		for ability in drawn:
+	var drawn_by_player := state.deal_start_abilities()
+	for player_id in drawn_by_player:
+		for ability: AbilityState in drawn_by_player[player_id]:
 			events.append(DomainEvent.new(
 				EventKinds.ABILITY_DRAWN,
 				{"player_id": str(player_id), "copy_id": str(ability.copy_id), "definition_id": str(ability.definition.id)},
 				&"player", player_id
 			))
-	state.start_ability_drawn_round = state.round_number
 	events.append(_begin_main_one(now_msec))
 	return events
 
@@ -1008,6 +1005,38 @@ func _commit_manipulation(command: GameCommand, now_msec: int) -> CommandResult:
 	}, &"player", command.player_id)])
 
 
+func _configure_joker(command: GameCommand) -> CommandResult:
+	var player = state.players[command.player_id]
+	if player.hand_locked:
+		return CommandResult.new(false, &"hand_already_locked")
+	var payload := command.payload
+	if not _is_identifier(payload.get("card_id")):
+		return CommandResult.new(false, &"malformed_command")
+	var half_index: Variant = payload.get("half_index")
+	if not half_index is int or half_index < 0 or half_index > 1:
+		return CommandResult.new(false, &"invalid_joker_half_index")
+	var card := _hand_card(command.player_id, StringName(payload.card_id))
+	if card == null:
+		return CommandResult.new(false, &"card_not_in_hand")
+	var half := card.half_at(half_index)
+	if not half.is_joker():
+		return CommandResult.new(false, &"joker_choice_for_normal_half")
+	var context: Variant = payload.get("context")
+	var suit: Variant = payload.get("suit")
+	var error := HalfCardState.joker_choice_error(context, suit)
+	if not error.is_empty():
+		return CommandResult.new(false, error)
+	half.set_joker_choice(context, suit)
+	for selection in player.staged_submission:
+		if selection.card_id == card.card_id:
+			for choice: Dictionary in selection.joker_choices:
+				if choice.half_index == half_index:
+					choice.context = context
+					choice.suit = suit
+			break
+	return CommandResult.new(true)
+
+
 func _stage_hand(command: GameCommand, now_msec: int) -> CommandResult:
 	if not command.payload.has("cards") or not command.payload.cards is Array:
 		return CommandResult.new(false, &"malformed_command")
@@ -1042,9 +1071,12 @@ func _stage_hand(command: GameCommand, now_msec: int) -> CommandResult:
 		return CommandResult.new(false, evaluation.error_code)
 	_ensure_phase_clock(now_msec)
 	player.staged_submission.clear()
-	for selection: Dictionary in candidate:
+	for index in candidate.size():
+		var selection: Dictionary = candidate[index]
+		var card := evaluation.submitted_cards[index]
 		var canonical_choices: Array = []
 		for choice: Dictionary in selection.joker_choices:
+			card.half_at(choice.half_index).set_joker_choice(choice.context, choice.suit)
 			canonical_choices.append({
 				"half_index": choice.half_index,
 				"context": choice.context,

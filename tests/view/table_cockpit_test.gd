@@ -150,6 +150,14 @@ func test_context_sort_groups_cards_with_the_matching_half_facing_up() -> void:
 	assert_true(controls.card_widget(&"flip").orientation_flipped)
 	controls.click_card(&"flip")
 	assert_false(controls.has_staged_card(&"flip"))
+	model.private_hand.append({
+		"card_id": "joker", "first": _half(0, 4),
+		"second": {"kind": 1, "base_context": 2, "joker_context": 1, "joker_suit": 2},
+		"eligible_half_indexes": [0, 1],
+	})
+	table.render(model)
+	assert_true(controls.card_widget(&"joker").orientation_flipped)
+	assert_eq(controls.local_hand_order(), [&"joker", &"up", &"flip", &"rise"])
 	table.queue_free()
 	await Engine.get_main_loop().process_frame
 
@@ -285,7 +293,7 @@ func test_practice_menu_uses_the_live_controller_through_hand_reveal() -> void:
 	assert_eq(opening.get("private_player_id"), "host")
 	assert_false(opening.has("replacement_requests"))
 	assert_eq(opening.get("phase"), GameTypes.Phase.MAIN_1)
-	assert_eq(opening.get("private_abilities", []).size(), 2)
+	assert_eq(opening.get("private_abilities", []).size(), 3)
 	var table: Control = app.get_node("SafeArea/ScreenHost").get_child(0)
 	var controls = table.get_node("PhaseControls")
 	assert_eq(table.get_node("Header/Timer").text, "UNTIMED")
@@ -338,6 +346,7 @@ func test_practice_winner_waits_for_bots_then_reaches_results() -> void:
 	state.players[&"host"].round_wins = 3
 	for player_id in state.seat_order:
 		var player = state.players[player_id]
+		state.ability_deck.discard(player.ability_hand.pop_back())
 		if player_id != &"host":
 			player.ability_hand.append_array(state.ability_deck.draw(player_id, 3, state.rng))
 		player.end_discard_complete = player.ability_hand.size() <= state.ability_deck.end_hand_limit
@@ -355,7 +364,7 @@ func test_practice_winner_waits_for_bots_then_reaches_results() -> void:
 	assert_eq(state.phase, GameTypes.Phase.COMPLETE)
 	assert_eq(app.current_screen_id(), &"results")
 	for player_id in state.seat_order:
-		assert_eq(state.players[player_id].ability_hand.size(), 2 if player_id == &"host" else 3)
+		assert_eq(state.players[player_id].ability_hand.size(), 2)
 	app.queue_free()
 	await Engine.get_main_loop().process_frame
 

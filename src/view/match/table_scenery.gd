@@ -1,19 +1,13 @@
 extends Control
 
-const Clock := preload("res://assets/artwork/board/figma/context_clock.svg")
 const Edge := preload("res://assets/artwork/board/figma/table_edge_left.svg")
 const FarEdge := preload("res://assets/artwork/board/figma/table_edge_top.svg")
 const ContextBlend := preload("res://src/view/match/context_art_blend.gdshader")
 const CONTEXT_KEYS: Array[String] = ["rise", "flourish", "fall"]
-const Emblems := [
-	preload("res://assets/artwork/context_emblems/context_emblem_rish.png"),
-	preload("res://assets/artwork/context_emblems/context_emblem_flourish.png"),
-	preload("res://assets/artwork/context_emblems/context_emblem_fall.png"),
-]
-const COLORS := [Color("d7ad77"), Color("94bd9b"), Color("9db5ca")]
 const BACKGROUND := [Color("2c2330"), Color("142f31"), Color("202c48")]
 const BASE := Vector2(1920, 1080)
 const TABLE_RECT := Rect2(142, 282, 1636, 476)
+const CLOCK_RECT := Rect2(26, 740, 306, 306)
 const HOTBAR_TOP := 710.0
 const SCORE_BAR_TOP := 662.0
 const HAND_TRAY_RECT := Rect2(349, 718, 1271, 350)
@@ -37,21 +31,15 @@ const CONTEXT_TRANSITION_SECONDS := 0.42
 @export var lower_bar_art: Texture2D
 @export var hand_tray_art: Texture2D
 @export var score_bar_art: Texture2D
-@export_group("Context Clock Artwork")
-@export var clock_housing_art: Texture2D
-@export var clock_face_art: Texture2D
-@export var clock_pointer_art: Texture2D
-@export var cycle_arrow_art: Texture2D
 
 var _context := -1
-var _direction := 1
-var _active: Array = [0]
 var _blend := Vector3(1.0, 0.0, 0.0)
 var _transition: Tween
 var _show_score_bar := false
 var _background_layer: ColorRect
 var _board_layer: TextureRect
 var _shade_layer: ColorRect
+@onready var _clock: ContextClock = $ContextClock
 
 
 func _ready() -> void:
@@ -131,7 +119,17 @@ func _layout_layers() -> void:
 	for layer in [_board_layer, _shade_layer]:
 		layer.position = TABLE_RECT.position * size / BASE
 		layer.size = TABLE_RECT.size * size / BASE
+	var clock_bounds := clock_rect()
+	_clock.position = clock_bounds.position
+	_clock.size = clock_bounds.size
 	queue_redraw()
+
+
+func clock_rect() -> Rect2:
+	var view_scale := size / BASE
+	var diameter := CLOCK_RECT.size.x * minf(view_scale.x, view_scale.y)
+	return Rect2(CLOCK_RECT.get_center() * view_scale - Vector2.ONE * diameter / 2.0,
+		Vector2.ONE * diameter)
 
 
 func render(context: int, direction: int, active: Array, show_score_bar: bool = false) -> void:
@@ -147,8 +145,7 @@ func render(context: int, direction: int, active: Array, show_score_bar: bool = 
 				_set_backdrop_weights.bind(_blend, context), 0.0, 1.0, CONTEXT_TRANSITION_SECONDS
 			).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 		_context = context
-	_direction = direction
-	_active = active.duplicate()
+	_clock.render(context, direction, active)
 	_show_score_bar = show_score_bar
 	queue_redraw()
 
@@ -177,12 +174,10 @@ func _draw() -> void:
 		_draw_edge(Edge, b, c, scale_to_view)
 		draw_set_transform(Vector2.ZERO, 0.0, scale_to_view)
 	_draw_surface(lower_bar_art, Rect2(0, HOTBAR_TOP, 1920, 370), Color("202a35"))
-	_draw_surface(clock_housing_art, Rect2(19, 731, 324, 327), Color("151d26"))
 	_draw_surface(hand_tray_art, HAND_TRAY_RECT, Color("151d26"))
 	if _show_score_bar:
 		_draw_surface(score_bar_art, Rect2(HAND_TRAY_RECT.position.x, SCORE_BAR_TOP,
 			HAND_TRAY_RECT.size.x, HOTBAR_TOP - SCORE_BAR_TOP), Color("202a35"))
-	_draw_clock(scale_to_view)
 
 
 func _draw_surface(texture: Texture2D, rect: Rect2, guide_color: Color) -> void:
@@ -196,48 +191,3 @@ func _draw_edge(texture: Texture2D, start: Vector2, end: Vector2, view_scale: Ve
 	var delta := (end - start) * view_scale
 	draw_set_transform(start * view_scale, delta.angle())
 	draw_texture_rect(texture, Rect2(0, -1, delta.length(), 2), false, Color("d9e2eb"))
-
-
-func _draw_clock(view_scale: Vector2) -> void:
-	var face := clock_face_art if clock_face_art != null else (Clock if show_placeholder_guides else null)
-	if face != null:
-		draw_texture_rect(face, Rect2(28, 738, 301, 309), false)
-	var center := Vector2(179, 891)
-	var points := [Vector2(179, 790), Vector2(266, 944), Vector2(92, 944)]
-	for i in 3:
-		var next := posmod(i + _direction, 3)
-		var start: Vector2 = points[i].move_toward(points[next], 40)
-		var end: Vector2 = points[next].move_toward(points[i], 40)
-		_draw_clock_arrow(cycle_arrow_art, start, end, view_scale, Color("a8afbd"), 2.0, 20.0)
-	for i in range(3):
-		var is_active := i in _active
-		var fg: Color = COLORS[i] if is_active else Color(0.65, 0.69, 0.74, 0.54)
-		if show_placeholder_guides and clock_face_art == null:
-			var halo := 3.0 if i == _context else (2.5 if is_active else 1.0)
-			draw_circle(points[i], 31, Color("344152"))
-			draw_arc(points[i], 31, 0, TAU, 36, fg, halo, true)
-		var emblem_size := Vector2(39, 39)
-		draw_texture_rect(Emblems[i], Rect2(points[i] - emblem_size / 2, emblem_size), false, fg)
-	var direction: Vector2 = (points[clampi(_context, 0, 2)] - center).normalized()
-	_draw_clock_arrow(clock_pointer_art, center, center + direction * 50, view_scale, Color("e9eff5"), 4.0, 20.0)
-	if show_placeholder_guides and clock_pointer_art == null:
-		draw_circle(center, 5, Color("e9eff5"))
-
-
-func _draw_clock_arrow(texture: Texture2D, start: Vector2, end: Vector2, view_scale: Vector2,
-		guide_color: Color, guide_width: float, texture_height: float) -> void:
-	if texture != null:
-		var delta := (end - start) * view_scale
-		var height := texture_height * minf(view_scale.x, view_scale.y)
-		draw_set_transform(start * view_scale, delta.angle())
-		draw_texture_rect(texture, Rect2(0, -height / 2, delta.length(), height), false)
-		draw_set_transform(Vector2.ZERO, 0.0, view_scale)
-	elif show_placeholder_guides:
-		draw_line(start, end, guide_color, guide_width, true)
-		_arrow_tip(end, (end - start).angle(), guide_color)
-
-
-func _arrow_tip(end: Vector2, angle: float, color: Color) -> void:
-	var rear := Vector2.from_angle(angle) * 10
-	var side := rear.orthogonal() * 0.5
-	draw_colored_polygon(PackedVector2Array([end, end - rear + side, end - rear - side]), color)

@@ -3,6 +3,8 @@ extends RefCounted
 
 const AbilityDefinition = preload("res://src/core/abilities/ability_definition.gd")
 const FullCardState = preload("res://src/core/cards/full_card_state.gd")
+const HalfCardState = preload("res://src/core/cards/half_card_state.gd")
+const GameTypes = preload("res://src/core/common/game_types.gd")
 const RandomSource = preload("res://src/core/common/random_source.gd")
 
 
@@ -85,9 +87,19 @@ static func apply(
 			var suit: int = choices.suit[0]
 			for half in [card.first, card.second]:
 				if not half.is_joker():
-					half.apply_overrides(
-						half.effective_context(), half.effective_rank(), suit
-					)
+					_set_suit(half, suit)
+		&"suit_exchange":
+			var first := _selected_half(cards_by_id, choices.halves[0])
+			var second := _selected_half(cards_by_id, choices.halves[1])
+			var first_suit := first.effective_suit()
+			_set_suit(first, second.effective_suit())
+			_set_suit(second, first_suit)
+		&"shift_suit", &"random_suit":
+			var suit_count := GameTypes.Suit.SEA + 1
+			for selection: Dictionary in choices.halves:
+				var half := _selected_half(cards_by_id, selection)
+				var step := 1 if operation == &"shift_suit" else 1 + rng.pick_index(suit_count - 1)
+				_set_suit(half, posmod(half.effective_suit() + step, suit_count))
 		&"set_context":
 			var card := _selected_card(cards_by_id, choices.cards[0])
 			var context: int = definition.effect_parameters.context
@@ -188,6 +200,8 @@ static func _validate_values(
 				seen[half_key] = true
 				if not cards_by_id.has(card_key):
 					return &"card_not_in_hand"
+				if bool(step.get("ordinary_only", false)) and _selected_half(cards_by_id, value).is_joker():
+					return &"invalid_manipulation_choice"
 			"half_index":
 				if not value is int:
 					return &"malformed_manipulation_choice"
@@ -230,6 +244,14 @@ static func _cards_by_id(hand: Array) -> Dictionary:
 
 static func _selected_card(cards_by_id: Dictionary, card_id: Variant) -> FullCardState:
 	return cards_by_id[str(card_id)]
+
+
+static func _selected_half(cards_by_id: Dictionary, selection: Dictionary) -> HalfCardState:
+	return _selected_card(cards_by_id, selection.card_id).half_at(selection.half_index)
+
+
+static func _set_suit(half: HalfCardState, suit: int) -> void:
+	half.apply_overrides(half.effective_context(), half.effective_rank(), suit)
 
 
 static func _is_identifier(value: Variant) -> bool:

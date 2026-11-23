@@ -101,17 +101,23 @@ func _build_ability_deck() -> AbilityDeckState:
 	return AbilityDeckState.new(rng.shuffle(cards))
 
 
-func deal_start_abilities() -> void:
+func deal_start_abilities() -> Dictionary:
+	var drawn_by_player := {}
 	if start_ability_drawn_round == round_number:
-		return
+		return drawn_by_player
+	start_ability_drawn_round = round_number
+	if round_number == 1:
+		return drawn_by_player
+	var hand_limit := ability_deck.end_hand_limit + ability_deck.start_draw_count
 	for player_id in seat_order:
 		var player: PlayerState = players[player_id]
 		if not player.active or player.pending:
 			continue
-		player.ability_hand.append_array(ability_deck.draw(
-			player_id, ability_deck.start_draw_count, rng
-		))
-	start_ability_drawn_round = round_number
+		var count := clampi(hand_limit - player.ability_hand.size(), 0, ability_deck.start_draw_count)
+		var drawn := ability_deck.draw(player_id, count, rng)
+		player.ability_hand.append_array(drawn)
+		drawn_by_player[player_id] = drawn
+	return drawn_by_player
 
 
 func resolve_round(final_scores: Dictionary) -> StringName:
@@ -588,12 +594,16 @@ static func _new_state() -> MatchState:
 
 
 func _serialize_half(card: HalfCardState) -> Dictionary:
-	return {
+	var data := {
 		"copy_id": str(card.copy_id), "base_context": card.base_context,
 		"base_rank": card.base_rank, "base_suit": card.base_suit, "kind": card.kind,
 		"effective_context": card.effective_context(), "effective_rank": card.effective_rank(),
 		"effective_suit": card.effective_suit(),
 	}
+	if card.is_joker() and card.joker_suit != HalfCardState.NO_SUIT:
+		data["joker_context"] = card.joker_context
+		data["joker_suit"] = card.joker_suit
+	return data
 
 
 func _serialize_halves(cards: Array[HalfCardState]) -> Array:
@@ -613,6 +623,8 @@ func _deserialize_half(data: Dictionary) -> HalfCardState:
 		StringName(data.copy_id), data.base_context, data.base_rank, data.base_suit,
 		data.get("kind", GameTypes.HalfKind.NORMAL)
 	)
+	if card.is_joker() and data.has("joker_context") and data.has("joker_suit"):
+		card.set_joker_choice(data.joker_context, data.joker_suit)
 	if (
 		data.effective_context != data.base_context or data.effective_rank != data.base_rank
 		or data.effective_suit != data.base_suit

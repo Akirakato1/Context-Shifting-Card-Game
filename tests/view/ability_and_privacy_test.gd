@@ -416,7 +416,10 @@ func test_fixed_targeting_auto_commits_after_final_required_choice() -> void:
 	overlay.select_value("c2")
 	assert_true(overlay.visible)
 	assert_eq(overlay.current_step_index(), 1)
-	overlay.select_value(2)
+	var buttons: Array[Node] = overlay.get_node("Panel/Layout/Options").get_children()
+	assert_eq(buttons.map(func(button): return button.text), ["Mountain", "Cloud", "Sea"])
+	if buttons.size() == 3:
+		buttons[2].pressed.emit()
 	assert_eq(commits[-1], {"cards": ["c2"], "suit": [2]})
 	assert_false(overlay.visible)
 	await _unmount(overlay)
@@ -475,6 +478,16 @@ func test_variable_targeting_toggles_one_to_max_and_requires_activate() -> void:
 		for half_index in range(2):
 			overlay.select_value({"card_id": "c%d" % card_index, "half_index": half_index})
 	assert_eq(overlay.selected_values().size(), 12)
+
+	hand[0]["first"] = {"kind": 1}
+	overlay.begin({"steps": [{
+		"key": "halves", "kind": "half_card", "min_count": 1, "max_count": 2,
+		"ordinary_only": true,
+	}]}, hand)
+	overlay.select_value({"card_id": "c1", "half_index": 0})
+	assert_true(overlay.selected_values().is_empty())
+	overlay.select_value({"card_id": "c1", "half_index": 1})
+	assert_eq(overlay.selected_values(), [{"card_id": "c1", "half_index": 1}])
 	await _unmount(overlay)
 
 

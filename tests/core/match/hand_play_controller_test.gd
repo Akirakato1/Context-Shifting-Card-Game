@@ -149,7 +149,7 @@ func test_timeout_locks_valid_staging_cancels_incomplete_targeting_and_defaults_
 	assert_eq(state.players[&"one"].submitted_cards.size(), 1)
 	assert_eq(state.players[&"two"].submitted_cards.size(), 0)
 	assert_true(state.players[&"two"].pending_manipulation.is_empty())
-	assert_eq(state.players[&"two"].ability_hand.size(), 2)
+	assert_eq(state.players[&"two"].ability_hand.size(), 3)
 
 
 func test_reveal_scores_all_submitted_cards_and_sanitizes_manipulation_history() -> void:

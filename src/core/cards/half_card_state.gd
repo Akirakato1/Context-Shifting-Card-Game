@@ -11,6 +11,8 @@ var base_context: int
 var base_rank: int
 var base_suit: int
 var kind: int
+var joker_context := NO_OVERRIDE
+var joker_suit := NO_SUIT
 
 var _context_override := NO_OVERRIDE
 var _rank_override := NO_OVERRIDE
@@ -55,8 +57,22 @@ func is_joker() -> bool:
 	return kind == GameTypes.HalfKind.JOKER
 
 
+static func joker_choice_error(context: Variant, suit: Variant) -> StringName:
+	if not context is int or context < GameTypes.Context.RISE or context > GameTypes.Context.FALL:
+		return &"invalid_joker_context"
+	if not suit is int or suit < GameTypes.Suit.MOUNTAIN or suit > GameTypes.Suit.SEA:
+		return &"invalid_joker_suit"
+	return &""
+
+
+func set_joker_choice(context: int, suit: int) -> void:
+	assert(is_joker() and joker_choice_error(context, suit).is_empty(), "invalid Joker choice")
+	joker_context = context
+	joker_suit = suit
+
+
 func apply_overrides(context: int, rank: int, suit: int) -> void:
-	assert(not is_joker(), "joker choices are submission-local")
+	assert(not is_joker(), "Jokers use their own context and suit choices")
 	assert(is_valid_base(context, rank, suit), "invalid half-card effective values")
 	_context_override = context
 	_rank_override = rank
@@ -67,6 +83,8 @@ func reset_effective() -> void:
 	_context_override = NO_OVERRIDE
 	_rank_override = NO_OVERRIDE
 	_suit_override = NO_OVERRIDE
+	joker_context = NO_OVERRIDE
+	joker_suit = NO_SUIT
 
 
 func effective_context() -> int:

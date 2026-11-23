@@ -8,7 +8,7 @@ const GameTypes = preload("res://src/core/common/game_types.gd")
 const MatchConfig = preload("res://src/core/match/match_config.gd")
 
 
-func test_manipulation_catalog_has_fourteen_unique_designs_and_two_copies_each() -> void:
+func test_manipulation_catalog_has_seventeen_unique_designs_and_two_copies_each() -> void:
 	var definitions: Array[AbilityDefinition] = AbilityCatalog.manipulation_definitions()
 	var counts := {}
 	for definition in definitions:
@@ -16,8 +16,8 @@ func test_manipulation_catalog_has_fourteen_unique_designs_and_two_copies_each()
 		assert_eq(definition.timing, AbilityDefinition.Timing.HAND_MANIPULATION)
 		assert_eq(definition.effect_id, &"manipulate_cards")
 
-	assert_eq(definitions.size(), 28)
-	assert_eq(counts.size(), 14)
+	assert_eq(definitions.size(), 34)
+	assert_eq(counts.size(), 17)
 	for id in counts:
 		assert_eq(counts[id], 2, "expected two copies of %s" % id)
 
@@ -39,12 +39,13 @@ func test_hand_shape_catalog_has_sixteen_unique_factor_category_sign_combination
 	assert_eq(context_count, 6)
 
 
-func test_hand_shape_cards_use_public_player_target_schema_and_placeholder_three() -> void:
+func test_hand_shape_cards_target_players_and_adjust_the_factor_by_half() -> void:
 	for definition in AbilityCatalog.hand_shape_designs():
 		assert_eq(definition.timing, AbilityDefinition.Timing.HAND_SHAPE)
 		assert_eq(definition.effect_id, &"factor_modifier")
-		assert_eq(abs(definition.effect_parameters.numerator), 3)
-		assert_eq(definition.effect_parameters.denominator, 1)
+		assert_eq(abs(definition.effect_parameters.numerator), 1)
+		assert_eq(definition.effect_parameters.denominator, 2)
+		assert_true(definition.rules_text.contains("0.5"))
 		assert_eq(definition.choice_schema.steps.size(), 1)
 		assert_eq(definition.choice_schema.steps[0].kind, "player")
 
@@ -137,26 +138,31 @@ func test_definition_data_is_independent_from_physical_copy_recipe() -> void:
 	for definition in deck:
 		category_counts[definition.timing] += 1
 		copy_counts[definition.id] = int(copy_counts.get(definition.id, 0)) + 1
-	assert_eq(designs.size(), 54)
-	assert_eq(recipe.size(), 52)
+	assert_eq(designs.size(), 57)
+	assert_eq(recipe.size(), 51)
 	for definition in designs:
 		assert_false(definition.effect_parameters.has("copy_count"))
-	assert_eq(deck.size(), 90)
-	assert_eq(category_counts[AbilityDefinition.Timing.HAND_MANIPULATION], 49)
-	assert_eq(category_counts[AbilityDefinition.Timing.HAND_SHAPE], 16)
-	assert_eq(category_counts[AbilityDefinition.Timing.SABOTAGE], 12)
+	assert_eq(deck.size(), 100)
+	assert_eq(category_counts[AbilityDefinition.Timing.HAND_MANIPULATION], 65)
+	assert_eq(category_counts[AbilityDefinition.Timing.HAND_SHAPE], 12)
+	assert_eq(category_counts[AbilityDefinition.Timing.SABOTAGE], 10)
 	assert_eq(category_counts[AbilityDefinition.Timing.FIELD], 13)
 	for definition in AbilityCatalog.manipulation_designs():
-		assert_eq(copy_counts[definition.id], 4 if definition.id in [
+		var copies := 3
+		if definition.id in [
 			&"context_roulette", &"ride_the_cycle", &"against_the_cycle",
-			&"context_exchange", &"context_convergence", &"suit_imprint", &"mirror_rank",
-		] else 3)
+			&"context_exchange", &"context_convergence", &"mirror_rank",
+		]:
+			copies = 4
+		elif definition.id in [&"suit_imprint", &"suit_exchange", &"suit_shift", &"suit_roulette"]:
+			copies = 5
+		assert_eq(copy_counts.get(definition.id, 0), copies)
 	for definition in AbilityCatalog.hand_shape_designs():
-		assert_eq(copy_counts[definition.id], 1)
-	for definition in AbilityCatalog.sabotage_designs():
-		assert_eq(copy_counts[definition.id], 2 if definition.id in [
-			&"suit_scramble", &"rank_scramble", &"context_scramble",
+		assert_eq(copy_counts.get(definition.id, 0), 0 if definition.id in [
+			&"high_card_buff", &"high_card_nerf", &"single_context_buff", &"single_context_nerf",
 		] else 1)
+	for definition in AbilityCatalog.sabotage_designs():
+		assert_eq(copy_counts[definition.id], 2 if definition.id == &"suit_scramble" else 1)
 	for definition in AbilityCatalog.field_designs():
 		var count: int = recipe.get(definition.id, 0)
 		assert_eq(count, 0 if definition.id in [
@@ -181,7 +187,7 @@ func test_unknown_noninteger_or_nonpositive_recipe_entries_reject() -> void:
 
 func test_manipulation_catalog_defines_exact_target_shapes_and_rules_text() -> void:
 	var by_id := _definitions_by_id(AbilityCatalog.manipulation_definitions(1))
-	assert_eq(by_id.size(), 14)
+	assert_eq(by_id.size(), 17)
 	for definition: AbilityDefinition in by_id.values():
 		assert_false(definition.display_name.is_empty())
 		assert_false(definition.rules_text.is_empty())
@@ -192,9 +198,11 @@ func test_manipulation_catalog_defines_exact_target_shapes_and_rules_text() -> v
 				assert_true(int(step.min_count) >= 1)
 				assert_true(int(step.max_count) >= int(step.min_count))
 			else:
-				assert_eq(int(step.get("count", 0)), 1)
+				assert_eq(int(step.get("count", 0)), 2 if definition.id == &"suit_exchange" else 1)
 
 	_assert_variable_step(by_id[&"context_roulette"], &"half_card", 1, 12)
+	for id in [&"suit_shift", &"suit_roulette"]:
+		_assert_variable_step(by_id[id], &"half_card", 1, 2)
 	for id in [&"low_roll", &"high_roll", &"even_roll", &"odd_roll", &"ride_the_cycle", &"against_the_cycle"]:
 		_assert_variable_step(by_id[id], &"full_card", 1, 6)
 

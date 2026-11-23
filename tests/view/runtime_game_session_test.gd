@@ -67,7 +67,7 @@ func test_host_runtime_builds_authority_after_first_active_peer_and_projects_nam
 	assert_eq(joined.players.map(func(player): return player.name), ["Mira", "Noah"])
 	assert_true(joined.has("private_hand"))
 	assert_eq(joined.private_hand.size(), 6)
-	assert_eq(joined.private_abilities.size(), 2)
+	assert_eq(joined.private_abilities.size(), 3)
 	assert_true(transport.sent.any(func(entry):
 		return entry.peer_id == "peer-one"
 	))
@@ -75,7 +75,7 @@ func test_host_runtime_builds_authority_after_first_active_peer_and_projects_nam
 		runtime.poll()
 	assert_false(runtime._controller.state.config.match_started)
 	assert_eq(runtime._controller.state.phase, GameTypes.Phase.START)
-	assert_eq(runtime._controller.state.players[&"host"].ability_hand.size(), 2)
+	assert_eq(runtime._controller.state.players[&"host"].ability_hand.size(), 3)
 	assert_eq(runtime.submit_command("lobby-ready", {
 		"command_id": "lobby-ready-command",
 		"kind": "set_ready",
@@ -84,7 +84,7 @@ func test_host_runtime_builds_authority_after_first_active_peer_and_projects_nam
 	assert_true(results[-1].result.accepted)
 	assert_false(runtime._controller.state.config.match_started)
 	assert_eq(runtime._controller.state.phase, GameTypes.Phase.START)
-	assert_eq(runtime._controller.state.players[&"host"].ability_hand.size(), 2)
+	assert_eq(runtime._controller.state.players[&"host"].ability_hand.size(), 3)
 
 	transport.clear_sent()
 	transport.join_status.emit("approved", {
@@ -102,7 +102,7 @@ func test_host_runtime_builds_authority_after_first_active_peer_and_projects_nam
 		peer_two_messages[-1].bytes
 	).envelope.payload.state
 	assert_eq(peer_two_snapshot.private_hand.size(), 6)
-	assert_eq(peer_two_snapshot.private_abilities.size(), 2)
+	assert_eq(peer_two_snapshot.private_abilities.size(), 3)
 	var failures: Array[String] = []
 	runtime.session_failed.connect(func(reason: String): failures.append(reason))
 	transport.transport_failed.emit("signaling_closed")
@@ -127,7 +127,7 @@ func test_host_runtime_builds_authority_after_first_active_peer_and_projects_nam
 		peer_two_snapshot.private_abilities.map(func(ability): return ability.copy_id)
 	)
 	assert_eq(snapshots[-1].private_hand.size(), 6)
-	assert_eq(snapshots[-1].private_abilities.size(), 2)
+	assert_eq(snapshots[-1].private_abilities.size(), 3)
 	assert_eq(runtime.start_match(), ERR_ALREADY_IN_USE)
 	assert_eq(runtime.submit_command("invalid-start-request", {
 		"command_id": "invalid-start-request-command",
@@ -163,11 +163,11 @@ func test_runtime_config_uses_recipe_with_all_four_ability_categories() -> void:
 	for definition in definitions:
 		counts[definition.id] = int(counts.get(definition.id, 0)) + 1
 		timing_counts[definition.timing] = int(timing_counts.get(definition.timing, 0)) + 1
-	assert_eq(definitions.size(), 90)
-	assert_eq(counts.size(), 52)
-	assert_eq(timing_counts[AbilityDefinition.Timing.HAND_MANIPULATION], 49)
-	assert_eq(timing_counts[AbilityDefinition.Timing.HAND_SHAPE], 16)
-	assert_eq(timing_counts[AbilityDefinition.Timing.SABOTAGE], 12)
+	assert_eq(definitions.size(), 100)
+	assert_eq(counts.size(), 51)
+	assert_eq(timing_counts[AbilityDefinition.Timing.HAND_MANIPULATION], 65)
+	assert_eq(timing_counts[AbilityDefinition.Timing.HAND_SHAPE], 12)
+	assert_eq(timing_counts[AbilityDefinition.Timing.SABOTAGE], 10)
 	assert_eq(timing_counts[AbilityDefinition.Timing.FIELD], 13)
 	assert_false(definitions.any(func(definition):
 		return str(definition.id).begins_with("placeholder_ability_")
@@ -228,7 +228,8 @@ func test_runtime_end_discard_uses_owner_choices_and_rejects_wrong_count() -> vo
 
 	var state = runtime._controller.state
 	var host = state.players[&"host"]
-	host.ability_hand.append_array(state.ability_deck.draw(&"host", 3, state.rng))
+	host.ability_hand.append_array(state.ability_deck.draw(&"host", 2, state.rng))
+	state.ability_deck.discard(state.players[&"peer-one"].ability_hand.pop_back())
 	state.phase = GameTypes.Phase.MAIN_2
 	state.phase_started_msec = 1000
 	state.phase_deadline_msec = 6000
@@ -240,9 +241,10 @@ func test_runtime_end_discard_uses_owner_choices_and_rejects_wrong_count() -> vo
 
 	assert_eq(snapshots[-1].phase, GameTypes.Phase.END)
 	assert_eq(snapshots[-1].private_abilities.size(), 5)
-	assert_eq(snapshots[-1].required_ability_discards, 2)
+	assert_eq(snapshots[-1].required_ability_discards, 3)
 	var chosen_ids := [
 		str(host.ability_hand[0].copy_id), str(host.ability_hand[1].copy_id),
+		str(host.ability_hand[2].copy_id),
 	]
 	assert_eq(runtime.submit_command("wrong-end-discard", {
 		"command_id": "wrong-end-discard-command",
@@ -259,7 +261,7 @@ func test_runtime_end_discard_uses_owner_choices_and_rejects_wrong_count() -> vo
 		"payload": {"copy_ids": chosen_ids},
 	}), OK)
 	assert_true(results[-1].result.accepted)
-	assert_eq(host.ability_hand.size(), 3)
+	assert_eq(host.ability_hand.size(), 2)
 	for copy_id in chosen_ids:
 		assert_false(host.ability_hand.any(func(ability):
 			return str(ability.copy_id) == copy_id
@@ -278,7 +280,7 @@ func test_host_recipe_updates_existing_deck_and_public_catalog_before_start() ->
 	)
 	assert_eq(runtime.start_host("ws://127.0.0.1:8080", "Mira"), OK)
 	transport.lobby_created.emit("ABC234")
-	assert_eq(snapshots[-1].get("ability_catalog", {}).size(), 54)
+	assert_eq(snapshots[-1].get("ability_catalog", {}).size(), 57)
 	var recipe := AbilityCatalog.provisional_deck_recipe()
 	recipe[&"context_exchange"] = 1
 	assert_eq(runtime.update_lobby_setting(&"ability_deck_recipe", recipe), &"")
@@ -309,7 +311,7 @@ func test_host_recipe_updates_existing_deck_and_public_catalog_before_start() ->
 	assert_eq(latest.private_hand, previous_hand)
 	assert_eq(latest.get("private_connection", {}), previous_connection)
 	var deck_cards: Array = runtime._controller.state.ability_deck.to_dict().cards
-	assert_eq(deck_cards.size(), 88)
+	assert_eq(deck_cards.size(), 98)
 	assert_eq(deck_cards.filter(func(card): return card.definition.id == "context_exchange").size(), 0)
 	assert_eq(deck_cards.filter(func(card): return card.definition.id == "mirror_rank").size(), 5)
 	var guest_received_recipe := false
@@ -338,7 +340,7 @@ func test_host_recipe_updates_existing_deck_and_public_catalog_before_start() ->
 	assert_eq(runtime._controller.state.players[&"peer-one"].reconnect_token, guest_token)
 	assert_eq(runtime.start_match(), OK)
 	assert_eq(snapshots[-1].phase, GameTypes.Phase.MAIN_1)
-	assert_eq(snapshots[-1].private_abilities.size(), 2)
+	assert_eq(snapshots[-1].private_abilities.size(), 3)
 	runtime.close()
 
 
@@ -437,7 +439,7 @@ func test_ability_catalog_projects_card_text_timing_schema_and_fixed_context() -
 	var runtime = RuntimeGameSession.new(RuntimeTransport.new(), Callable(self, "_now"))
 	var catalog: Dictionary = runtime._ability_catalog(definitions)
 
-	assert_eq(catalog.size(), 14)
+	assert_eq(catalog.size(), 17)
 	assert_eq(catalog.context_exchange.label, "Context Exchange")
 	assert_true(catalog.context_exchange.rules_text.contains("Swap the contexts"))
 	assert_eq(

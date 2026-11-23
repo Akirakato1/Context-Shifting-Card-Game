@@ -57,7 +57,7 @@ func test_sabotage_rejects_self_spectator_pending_inactive_and_disconnected_targ
 		elif target_state == &"disconnected": state.players[&"two"].connected = false
 		var result := MatchController.new(state).submit(_play(&"bad", state, &"one", target), 1)
 		assert_false(result.accepted, "expected %s target rejection" % target_state)
-		assert_eq(state.players[&"one"].ability_hand.size(), 2)
+		assert_eq(state.players[&"one"].ability_hand.size(), 3)
 
 
 func test_forced_mulligan_resets_departing_card_reconciles_lock_and_reveals_only_draw_counts() -> void:

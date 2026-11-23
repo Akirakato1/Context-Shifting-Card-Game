@@ -109,7 +109,7 @@ func _build_how_to_play() -> void:
 	steps.add_theme_constant_override("separation", 10)
 	content.add_child(steps)
 	_add_phase(steps, "Start",
-		"The first round opens in Main 1 with two abilities. From round two, draw two abilities and choose the contexts of the halves needed to refill your hand. The game pairs them into full cards.")
+		"The first round opens in Main 1 with three abilities. From round two, draw three abilities and choose the contexts of the halves needed to refill your hand. The game pairs them into full cards.")
 	_add_phase(steps, "Main 1",
 		"Play Field, Sabotage, or Buff/Nerf abilities. Ready when you’re done.")
 	_add_phase(steps, "Hand Play",
@@ -117,7 +117,7 @@ func _build_how_to_play() -> void:
 	_add_phase(steps, "Main 2",
 		"Review the revealed hands and provisional scores. Play any final Buff/Nerf abilities and ready.")
 	_add_phase(steps, "End",
-		"Round scores are finalized and submitted cards are discarded. Discard extra abilities if prompted. The context clock then advances.")
+		"Round scores are finalized and submitted cards are discarded. Discard down to two abilities. The context clock then advances.")
 	_label(
 		content,
 		"In the Abilities drawer, right-click an available card to focus it, then left-click that card to play it. Drag cards to reorder them.",
@@ -126,7 +126,7 @@ func _build_how_to_play() -> void:
 	_label(content, "Scoring", 27, GOLD)
 	_label(
 		content,
-		"Add the ranks of all chosen scoring halves, then multiply by the Hand Shape, Context Hand, and Field factors. Round the result up. A Joker half has rank 0 and can take a chosen context and suit.",
+		"Add the ranks of all chosen scoring halves, then multiply by the Hand Shape, Context Hand, and Field factors. Round the result up. A Joker half has rank 0. Choose its context and suit directly on the card. It keeps those choices while it stays in your hand, even when unstaged.",
 		20, INK
 	)
 	_label(

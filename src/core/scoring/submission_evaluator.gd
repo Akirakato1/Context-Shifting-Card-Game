@@ -160,19 +160,10 @@ static func _validate_joker_choices(card: FullCardState, choices: Array) -> Dict
 		if not card.half_at(half_index).is_joker():
 			return _choice_error(&"joker_choice_for_normal_half")
 		var context_value: Variant = choice["context"]
-		if (
-			not context_value is int
-			or context_value < GameTypes.Context.RISE
-			or context_value > GameTypes.Context.FALL
-		):
-			return _choice_error(&"invalid_joker_context")
 		var suit_value: Variant = choice["suit"]
-		if (
-			not suit_value is int
-			or suit_value < GameTypes.Suit.MOUNTAIN
-			or suit_value > GameTypes.Suit.SEA
-		):
-			return _choice_error(&"invalid_joker_suit")
+		var error := HalfCardState.joker_choice_error(context_value, suit_value)
+		if not error.is_empty():
+			return _choice_error(error)
 		choices_by_half[half_index] = {
 			"context": context_value,
 			"suit": suit_value,

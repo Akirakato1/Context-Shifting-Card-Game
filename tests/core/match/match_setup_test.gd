@@ -70,14 +70,14 @@ func test_setup_uses_shared_piles_and_deals_opening_hands_then_start_abilities()
 			&"rise_fall": 2,
 			&"flourish_fall": 2,
 		})
-		assert_eq(state.players[player_id].ability_hand.size(), 2)
+		assert_eq(state.players[player_id].ability_hand.size(), 3)
 	assert_eq(state.piles[GameTypes.Context.RISE].draw_count(), 83)
 	assert_eq(state.piles[GameTypes.Context.FLOURISH].draw_count(), 83)
 	assert_eq(state.piles[GameTypes.Context.FALL].draw_count(), 83)
 
-	state.deal_start_abilities()
-	assert_eq(state.players[&"one"].ability_hand.size(), 4)
-	assert_eq(state.players[&"two"].ability_hand.size(), 4)
+	assert_eq(state.deal_start_abilities(), {})
+	assert_eq(state.players[&"one"].ability_hand.size(), 3)
+	assert_eq(state.players[&"two"].ability_hand.size(), 3)
 
 
 func test_score_race_and_round_win_race_use_greater_than_or_equal_thresholds() -> void:
@@ -129,7 +129,7 @@ func test_snapshot_round_trip_preserves_canonical_match_values() -> void:
 
 	assert_eq(restored.to_dict(), snapshot)
 	assert_eq(restored.players[&"one"].hand.size(), 6)
-	assert_eq(restored.players[&"one"].ability_hand.size(), 4)
+	assert_eq(restored.players[&"one"].ability_hand.size(), 3)
 	assert_eq(restored.seat_order, [&"one", &"two"])
 
 

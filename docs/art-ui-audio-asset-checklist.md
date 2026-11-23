@@ -21,7 +21,7 @@ This is the smallest coherent pack worth producing first:
 - [ ] P0 — 1 normal card back and 1 ability card back.
 - [ ] P0 — 1 Joker half illustration plus Rise/Flourish/Fall selected overlays or tints.
 - [ ] P0 — 4 ability-type icons/frames: manipulation, field, buff/nerf, sabotage.
-- [ ] P0 — context clock/dial with forward and reverse arrows.
+- [x] P0 — context clock/dial with forward and reverse arrows.
 - [ ] P0 — three pile/deck markers and a shared recycle/shuffle marker.
 - [ ] P0 — submission shelf/box, selected glow, disabled treatment, target glow, and locked treatment.
 - [ ] P0 — approximately 20 reusable UI glyphs/states; most can be Godot shapes or vectors.
@@ -41,7 +41,7 @@ Avoid drawing a unique illustration for every rank/suit/context combination. Bui
 | P0 | Rank glyph treatment | 11 | 0–10; 0 is primarily for Joker display. Prefer font/vector assembly. |
 | P0 | Full-card merge frame | 1 | Diagonal or otherwise clear division between the two halves. |
 | P0 | Normal card back | 1 | Used for hidden opponent hands and face-down/reveal states. |
-| P0 | Joker half | 1 base + 3 selections | Neutral “every context” state; Rise/Flourish/Fall choice appears only while staged. |
+| P0 | Joker half | 1 base + 3 selections | Neutral artwork before a choice and context-colored Joker artwork with an inner glow after a choice. |
 | P0 | Active-half indicator | 2 states | Shows which half supplies rank/suit for the current context. |
 | P0 | Card state overlays | 6 | Hover, selected, staged, targeting-eligible, targeting-selected, disabled/locked. |
 | P1 | Modified-half marker | 1–3 | Clearly communicates a persistent overwrite while the card remains in hand. |
@@ -63,7 +63,7 @@ Avoid drawing a unique illustration for every rank/suit/context combination. Bui
 | P1 | Unique ability illustrations | final unique ability count | Produce after the ability list is locked; reuse art for mechanical variants if needed. |
 | P1 | Field-effect panel/token | 1 template | Dynamic name, owner, and remaining-turn count. |
 | P1 | Field duration counter | digits + frame | Must remain readable over table art. |
-| P1 | Add-context field overlays | 3 | “Also activate Rise/Flourish/Fall” without moving the clock; lasts one turn. |
+| P1 | Add-context backlight | 3 | Light the additional context name without moving the pointer. |
 | P1 | Reverse-cycle field marker | 1 | Visually changes context-clock direction. |
 | P1 | Current-context shift marker | 3 | Clock jump/fast-forward to Rise/Flourish/Fall. |
 | P1 | Buff/nerf status markers | expandable | Generic positive/negative frames until the final list is known. |
@@ -75,7 +75,7 @@ Avoid drawing a unique illustration for every rank/suit/context combination. Bui
 - [ ] P0 — four fixed seat frames: bottom/local, top, left, right.
 - [ ] P0 — player nameplate, score/wins panel, ready/thinking/reconnecting/pending status area.
 - [ ] P0 — three context pile bases with visible remaining-count area.
-- [ ] P0 — central context clock with active-context marker and forward/reverse direction.
+- [x] P0 — context clock with a rotating pointer and forward/reverse direction artwork.
 - [ ] P0 — submission shelf/box above the local hand.
 - [ ] P0 — central reveal/resolution zone for all players’ played hands.
 - [ ] P0 — ability drawer/tab background that expands upward.
@@ -124,7 +124,7 @@ Avoid drawing a unique illustration for every rank/suit/context combination. Bui
 - [ ] P0 — glowing card-area backdrop plus eligible and yellow selected treatments.
 - [ ] P0 — target prompt, remaining-choice count, option buttons, Commit and Cancel.
 - [ ] P0 — card move-left/move-right icons and orientation/flip hint.
-- [ ] P0 — Joker context and suit selectors shown only on staged Joker halves.
+- [ ] P0 — Joker context and suit selectors available while the card is in the editable hand.
 - [ ] P0 — base-value, normal-hand multiplier, context-hand multiplier, projected score, and invalid-reason areas.
 - [ ] P0 — connection freeze/reconnect overlay with countdown.
 - [ ] P1 — ability-history feed with public information only.
@@ -159,7 +159,7 @@ Most P0 motion can be built with Godot tweens, transforms, modulate colors, and 
 - [ ] Ability drawer expand/collapse.
 - [ ] Draw/deal/replenish movement.
 - [ ] Hand reveal/mahjong-style flip-up.
-- [ ] Context-clock tick to next context.
+- [x] Context-clock tick to next context.
 - [ ] Timer warning pulse and timeout flash.
 - [ ] Score count-up and multiplier application.
 - [ ] Reconnect/frozen spinner or pulse.

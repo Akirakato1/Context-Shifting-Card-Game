@@ -135,7 +135,7 @@ func test_end_awards_both_victory_modes_and_unlocks_then_resets_rematch() -> voi
 	assert_false(wins_controller.state.config.match_started)
 
 
-func test_confirmed_and_timeout_discards_reach_three_with_visibility_rules() -> void:
+func test_confirmed_and_timeout_discards_reach_two_with_visibility_rules() -> void:
 	var public_state := _main_two_state(58)
 	_give_extra_abilities(public_state, &"one", 3)
 	var public_controller := MatchController.new(public_state)
@@ -144,6 +144,7 @@ func test_confirmed_and_timeout_discards_reach_three_with_visibility_rules() -> 
 	var discard_ids := [
 		public_state.players[&"one"].ability_hand[0].copy_id,
 		public_state.players[&"one"].ability_hand[1].copy_id,
+		public_state.players[&"one"].ability_hand[2].copy_id,
 	]
 	var rejected := public_controller.submit(GameCommand.new(
 		&"wrong-discard-count", &"one", CommandKinds.CHOOSE_ABILITY_DISCARDS,
@@ -155,7 +156,7 @@ func test_confirmed_and_timeout_discards_reach_three_with_visibility_rules() -> 
 		&"discard", &"one", CommandKinds.CHOOSE_ABILITY_DISCARDS,
 		{"copy_ids": discard_ids}
 	), 20)
-	assert_eq(public_state.players[&"one"].ability_hand.size(), 3)
+	assert_eq(public_state.players[&"one"].ability_hand.size(), 2)
 	for copy_id in discard_ids:
 		assert_false(public_state.players[&"one"].ability_hand.any(func(ability):
 			return ability.copy_id == copy_id
@@ -168,7 +169,7 @@ func test_confirmed_and_timeout_discards_reach_three_with_visibility_rules() -> 
 	var private_controller := MatchController.new(private_state)
 	_ready_both(private_controller, 10)
 	var timeout_events := private_controller.tick(private_state.phase_deadline_msec)
-	assert_eq(private_state.players[&"one"].ability_hand.size(), 3)
+	assert_eq(private_state.players[&"one"].ability_hand.size(), 2)
 	var public_count = _audience_event(timeout_events, EventKinds.ABILITIES_DISCARDED, &"public")
 	var owner_detail = _recipient_event(timeout_events, EventKinds.ABILITIES_DISCARDED, &"one")
 	assert_false(public_count.payload.has("ability_ids"))
@@ -209,6 +210,8 @@ func _main_two_state(
 		GameTypes.Phase.END: 2000}, 1000, 5000, 30000, abilities, normals, contexts
 	)
 	var state := MatchState.create(config, seed_value)
+	for player_id in state.seat_order:
+		state.ability_deck.discard(state.players[player_id].ability_hand.pop_back())
 	state.phase = GameTypes.Phase.MAIN_2
 	state.phase_started_msec = -1
 	state.phase_deadline_msec = -1

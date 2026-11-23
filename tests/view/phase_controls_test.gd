@@ -235,15 +235,25 @@ func test_hand_builder_stages_eligible_cards_requires_half_choice_and_defaults_j
 	], ["Mountain", "Cloud", "Sea"])
 	assert_true(controls.get_node("HandPlayControls/Preview/Heading").text.contains("PREVIEW"))
 	assert_true(controls.get_node("HandPlayControls/Preview/Authority").text.contains("host validates"))
+	controls.click_card(&"c4")
+	assert_false(controls.has_staged_card(&"c4"))
+	assert_true(controls.card_widget(&"c4").joker_prompts_visible())
+	var intents: Array = []
+	controls.intent_requested.connect(func(kind, payload): intents.append([kind, payload]))
 	controls.set_joker_choice(&"c4", 0, 2, 1)
-	assert_eq(controls.staged_selection(&"c4").joker_choices[0], {"half_index": 0, "context": 2, "suit": 1})
+	assert_eq(intents, [[&"configure_joker", {"card_id": "c4", "half_index": 0, "context": 2, "suit": 1}]])
+	var hand := _hand()
+	hand[3].first["joker_context"] = 2
+	hand[3].first["joker_suit"] = 1
+	controls.handle_command_result(&"configure_joker", true, &"", 3)
+	controls.render(_model(3, hand, {}))
 	controls.click_card(&"c4")
+	assert_eq(controls.staged_selection(&"c4").get("joker_choices", []), [{"half_index": 0, "context": 2, "suit": 1}])
+	controls.render(_model(4, hand, {}))
+	controls.render(_model(3, hand, {}))
 	assert_false(controls.has_staged_card(&"c4"))
 	controls.click_card(&"c4")
-	assert_eq(controls.staged_selection(&"c4").joker_choices[0], {"half_index": 0, "context": 0, "suit": 0})
-	controls.render(_model(4, _hand(), {}))
-	controls.render(_model(3, _hand(), {}))
-	assert_false(controls.has_staged_card(&"c4"))
+	assert_eq(controls.staged_selection(&"c4").get("joker_choices", []), [{"half_index": 0, "context": 2, "suit": 1}])
 	await _unmount(controls)
 
 
@@ -461,18 +471,20 @@ func test_end_discard_requires_exact_excess_and_timeout_notice_is_authoritative(
 			{"copy_id": "a4", "ability_id": "manipulate"},
 			{"copy_id": "a5", "ability_id": "field_b"},
 		],
-		"timeout_notice": "Timer expired: 2 ability cards were discarded at random.",
+		"timeout_notice": "Timer expired: 3 ability cards were discarded at random.",
 	}))
-	assert_eq(controls.get_node("EndControls/Required").text, "Choose 2 to discard")
+	assert_eq(controls.get_node("EndControls/Required").text, "Choose 3 to discard")
 	assert_eq(controls.get_node("EndControls/AbilityChoices").get_child_count(), 5)
 	controls.toggle_ability_discard(&"a2", true)
 	assert_true(controls.get_node("EndControls/ConfirmButton").disabled)
 	controls.toggle_ability_discard(&"a4", true)
+	assert_true(controls.get_node("EndControls/ConfirmButton").disabled)
+	controls.toggle_ability_discard(&"a5", true)
 	assert_false(controls.get_node("EndControls/ConfirmButton").disabled)
 	controls.get_node("EndControls/ConfirmButton").pressed.emit()
 	controls.get_node("EndControls/ConfirmButton").pressed.emit()
-	assert_eq(intents, [{"kind": &"choose_ability_discards", "payload": {"copy_ids": ["a2", "a4"]}}])
-	assert_eq(controls.get_node("TimeoutNotice").text, "Timer expired: 2 ability cards were discarded at random.")
+	assert_eq(intents, [{"kind": &"choose_ability_discards", "payload": {"copy_ids": ["a2", "a4", "a5"]}}])
+	assert_eq(controls.get_node("TimeoutNotice").text, "Timer expired: 3 ability cards were discarded at random.")
 	await _unmount(controls)
 
 

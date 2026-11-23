@@ -58,6 +58,37 @@ func test_suit_imprint_changes_both_ordinary_halves() -> void:
 	assert_eq(card.second.effective_context(), GameTypes.Context.FLOURISH)
 
 
+func test_suit_manipulations_change_only_selected_ordinary_suits() -> void:
+	var left := _card(&"left")
+	var right := _card(&"right")
+	var choices := {"halves": [
+		{"card_id": "left", "half_index": 0},
+		{"card_id": "right", "half_index": 1},
+	]}
+	var exchange := _definition(&"suit_exchange")
+	var shift := _definition(&"suit_shift")
+	var roulette := _definition(&"suit_roulette")
+	if exchange == null or shift == null or roulette == null:
+		assert_true(false, "all three suit manipulation designs must exist")
+		return
+	var hand := [left, right]
+	var rng := RandomSource.new(33)
+	for definition in [exchange, shift, roulette]:
+		assert_eq(ManipulationResolver.validate(definition, hand, choices), &"")
+	ManipulationResolver.apply(exchange, hand, choices, rng, 1)
+	assert_eq([left.first.effective_suit(), right.second.effective_suit()], [1, 0])
+	ManipulationResolver.apply(shift, hand, choices, rng, -1)
+	assert_eq([left.first.effective_suit(), right.second.effective_suit()], [2, 1])
+	ManipulationResolver.apply(roulette, hand, choices, rng, 1)
+	assert_true(left.first.effective_suit() in [0, 1])
+	assert_true(right.second.effective_suit() in [0, 2])
+	assert_eq(left.first.effective_rank(), 2)
+	assert_eq(left.first.effective_context(), GameTypes.Context.RISE)
+	assert_eq([left.second.effective_suit(), right.first.effective_suit()], [1, 0])
+	left.first = HalfCardState.new(&"joker", 0, 0, -1, GameTypes.HalfKind.JOKER)
+	assert_eq(ManipulationResolver.validate(exchange, hand, choices), &"invalid_manipulation_choice")
+
+
 func test_fixed_context_infusions_change_both_ordinary_halves() -> void:
 	var expected := {
 		&"rise_infusion": GameTypes.Context.RISE,

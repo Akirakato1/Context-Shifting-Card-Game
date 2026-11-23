@@ -41,6 +41,24 @@ static func manipulation_designs() -> Array[AbilityDefinition]:
 				"prompt": "Choose a suit"},
 			]
 		),
+		_definition(
+			&"suit_exchange", "Suit Exchange",
+			"Select 2 non-Joker halves in your hand and swap their suits.",
+			&"suit_exchange", {}, [{
+				"key": "halves", "kind": "half_card", "count": 2, "ordinary_only": true,
+				"prompt": "Select 2 halves to exchange suits",
+			}]
+		),
+		_definition(
+			&"suit_shift", "Suit Shift",
+			"Select 1 or 2 non-Joker halves. Advance each suit from Mountain to Cloud to Sea to Mountain.",
+			&"shift_suit", {}, [_suit_half_step("Select 1 or 2 halves to shift their suits")]
+		),
+		_definition(
+			&"suit_roulette", "Suit Roulette",
+			"Select 1 or 2 non-Joker halves. Each changes to one of the other two suits at random.",
+			&"random_suit", {}, [_suit_half_step("Select 1 or 2 halves to reroll their suits")]
+		),
 		_fixed_context_definition(
 			&"rise_infusion", "Rise Infusion", GameTypes.Context.RISE
 		),
@@ -82,7 +100,7 @@ static func hand_shape_designs() -> Array[AbilityDefinition]:
 	for item in categories:
 		for sign_value in [1, -1]:
 			var suffix := "buff" if sign_value > 0 else "nerf"
-			var signed_text := "+3" if sign_value > 0 else "-3"
+			var signed_text := "+0.5" if sign_value > 0 else "−0.5"
 			var factor_text := "Card Hand" if item[0] == &"card_hand" else "Context Hand"
 			result.append(AbilityDefinition.new(
 				StringName("%s_%s" % [item[1], suffix]),
@@ -90,7 +108,7 @@ static func hand_shape_designs() -> Array[AbilityDefinition]:
 				[&"hand_shape", StringName(suffix)],
 				&"factor_modifier", 0, &"",
 				{"factor_id": item[0], "category_id": item[1],
-				"numerator": 3 * sign_value, "denominator": 1},
+				"numerator": sign_value, "denominator": 2},
 				{"steps": [{"key": "target_player_id", "kind": "player", "count": 1,
 				"prompt": "Select a player"}]},
 				"%s %s" % [item[2], "Buff" if sign_value > 0 else "Nerf"],
@@ -251,16 +269,21 @@ static func provisional_deck_recipe() -> Dictionary:
 	for definition in manipulation_designs(): recipe[definition.id] = 3
 	for id in [
 		&"context_roulette", &"ride_the_cycle", &"against_the_cycle",
-		&"context_exchange", &"context_convergence", &"suit_imprint", &"mirror_rank",
+		&"context_exchange", &"context_convergence", &"mirror_rank",
 	]:
 		recipe[id] = 4
-	for definition in hand_shape_designs(): recipe[definition.id] = 1
+	for id in [&"suit_imprint", &"suit_exchange", &"suit_shift", &"suit_roulette"]:
+		recipe[id] = 5
+	for definition in hand_shape_designs():
+		if definition.id not in [
+			&"high_card_buff", &"high_card_nerf", &"single_context_buff", &"single_context_nerf",
+		]:
+			recipe[definition.id] = 1
 	for definition in field_designs():
 		if definition.id not in [&"even_rank_favor", &"odd_rank_favor"]:
 			recipe[definition.id] = 1
 	for definition in sabotage_designs(): recipe[definition.id] = 1
-	for id in [&"suit_scramble", &"rank_scramble", &"context_scramble"]:
-		recipe[id] = 2
+	recipe[&"suit_scramble"] = 2
 	return recipe
 
 
@@ -409,6 +432,13 @@ static func _fixed_full_card_step() -> Dictionary:
 	return {
 		"key": "cards", "kind": "full_card", "count": 1,
 		"prompt": "Select 1 full card",
+	}
+
+
+static func _suit_half_step(prompt: String) -> Dictionary:
+	return {
+		"key": "halves", "kind": "half_card", "min_count": 1, "max_count": 2,
+		"ordinary_only": true, "prompt": prompt,
 	}
 
 

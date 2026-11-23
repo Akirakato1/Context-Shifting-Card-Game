@@ -14,6 +14,7 @@ const EventKinds = preload("res://src/core/events/event_kinds.gd")
 const MatchConfig = preload("res://src/core/match/match_config.gd")
 const MatchState = preload("res://src/core/match/match_state.gd")
 const MatchController = preload("res://src/core/match/match_controller.gd")
+const SnapshotProjector = preload("res://src/core/match/snapshot_projector.gd")
 
 
 func test_joker_staging_lock_and_reveal_use_sanitized_resolved_faces() -> void:
@@ -142,6 +143,31 @@ func test_replacing_or_passing_clears_staged_joker_choices() -> void:
 
 	assert_true(controller.submit(_stage(&"pass", &"one", []), 3).accepted)
 	assert_true(state.players[&"one"].staged_submission.is_empty())
+	var owner := SnapshotProjector.for_recipient(state, &"one", GameTypes.RecipientRole.ACTIVE_PLAYER)
+	assert_eq(owner.private_hand[0].first.get("joker_suit", -1), GameTypes.Suit.CLOUD)
+
+
+func test_unstaged_joker_configuration_is_private_and_survives_round_trip() -> void:
+	var state := _hand_play_state(74)
+	var joker := _joker_card(&"flexible-joker", state.active_context)
+	state.players[&"one"].hand[0] = joker
+	var controller := MatchController.new(state)
+	var payload := {"card_id": joker.card_id, "half_index": 0, "context": 2, "suit": 1}
+	var kind := &"configure_joker"
+	assert_false(controller.submit(GameCommand.new(&"foreign", &"two", kind, payload), 1).accepted)
+	assert_true(controller.submit(GameCommand.new(&"configure", &"one", kind, payload), 2).accepted)
+	assert_true(state.players[&"one"].staged_submission.is_empty())
+	payload.suit = 2
+	assert_true(controller.submit(GameCommand.new(&"reconfigure", &"one", kind, payload), 3).accepted)
+	var restored := MatchState.from_dict(state.to_dict())
+	var owner := SnapshotProjector.for_recipient(restored, &"one", GameTypes.RecipientRole.ACTIVE_PLAYER)
+	var spectator := SnapshotProjector.for_recipient(restored, &"", GameTypes.RecipientRole.SPECTATOR)
+	assert_eq(owner.private_hand[0].first.get("joker_context", -1), GameTypes.Context.FALL)
+	assert_eq(owner.private_hand[0].first.get("joker_suit", -1), GameTypes.Suit.SEA)
+	assert_false(JSON.stringify(spectator).contains("joker_suit"))
+	joker.leave_hand()
+	owner = SnapshotProjector.for_recipient(state, &"one", GameTypes.RecipientRole.ACTIVE_PLAYER)
+	assert_false(owner.private_hand[0].first.has("joker_suit"))
 
 
 func test_timeout_defaults_incomplete_internal_joker_draft_to_pass() -> void:
@@ -182,6 +208,7 @@ func test_round_cleanup_clears_resolved_views() -> void:
 
 	controller.submit(_ready(&"ready-one", &"one"), 3)
 	controller.submit(_ready(&"ready-two", &"two"), 3)
+	controller.tick(state.phase_deadline_msec)
 
 	assert_true(state.players[&"one"].submitted_card_views.is_empty())
 

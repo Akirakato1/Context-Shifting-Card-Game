@@ -249,12 +249,16 @@ static func _private_hand(
 
 
 static func _private_half(half) -> Dictionary:
-	return {
+	var face := {
 		"copy_id": str(half.copy_id), "base_context": half.base_context,
 		"base_rank": half.base_rank, "base_suit": half.base_suit, "kind": half.kind,
 		"effective_context": half.effective_context(), "effective_rank": half.effective_rank(),
 		"effective_suit": half.effective_suit(),
 	}
+	if half.is_joker() and half.joker_suit >= 0:
+		face["joker_context"] = half.joker_context
+		face["joker_suit"] = half.joker_suit
+	return face
 
 
 static func _private_abilities(abilities: Array, phase: int) -> Array:

@@ -11,6 +11,7 @@ const CARD_SCENE := preload("res://src/view/match/card_widget.tscn")
 const ScorePreview := preload("res://src/view/match/score_preview.gd")
 const GameTypes := preload("res://src/core/common/game_types.gd")
 const CardFactory := preload("res://src/core/cards/card_factory.gd")
+const AbilityDeckState := preload("res://src/core/abilities/ability_deck_state.gd")
 const Rational := preload("res://src/core/common/rational.gd")
 const SCORE_COLORS := {
 	"Base": Color("#ffffff"), "Hand": Color("#8ac7ff"), "Context": Color("#ff9393"),
@@ -382,15 +383,23 @@ func choose_half(card_id: StringName, half_index: int) -> void:
 
 
 func set_joker_choice(card_id: StringName, half_index: int, context: int, suit: int) -> void:
-	if not _staged.has(card_id):
+	if (
+		not _can_configure_jokers() or _hand_command_pending()
+		or not _hand_cards.has(card_id) or half_index not in [0, 1]
+		or int(_card_half(_hand_cards[card_id], half_index).get("kind", 0)) != GameTypes.HalfKind.JOKER
+	):
 		return
-	var choices: Array = _staged[card_id]["joker_choices"]
-	for index in choices.size():
-		if int(choices[index].get("half_index", -1)) == half_index:
-			choices[index] = {"half_index": half_index, "context": context, "suit": suit}
-			_staged[card_id]["joker_choices"] = choices
-			_render_hand_play()
-			return
+	_emit_intent(&"configure_joker", {
+		"card_id": str(card_id), "half_index": half_index, "context": context, "suit": suit,
+	})
+	_render_hand_play()
+
+
+func _can_configure_jokers() -> bool:
+	return (
+		_phase in [PHASE_START, PHASE_MAIN_1, PHASE_HAND_PLAY]
+		and not (_input_locked or _hand_is_locked() or _targeting or _ability_focus_held)
+	)
 
 
 func right_click_card(card_id: StringName) -> void:
@@ -468,7 +477,9 @@ func _orient_for_context_sort(card_id: StringName) -> bool:
 
 
 func _half_matches_sort_context(half: Dictionary) -> bool:
-	return int(half.get("kind", 0)) != 1 and int(half.get("effective_context", half.get("base_context", -1))) == _sort_key
+	if int(half.get("kind", 0)) == GameTypes.HalfKind.JOKER:
+		return int(half.get("joker_context", -1)) == _sort_key
+	return int(half.get("effective_context", half.get("base_context", -1))) == _sort_key
 
 
 func ordered_hand(cards: Array) -> Array:
@@ -513,7 +524,7 @@ func _top_half(card_id: StringName) -> int:
 
 
 func _hand_command_pending() -> bool:
-	return _pending.has(&"stage_hand") or _pending.has(&"lock_hand")
+	return _pending.has(&"stage_hand") or _pending.has(&"lock_hand") or _pending.has(&"configure_joker")
 
 
 func _hand_is_locked() -> bool:
@@ -791,13 +802,19 @@ func handle_command_result(
 			_advance_start_request()
 			_refresh_buttons()
 			return
-		if _phase == PHASE_START:
+		if _phase == PHASE_START and kind != &"configure_joker":
 			_start_ready_requested = false
 		_status.text = "Action rejected: %s" % str(error_code).replace("_", " ")
 		_show_hand_feedback(_status.text)
 		if table_cockpit and _phase != PHASE_HAND_PLAY:
 			_status.show()
-		_refresh_buttons()
+		if kind == &"configure_joker":
+			_render_hand_play()
+		else:
+			_refresh_buttons()
+		return
+	if kind == &"configure_joker":
+		_render_hand_play()
 		return
 	if _phase == PHASE_START and kind in [&"set_replenishment_request", &"set_ready"]:
 		_status.text = ""
@@ -831,6 +848,11 @@ func _render_hand_play() -> void:
 	var hand_changed := _load_private_hand()
 	if _phase == PHASE_HAND_PLAY:
 		_load_authoritative_staging_if_needed()
+		for card_id in _staged:
+			var selection: Dictionary = _staged[card_id]
+			selection["joker_choices"] = _default_joker_choices(
+				_hand_cards[card_id], selection.get("joker_choices", [])
+			)
 	if table_cockpit and hand_changed:
 		_sort_hand_order()
 	_clear_card_nodes()
@@ -952,6 +974,8 @@ func _make_card_widget(
 		"staged": staged,
 		"selected_half_index": selection.get("half_index", _top_half(card_id) if table_cockpit else _default_half_index_for_card(card_id)),
 		"joker_choices": selection.get("joker_choices", []),
+		"joker_editable": _can_configure_jokers(),
+		"joker_edit_pending": _hand_command_pending(),
 		"orientation_flipped": bool(_orientations.get(card_id, false)),
 		"interaction_disabled": (
 			_phase != PHASE_HAND_PLAY or _input_locked or locked or (_targeting and not has_target)
@@ -1273,7 +1297,7 @@ func _update_end_button() -> void:
 func _required_ability_discards() -> int:
 	return int(_model.get(
 		"required_ability_discards",
-		maxi(_model.get("private_abilities", []).size() - 3, 0)
+		maxi(_model.get("private_abilities", []).size() - AbilityDeckState.DEFAULT_END_HAND_LIMIT, 0)
 	))
 
 
@@ -1420,9 +1444,18 @@ func _default_half_index_for_card(card_id: StringName) -> int:
 	return _default_half_index(card)
 
 
-func _default_joker_choices(card: Dictionary) -> Array:
+func _default_joker_choices(card: Dictionary, previous_choices: Array = []) -> Array:
 	var choices: Array = []
 	for half_index in 2:
-		if int(_card_half(card, half_index).get("kind", 0)) == 1:
-			choices.append({"half_index": half_index, "context": 0, "suit": 0})
+		var half := _card_half(card, half_index)
+		if int(half.get("kind", 0)) != GameTypes.HalfKind.JOKER:
+			continue
+		var choice := {"half_index": half_index, "context": 0, "suit": 0}
+		for previous: Dictionary in previous_choices:
+			if int(previous.get("half_index", -1)) == half_index:
+				choice = previous
+				break
+		if half.has("joker_suit"):
+			choice = {"half_index": half_index, "context": half.joker_context, "suit": half.joker_suit}
+		choices.append(choice)
 	return choices

@@ -37,7 +37,7 @@ func test_begin_match_skips_round_one_start_effects_and_enters_main_one() -> voi
 		assert_eq(state.players[player_id].hand.size(), opening_hands[player_id])
 		assert_eq(state.players[player_id].ability_hand.size(), opening_abilities[player_id])
 		assert_eq(opening_hands[player_id], 6)
-		assert_eq(opening_abilities[player_id], 2)
+		assert_eq(opening_abilities[player_id], 3)
 		assert_false(state.players[player_id].ready)
 	assert_eq(_event_count_for_player(events, EventKinds.ABILITY_DRAWN, &"one"), 0)
 	assert_true(_first_event(events, EventKinds.REPLENISHMENT_REQUESTS_REVEALED) == null)
@@ -60,7 +60,7 @@ func test_open_lobby_poll_and_ready_toggle_cannot_start_round_one() -> void:
 	assert_eq(state.phase, GameTypes.Phase.START)
 	assert_false(state.config.match_started)
 	assert_eq(state.phase_started_msec, -1)
-	assert_eq(state.players[&"one"].ability_hand.size(), 2)
+	assert_eq(state.players[&"one"].ability_hand.size(), 3)
 	assert_eq(controller.tick(10_000), [])
 
 
@@ -78,6 +78,7 @@ func test_round_one_stays_rise_and_round_two_advances_to_flourish() -> void:
 
 func test_timeout_completes_partial_requests_replenishes_then_draws_abilities() -> void:
 	var state := MatchState.create(_config(GameTypes.InformationVisibility.PUBLIC), 12)
+	_set_up_second_round(state)
 	_discard_one_full_card(state, &"one")
 	_discard_one_full_card(state, &"two")
 	var original_ids := _hand_ids(state.players[&"one"].hand)
@@ -98,10 +99,10 @@ func test_timeout_completes_partial_requests_replenishes_then_draws_abilities() 
 	assert_eq(state.phase, GameTypes.Phase.MAIN_1)
 	assert_eq(state.players[&"one"].hand.size(), 6)
 	assert_eq(state.players[&"two"].hand.size(), 6)
-	assert_eq(state.players[&"one"].ability_hand.size(), original_ability_counts[&"one"] + 2)
-	assert_eq(state.players[&"two"].ability_hand.size(), original_ability_counts[&"two"] + 2)
-	assert_eq(_event_count_for_player(events, EventKinds.ABILITY_DRAWN, &"one"), 2)
-	assert_eq(_event_count_for_player(events, EventKinds.ABILITY_DRAWN, &"two"), 2)
+	assert_eq(state.players[&"one"].ability_hand.size(), original_ability_counts[&"one"] + 3)
+	assert_eq(state.players[&"two"].ability_hand.size(), original_ability_counts[&"two"] + 3)
+	assert_eq(_event_count_for_player(events, EventKinds.ABILITY_DRAWN, &"one"), 3)
+	assert_eq(_event_count_for_player(events, EventKinds.ABILITY_DRAWN, &"two"), 3)
 	var new_card = _new_card(state.players[&"one"].hand, original_ids)
 	assert_true(
 		new_card.first.base_context == GameTypes.Context.RISE
@@ -134,8 +135,7 @@ func test_private_visibility_reveals_replacement_count_but_not_context_distribut
 
 func test_later_start_with_full_hands_auto_readies_and_advances_on_first_tick() -> void:
 	var state := MatchState.create(_config(GameTypes.InformationVisibility.PUBLIC), 14)
-	state.round_number = 2
-	state.start_prepared_round = 0
+	_set_up_second_round(state)
 	var controller := MatchController.new(state)
 
 	assert_true(state.players[&"one"].ready)
@@ -143,10 +143,10 @@ func test_later_start_with_full_hands_auto_readies_and_advances_on_first_tick() 
 	var events := controller.tick(1000)
 
 	assert_eq(state.phase, GameTypes.Phase.MAIN_1)
-	assert_eq(state.players[&"one"].ability_hand.size(), 4)
-	assert_eq(state.players[&"two"].ability_hand.size(), 4)
-	assert_eq(_event_count_for_player(events, EventKinds.ABILITY_DRAWN, &"one"), 2)
-	assert_eq(_event_count_for_player(events, EventKinds.ABILITY_DRAWN, &"two"), 2)
+	assert_eq(state.players[&"one"].ability_hand.size(), 5)
+	assert_eq(state.players[&"two"].ability_hand.size(), 5)
+	assert_eq(_event_count_for_player(events, EventKinds.ABILITY_DRAWN, &"one"), 3)
+	assert_eq(_event_count_for_player(events, EventKinds.ABILITY_DRAWN, &"two"), 3)
 	assert_false(state.players[&"one"].ready)
 	assert_false(state.players[&"two"].ready)
 
@@ -154,8 +154,7 @@ func test_later_start_with_full_hands_auto_readies_and_advances_on_first_tick() 
 func test_only_player_needing_replenishment_must_ready_before_main_one() -> void:
 	var state := MatchState.create(_config(GameTypes.InformationVisibility.PUBLIC), 15)
 	_discard_one_full_card(state, &"one")
-	state.round_number = 2
-	state.start_prepared_round = 0
+	_set_up_second_round(state)
 	var controller := MatchController.new(state)
 
 	assert_false(state.players[&"one"].ready)
@@ -176,7 +175,13 @@ func test_only_player_needing_replenishment_must_ready_before_main_one() -> void
 	assert_false(state.players[&"one"].ready)
 	assert_false(state.players[&"two"].ready)
 	assert_true(_first_event(result.events, EventKinds.PHASE_CHANGED) != null)
-	assert_eq(state.players[&"one"].ability_hand.size(), 4)
+	assert_eq(state.players[&"one"].ability_hand.size(), 5)
+
+
+func _set_up_second_round(state: MatchState) -> void:
+	state.round_number = 2
+	for player_id in state.seat_order:
+		state.ability_deck.discard(state.players[player_id].ability_hand.pop_back())
 
 
 func _config(visibility: int) -> MatchConfig:

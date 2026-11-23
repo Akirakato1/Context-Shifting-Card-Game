@@ -186,6 +186,8 @@ func test_end_transaction_disconnect_uses_full_disconnect_path_for_player_and_ho
 	assert_true(state.frozen)
 
 	var host_state := _main_two_state(109)
+	for player_id in host_state.seat_order:
+		host_state.ability_deck.discard(host_state.players[player_id].ability_hand.pop_back())
 	var host_controller := MatchController.new(host_state)
 	host_controller.end_transaction_probe = func(): host_controller.notify_player_disconnected(&"one", 222)
 	host_controller.submit(_ready(&"hr1", &"one"), 10)

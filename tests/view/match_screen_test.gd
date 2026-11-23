@@ -8,8 +8,11 @@ func test_active_player_sees_compact_opponent_summaries_and_their_own_hand() -> 
 	if table == null:
 		return
 	table.render(_active_player_model())
-	assert_eq(table.get_node("Center/ContextClock/Direction").text, "Rise  →  Flourish  →  Fall")
-	assert_eq(table.get_node("Center/ContextClock/Active").text, "ACTIVE  Flourish")
+	var clock: Control = table.get_node_or_null("TableScenery/ContextClock")
+	assert_true(clock != null)
+	if clock != null:
+		assert_eq(clock.get("_context"), 1)
+		assert_eq(clock.get("_direction"), 1)
 	assert_eq(table.get_node("Center/Piles/PileRise/Name").text, "Rise")
 	assert_eq(table.get_node("Center/Piles/PileFlourish/Name").text, "Flourish")
 	assert_eq(table.get_node("Center/Piles/PileFall/Name").text, "Fall")
@@ -296,22 +299,28 @@ func test_context_score_progress_fields_and_nil_round_render_clearly() -> void:
 	assert_eq(table.get_node("PhaseBadge/Phase").text, "HAND PLAY")
 	assert_eq(table.get_node("Header/Round").text, "ROUND 4")
 	assert_eq(table.get_node("Header/Timer").text, "12.4s")
-	assert_eq(table.get_node("Center/ContextClock/Direction").text, "Fall  ←  Flourish  ←  Rise")
-	assert_eq(table.get_node("Center/ContextClock/Active").text, "ACTIVE  Flourish + Fall")
-	assert_eq(table.get_node("TableScenery/ActiveContexts").text, "ACTIVE  Flourish + Fall")
-	assert_true(table.get_node("TableScenery/ActiveContexts").is_visible_in_tree())
+	var clock: Control = table.get_node_or_null("TableScenery/ContextClock")
+	assert_true(clock != null)
+	if clock != null:
+		assert_eq(clock.get("_context"), 1)
+		assert_eq(clock.get("_direction"), -1)
+		assert_eq(clock.get("_light_target"), Vector3(0, 0, 1))
 	assert_false(table.get_node("TableLayer/BottomSeat").visible)
 	assert_eq(table.get_node("MatchScore/Progress").text, "SCORE RACE  ·  36 / 100")
 	var field_rows: Container = table.get_node("Center/Fields/FieldScroll/FieldRows")
 	assert_eq(field_rows.get_child_count(), 2)
-	assert_true(field_rows.get_child(0).text.contains("Persistent"))
+	var reverse: Button = field_rows.get_child(0)
+	var reverse_duration := reverse.get_node_or_null("Display/Duration") as Label
+	assert_true(reverse_duration != null and reverse_duration.text == "∞")
 	var field_info: Button = field_rows.get_child(1)
-	assert_true(field_info.text.contains("1 round"))
-	assert_true(field_info.text.contains("Fall also active"))
+	var field_duration := field_info.get_node_or_null("Display/Duration") as Label
+	var field_icon := field_info.get_node_or_null("Display/Icon") as TextureRect
+	assert_true(field_duration != null and field_duration.text == "◷1")
+	assert_true(field_icon != null and field_icon.texture.resource_path.ends_with("context_emblem_fall.png"))
 	assert_true(field_info.tooltip_text.contains("Fall is also active this round."))
-	assert_true(field_info.text.contains(model.players[1].name))
+	assert_true(field_info.tooltip_text.contains(model.players[1].name))
 	field_info.pressed.emit()
-	assert_eq(table._field_details.dialog_text, "Fall is also active this round.")
+	assert_true(table._field_details.dialog_text.contains("Fall is also active this round."))
 	assert_eq(table.get_node("Center/RoundResult").text, "NIL ROUND  ·  no progress awarded")
 
 	model["victory_mode"] = 1
@@ -340,15 +349,23 @@ func test_active_effect_rows_show_signed_amounts_conditions_and_targets() -> voi
 	table.render(model)
 	var rows: Container = table.get_node("Center/Fields/FieldScroll/FieldRows")
 	assert_eq(rows.get_child_count(), 3)
-	assert_true(rows.get_child(0).text.contains("+0.1 Field per Mountain scoring half"))
-	assert_true(rows.get_child(1).text.contains("+0.25 Field if Fall leads or ties for most"))
-	if rows.get_child_count() == 3:
-		assert_true(rows.get_child(2).text.contains("%s: -3 Hand if Family" % model.players[0].name))
+	var suit_effect := rows.get_child(0).get_node_or_null("Display/Effect") as Label
+	var suit_icon := rows.get_child(0).get_node_or_null("Display/Icon") as TextureRect
+	var context_effect := rows.get_child(1).get_node_or_null("Display/Effect") as Label
+	var nerf_effect := rows.get_child(2).get_node_or_null("Display/Effect") as Label
+	assert_true(suit_effect != null and suit_effect.text == "+0.1 /")
+	assert_true(suit_icon != null and suit_icon.texture.atlas.resource_path.ends_with("card_suit_mountain.png"))
+	assert_true(context_effect != null and context_effect.text == "≥ +0.25")
+	assert_true(nerf_effect != null and nerf_effect.text.contains("-3") and nerf_effect.text.contains("Family"))
+	assert_true(rows.get_child(0).tooltip_text.contains("Mountain"))
+	assert_true(rows.get_child(1).tooltip_text.contains("ties"))
+	assert_true(rows.get_child(2).tooltip_text.contains(model.players[0].name))
 	model.active_score_modifiers = []
 	model.active_fields = []
 	model["active_contexts"] = [model.active_context]
 	table.render(model)
 	assert_eq(rows.get_child_count(), 0)
+	assert_false(rows.is_visible_in_tree())
 	await _unmount(table)
 
 

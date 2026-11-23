@@ -18,7 +18,6 @@ const SABOTAGE_COLOR := Color("ff9a87")
 const CARD_SIZE := Vector2(128, 136)
 
 var _board := Rect2()
-var _clock := Rect2()
 var _seats: Dictionary = {}
 var _pending: Array[Dictionary] = []
 var _cue: Dictionary = {}
@@ -60,9 +59,8 @@ func _ready() -> void:
 	_subtitle.add_theme_font_size_override("font_size", 21)
 
 
-func set_regions(board: Rect2, clock: Rect2, seats: Dictionary) -> void:
+func set_regions(board: Rect2, seats: Dictionary) -> void:
 	_board = board
-	_clock = clock
 	_seats = seats
 
 
@@ -72,12 +70,6 @@ func present(events: Array, model: Dictionary) -> void:
 	var names := {}
 	for player: Dictionary in model.get("players", []):
 		names[str(player.get("player_id", ""))] = str(player.get("name", "Player"))
-	var direction := int(model.get("context_direction", 1))
-	for event in events:
-		if event is Dictionary and StringName(event.get("kind", "")) == Events.CONTEXT_DIRECTION_CHANGED:
-			var payload: Variant = event.get("payload")
-			if payload is Dictionary:
-				direction = int(payload.get("direction", direction))
 	for event in events:
 		if not event is Dictionary or not event.get("payload", {}) is Dictionary:
 			continue
@@ -92,7 +84,7 @@ func present(events: Array, model: Dictionary) -> void:
 		var cue: Dictionary
 		match StringName(event.get("kind", "")):
 			Events.FIELD_PLAYED:
-				cue = _field_cue(definition, name, source_name, direction)
+				cue = _field_cue(definition, name, source_name)
 			Events.FACTOR_MODIFIER_APPLIED:
 				var delta := float(payload.get("numerator", 0)) / maxf(1.0, float(payload.get("denominator", 1)))
 				var kind := "buff" if delta > 0.0 else "nerf"
@@ -118,7 +110,7 @@ func present(events: Array, model: Dictionary) -> void:
 		_start_next()
 
 
-func _field_cue(definition: Dictionary, name: String, caster: String, direction: int) -> Dictionary:
+func _field_cue(definition: Dictionary, name: String, caster: String) -> Dictionary:
 	var style := str(definition.get("effect_id", ""))
 	if style == "field_rule":
 		style = str(definition.get("field_rule", ""))
@@ -134,7 +126,7 @@ func _field_cue(definition: Dictionary, name: String, caster: String, direction:
 		"per_selected_rank_set": detail = "Matching ranks boost the field multiplier"
 		"leading_context": detail = "%s boosts the field multiplier when tied for most or leading" % Types.context_name(context)
 	return {"kind": "field", "style": style, "title": name, "detail": "%s  ·  %s" % [caster, detail],
-		"color": accent, "context": context, "suit": suit, "direction": direction}
+		"color": accent, "context": context, "suit": suit}
 
 
 func _sabotage_cue(
@@ -310,20 +302,6 @@ func _draw_field(tint: Color, opacity: float, energy: float) -> void:
 	var context := int(_cue.context)
 	var suit := int(_cue.suit)
 	if style in ["context_jump", "reverse_direction", "additional_context"]:
-		var center := _clock.get_center()
-		if style == "reverse_direction":
-			var angle := float(_cue.direction) * TAU * _progress - PI / 2.0
-			draw_arc(center, _clock.size.x * 0.39, angle, angle + float(_cue.direction) * 1.45,
-				30, Color(tint, energy), 6.0, true)
-			_aura(_clock, tint, energy * 0.65)
-		elif context in [0, 1, 2]:
-			var points := [Vector2(0.494, 0.18), Vector2(0.762, 0.65), Vector2(0.225, 0.65)]
-			var spot: Vector2 = _clock.position + _clock.size * points[context]
-			if style == "context_jump":
-				var head := center.lerp(spot, smoothstep(0.0, 0.4, _progress))
-				draw_line(center, head, Color(tint, energy * 0.9), 5.0, true)
-			var pulse := energy if style == "context_jump" else energy * (0.45 + 0.55 * absf(sin(_progress * TAU)))
-			_aura(Rect2(spot - Vector2(78, 78), Vector2(156, 156)), tint, pulse)
 		return
 	var center := _board.get_center()
 	if style == "per_selected_rank_set":

@@ -82,8 +82,21 @@ func test_joker_rank_uses_zero_art_and_assigned_suit() -> void:
 		assert_eq(_suit_asset(joker_suit), "card_suit_sea.png")
 	assert_eq(widget.size, Vector2(175, 279))
 	assert_true(widget.get_theme_stylebox("panel") is StyleBoxEmpty)
-	var joker_art := widget.get_node("Artwork/TopHalf").texture as AtlasTexture
-	assert_eq(joker_art.atlas.resource_path.get_file(), "card_half_context_flourish.png")
+	var top := widget.get_node("Artwork/TopHalf") as TextureRect
+	var bottom := widget.get_node("Artwork/BottomHalf") as TextureRect
+	assert_eq((top.texture as AtlasTexture).atlas.resource_path.get_file(), "card_joker_green.png")
+	assert_true(top.material is ShaderMaterial)
+	assert_eq(bottom.material, null)
+	widget.render({"card_id": "joker", "first": _joker(), "second": _half(1, 7, 2)}, 0)
+	assert_eq((top.texture as AtlasTexture).atlas.resource_path.get_file(), "card_joker_white.png")
+	assert_eq(top.material, null)
+	widget.render({"selected_half_index": 1, "halves": [
+		{"context": 2, "rank": 0, "suit": 1, "joker": true},
+		{"context": 1, "rank": 7, "suit": 2, "joker": false},
+	]})
+	assert_eq((bottom.texture as AtlasTexture).atlas.resource_path.get_file(), "card_joker_red.png")
+	assert_true(bottom.material is ShaderMaterial)
+	assert_eq(top.material, null)
 	await _unmount(widget)
 
 
