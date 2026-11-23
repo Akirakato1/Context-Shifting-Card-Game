@@ -53,6 +53,12 @@ layout_mode = 2
 size_flags_horizontal = 3
 mouse_filter = 2
 
+[node name="ConfirmKeep" type="Button" parent="Drawer/Layout"]
+visible = false
+custom_minimum_size = Vector2(0, 32)
+layout_mode = 2
+text = "CONFIRM KEEP 2"
+
 [node name="DragOverlay" type="Control" parent="."]
 z_index = 5
 layout_mode = 0

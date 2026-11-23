@@ -182,6 +182,9 @@ func _ready() -> void:
 	_ability_panel.ability_primed.connect(_on_ability_primed)
 	_ability_panel.ability_cancel_requested.connect(_cancel_ability_focus)
 	_ability_panel.ability_activated.connect(_on_ability_activated)
+	_ability_panel.discards_confirmed.connect(func(copy_ids: Array[String]):
+		_on_phase_intent_requested(&"choose_ability_discards", {"copy_ids": copy_ids})
+	)
 	_targeting_overlay.commit_requested.connect(_on_targeting_commit_requested)
 	_targeting_overlay.closed.connect(_on_targeting_closed)
 	_targeting_overlay.selection_changed.connect(_on_targeting_selection_changed)
@@ -390,6 +393,8 @@ func handle_command_result(
 	authoritative_phase: int
 ) -> void:
 	_phase_controls.handle_command_result(kind, accepted, error_code, authoritative_phase)
+	if kind == &"choose_ability_discards" and not accepted:
+		_ability_panel.discard_rejected(error_code)
 	if not accepted and kind in [
 		&"stage_hand", &"lock_hand", &"stage_manipulation", &"commit_manipulation",
 		&"play_public_ability", &"configure_joker",
@@ -610,7 +615,8 @@ func _render_abilities() -> void:
 	if has_private_player:
 		_ability_panel.render(
 			_model.get("private_abilities", []), phase,
-			_model.get("ability_catalog", {}), frozen or hand_locked
+			_model.get("ability_catalog", {}), frozen or hand_locked,
+			int(_model.get("required_ability_discards", 0)) if phase == GameTypes.Phase.END else 0
 		)
 	_render_ability_history()
 	if not _active_ability.is_empty() and (
@@ -912,8 +918,8 @@ func _refresh_ability_focus() -> void:
 		seats, eligible if timing == AbilityDefinition.Timing.HAND_SHAPE else [],
 		_selected_seats, selects_player
 	)
-	_ability_focus.visible = has_focus
-	if has_focus:
+	_ability_focus.visible = has_focus or _ability_panel.discard_focus_rect().has_area()
+	if _ability_focus.visible:
 		_update_focus_regions()
 
 
@@ -922,7 +928,7 @@ func _update_focus_regions() -> void:
 		return
 	var ability := _active_ability if not _active_ability.is_empty() else _primed_ability
 	var copy_id := _active_copy_id if not _active_copy_id.is_empty() else _primed_copy_id
-	var regions: Array[Rect2] = [_ability_panel.ability_focus_rect(copy_id)]
+	var regions: Array[Rect2] = [_ability_panel.ability_focus_rect(copy_id), _ability_panel.discard_focus_rect()]
 	match int(ability.get("timing", -1)):
 		AbilityDefinition.Timing.HAND_MANIPULATION:
 			regions.append(_phase_controls.hand_focus_rect())

@@ -15,6 +15,9 @@ const EventKinds = preload("res://src/core/events/event_kinds.gd")
 const MatchConfig = preload("res://src/core/match/match_config.gd")
 const MatchState = preload("res://src/core/match/match_state.gd")
 const MatchController = preload("res://src/core/match/match_controller.gd")
+const SnapshotProjector = preload("res://src/core/match/snapshot_projector.gd")
+const AbilityCatalog = preload("res://src/core/abilities/ability_catalog.gd")
+const ContextHandCatalog = preload("res://src/core/scoring/context_hand_catalog.gd")
 
 
 func test_main_two_allows_only_hand_shape_effects_and_does_not_reclassify() -> void:
@@ -113,17 +116,22 @@ func test_end_uses_one_final_ceiling_factor_floor_and_nil_tie() -> void:
 
 func test_end_awards_both_victory_modes_and_unlocks_then_resets_rematch() -> void:
 	var score_state := _main_two_state(56, GameTypes.VictoryMode.SCORE_RACE, 1)
+	_give_extra_abilities(score_state, &"one", 3)
 	var score_controller := MatchController.new(score_state)
-	_ready_both(score_controller, 10)
+	var result = _ready_both(score_controller, 10)
 	assert_true(score_state.match_complete)
 	assert_eq(score_state.winner_id, &"one")
+	assert_eq(score_state.phase, GameTypes.Phase.COMPLETE)
+	assert_true(_first_event(result.events, EventKinds.MATCH_ENDED) != null)
 	assert_false(score_state.config.match_started)
 
 	var wins_state := _main_two_state(57, GameTypes.VictoryMode.ROUND_WIN_RACE, 1)
+	_give_extra_abilities(wins_state, &"two", 3)
 	var wins_controller := MatchController.new(wins_state)
 	_ready_both(wins_controller, 10)
 	assert_eq(wins_state.players[&"one"].round_wins, 1)
 	assert_eq(wins_state.winner_id, &"one")
+	assert_eq(wins_state.phase, GameTypes.Phase.COMPLETE)
 
 	var occupants := wins_state.players.keys()
 	wins_controller.reset_for_rematch(99)
@@ -133,6 +141,70 @@ func test_end_awards_both_victory_modes_and_unlocks_then_resets_rematch() -> voi
 	assert_eq(wins_controller.state.players[&"one"].match_score, 0)
 	assert_eq(wins_controller.state.players[&"one"].round_wins, 0)
 	assert_false(wins_controller.state.config.match_started)
+
+
+func test_two_context_buff_updates_main_two_for_five_rise_and_three_fall() -> void:
+	var state := _main_two_state(58)
+	var player = state.players[&"one"]
+	player.locked_context = ContextHandEvaluator.evaluate_contexts(
+		PackedInt32Array([0, 0, 0, 0, 0, 2, 2, 2]), ContextHandCatalog.definitions()
+	)
+	assert_eq(player.locked_context.category_id, &"rise_fall_3")
+	player.provisional_score = ScoreCalculator.calculate(
+		player.submitted_faces, player.locked_normal, player.locked_context, player.factor_modifiers
+	)
+	var previous: int = player.provisional_score.final_score
+	var buff: AbilityDefinition
+	for definition in AbilityCatalog.hand_shape_designs():
+		if definition.id == &"two_context_buff":
+			buff = definition
+			break
+	_set_ability(state, &"one", 0, buff)
+	var controller := MatchController.new(state)
+	var result := controller.submit(GameCommand.new(
+		&"apply-mixed-buff", &"one", CommandKinds.PLAY_PUBLIC_ABILITY, {
+			"copy_id": player.ability_hand[0].copy_id, "target_player_id": "one",
+			"choices": {"target_player_id": ["one"]},
+		}
+	), 5)
+	assert_true(result.accepted)
+	assert_true(player.provisional_score.final_score > previous)
+	assert_true(_first_event(result.events, EventKinds.PROVISIONAL_SCORE_UPDATED) != null)
+
+
+func test_discards_are_confirmed_in_any_order_and_revealed_together() -> void:
+	var state := _main_two_state(61)
+	_give_extra_abilities(state, &"one", 1)
+	_give_extra_abilities(state, &"two", 1)
+	var controller := MatchController.new(state)
+	_ready_both(controller, 10)
+	var first_id: StringName = state.players[&"two"].ability_hand[0].copy_id
+	var first := controller.submit(GameCommand.new(
+		&"discard-two", &"two", CommandKinds.CHOOSE_ABILITY_DISCARDS, {"copy_ids": [first_id]}
+	), 20)
+	assert_true(first.accepted)
+	assert_true(first.events.is_empty())
+	assert_eq(state.phase, GameTypes.Phase.END)
+	assert_eq(state.players[&"two"].ability_hand.size(), 3)
+	var owner := SnapshotProjector.for_recipient(state, &"two", GameTypes.RecipientRole.ACTIVE_PLAYER)
+	var other := SnapshotProjector.for_recipient(state, &"one", GameTypes.RecipientRole.ACTIVE_PLAYER)
+	assert_eq(owner.required_ability_discards, 0)
+	assert_eq(owner.private_abilities.size(), 2)
+	assert_eq(other.players[1].ability_count, 3)
+	assert_true(other.players[1].discard_complete)
+	assert_false(JSON.stringify(other).contains(str(first_id)))
+	state = MatchState.from_dict(state.to_dict())
+	controller = MatchController.new(state)
+	var last := controller.submit(GameCommand.new(
+		&"discard-one", &"one", CommandKinds.CHOOSE_ABILITY_DISCARDS,
+		{"copy_ids": [state.players[&"one"].ability_hand[0].copy_id]}
+	), 21)
+	assert_true(last.accepted)
+	assert_eq(last.events.filter(func(event): return event.kind == EventKinds.ABILITIES_DISCARDED).size(), 2)
+	assert_eq(state.players[&"one"].ability_hand.size(), 2)
+	assert_eq(state.players[&"two"].ability_hand.size(), 2)
+	assert_false(state.players[&"two"].ability_hand.any(func(card): return card.copy_id == first_id))
+	assert_eq(state.phase, GameTypes.Phase.START)
 
 
 func test_confirmed_and_timeout_discards_reach_two_with_visibility_rules() -> void:

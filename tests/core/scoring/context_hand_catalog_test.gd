@@ -32,8 +32,8 @@ func test_every_family_threshold_has_the_approved_priority_and_exact_multiplier(
 	for threshold in all_tiers:
 		_assert_tier(by_id[StringName("all_contexts_%d" % threshold)], all_tiers[threshold])
 	var single_tiers := {
-		5: [50, 7, 4], 6: [70, 2, 1], 7: [80, 9, 4], 8: [110, 11, 4],
-		9: [120, 13, 4], 10: [140, 15, 4], 11: [150, 9, 2], 12: [160, 5, 1],
+		5: [1, 1, 1], 6: [5, 9, 8], 7: [9, 5, 4], 8: [19, 3, 2],
+		9: [39, 7, 4], 10: [59, 2, 1], 11: [89, 5, 2], 12: [101, 11, 4],
 	}
 	for context_name in ["rise", "flourish", "fall"]:
 		for threshold in single_tiers:
@@ -52,11 +52,15 @@ func test_every_family_threshold_has_the_approved_priority_and_exact_multiplier(
 			)
 
 
-func test_priority_resolves_real_inclusive_collisions_to_the_rarest_shape() -> void:
+func test_priority_resolves_overlaps_in_favor_of_stronger_mixed_shapes() -> void:
 	var definitions := ContextHandCatalog.definitions()
 	assert_eq(
 		ContextHandEvaluator.evaluate_contexts(_contexts(5, 3, 3), definitions).category_id,
-		&"rise_5"
+		&"all_contexts_3"
+	)
+	assert_eq(
+		ContextHandEvaluator.evaluate_contexts(_contexts(5, 0, 3), definitions).category_id,
+		&"rise_fall_3"
 	)
 	assert_eq(
 		ContextHandEvaluator.evaluate_contexts(_contexts(4, 4, 4), definitions).category_id,

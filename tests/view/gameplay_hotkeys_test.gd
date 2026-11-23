@@ -2,6 +2,7 @@ extends "res://tests/test_case.gd"
 
 const App := preload("res://src/view/app/app_root.tscn")
 const Preferences := preload("res://src/view/app/gameplay_preferences.gd")
+const DisplayPreferences := preload("res://src/view/app/display_preferences.gd")
 const Settings := preload("res://src/view/lobby/general_settings_screen.tscn")
 const MatchFixture := preload("res://tests/view/match_screen_test.gd")
 
@@ -41,6 +42,10 @@ func test_settings_can_change_and_restore_a_saved_binding() -> void:
 	var window: Window = Engine.get_main_loop().root
 	window.add_child(screen)
 	await Engine.get_main_loop().process_frame
+	var status: Label = screen.get_node("Content/DisplayStatus")
+	assert_true(status.text.contains("%d × %d" % [window.size.x, window.size.y]))
+	assert_true(DisplayPreferences.describe_window(1440, Vector2i(1920, 1080)).ends_with("below selected size"))
+	assert_false(DisplayPreferences.describe_window(1440, Vector2i(2560, 1440)).ends_with("below selected size"))
 	var binding := screen.get_node_or_null("Content/Hotkeys/ready/Binding") as Button
 	assert_true(binding != null)
 	if binding != null:

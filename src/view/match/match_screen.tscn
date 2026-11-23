@@ -1,4 +1,4 @@
-[gd_scene load_steps=23 format=3]
+[gd_scene load_steps=25 format=3]
 
 [ext_resource type="Script" path="res://src/view/match/match_screen.gd" id="1_script"]
 [ext_resource type="PackedScene" path="res://src/view/match/player_seat.tscn" id="2_seat"]
@@ -21,6 +21,8 @@
 [ext_resource type="Script" path="res://src/view/match/draw_animation.gd" id="19_draw_animation"]
 [ext_resource type="Script" path="res://src/view/match/context_clock.gd" id="20_clock"]
 [ext_resource type="Script" path="res://src/view/match/active_effects.gd" id="21_effects"]
+[ext_resource type="Texture2D" path="res://assets/artwork/card/ability_card_back.png" id="22_ability_back"]
+[ext_resource type="Texture2D" path="res://assets/artwork/card/pile_edge.png" id="23_pile_edge"]
 
 [sub_resource type="ButtonGroup" id="ButtonGroup_sort"]
 
@@ -191,6 +193,8 @@ custom_minimum_size = Vector2(138, 104)
 layout_mode = 2
 pile_name = "Abilities"
 landscape = true
+top_art = ExtResource("22_ability_back")
+edge_art = ExtResource("23_pile_edge")
 
 [node name="Fields" type="VBoxContainer" parent="Center"]
 visible = false

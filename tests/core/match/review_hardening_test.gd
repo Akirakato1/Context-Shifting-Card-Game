@@ -368,8 +368,7 @@ func test_replenishment_context_counts_private_cards_and_context_advance_are_eve
 	for player_id in end_state.seat_order:
 		end_state.players[player_id].end_discard_complete = true
 	var end_controller := MatchController.new(end_state)
-	end_controller.tick(0)
-	var end_events := end_controller.tick(2001)
+	var end_events := end_controller.tick(0)
 	assert_true(_first_event(end_events, EventKinds.CONTEXT_ADVANCED) != null)
 
 

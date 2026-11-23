@@ -1,34 +1,20 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene load_steps=2 format=3]
 
 [ext_resource type="PackedScene" path="res://src/view/match/ability_card.tscn" id="1_card"]
-
-[sub_resource type="StyleBoxFlat" id="Style_copy"]
-content_margin_left = 8.0
-content_margin_top = 4.0
-content_margin_right = 8.0
-content_margin_bottom = 4.0
-bg_color = Color(0.058, 0.096, 0.135, 0.93)
 
 [node name="AbilityInventoryCard" instance=ExtResource("1_card")]
 custom_minimum_size = Vector2(245, 125)
 inventory_layout = true
 
-[node name="ArtSpace" parent="Face" index="0"]
-custom_minimum_size = Vector2(44, 0)
-
-[node name="Copy" parent="Face" index="1"]
-theme_override_styles/panel = SubResource("Style_copy")
-
 [node name="Layout" parent="Face/Copy" index="0"]
-alignment = 1
 theme_override_constants/separation = 1
 
 [node name="Title" parent="Face/Copy/Layout/Heading" index="0"]
-theme_override_font_sizes/font_size = 21
+theme_override_font_sizes/font_size = 18
 
 [node name="Timing" parent="Face/Copy/Layout" index="1"]
 theme_override_font_sizes/font_size = 12
 
 [node name="Rules" parent="Face/Copy/Layout" index="2"]
 theme_override_constants/line_spacing = 0
-theme_override_font_sizes/font_size = 13
+theme_override_font_sizes/font_size = 12

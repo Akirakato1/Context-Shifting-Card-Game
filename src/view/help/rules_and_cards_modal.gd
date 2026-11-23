@@ -117,7 +117,7 @@ func _build_how_to_play() -> void:
 	_add_phase(steps, "Main 2",
 		"Review the revealed hands and provisional scores. Play any final Buff/Nerf abilities and ready.")
 	_add_phase(steps, "End",
-		"Round scores are finalized and submitted cards are discarded. Discard down to two abilities. The context clock then advances.")
+		"Round scores are finalized. If someone wins the match, go straight to Results. Otherwise, anyone holding more than two abilities selects two to keep in their ability tray. Everyone can choose at the same time.")
 	_label(
 		content,
 		"In the Abilities drawer, right-click an available card to focus it, then left-click that card to play it. Drag cards to reorder them.",

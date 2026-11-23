@@ -180,12 +180,12 @@ func test_runtime_config_uses_recipe_with_all_four_ability_categories() -> void:
 	assert_eq(contexts_by_id.all_contexts_1.priority, 10)
 	assert_eq(contexts_by_id.all_contexts_1.multiplier.numerator, 5)
 	assert_eq(contexts_by_id.all_contexts_1.multiplier.denominator, 4)
-	assert_eq(contexts_by_id.rise_12.priority, 160)
-	assert_eq(contexts_by_id.rise_12.multiplier.numerator, 5)
-	assert_eq(contexts_by_id.rise_12.multiplier.denominator, 1)
-	assert_false(contexts.any(func(definition):
+	assert_eq(contexts_by_id.rise_12.priority, 101)
+	assert_eq(contexts_by_id.rise_12.multiplier.numerator, 11)
+	assert_eq(contexts_by_id.rise_12.multiplier.denominator, 4)
+	assert_eq(contexts.filter(func(definition):
 		return definition.multiplier.numerator == 1 and definition.multiplier.denominator == 1
-	))
+	).size(), 3)
 	var normals: Array = runtime._controller.state.config.normal_definitions
 	var normals_by_id := {}
 	var normal_categories := {}

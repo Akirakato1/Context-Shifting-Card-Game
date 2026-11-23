@@ -28,11 +28,20 @@ static func window_size_for(height: int) -> Vector2i:
 	return Vector2i(roundi(height * 16.0 / 9.0), height)
 
 
+static func describe_window(mode: int, actual: Vector2i) -> String:
+	var label := "Actual window · %d × %d px" % [actual.x, actual.y]
+	if mode != FULLSCREEN:
+		var requested := window_size_for(mode)
+		if actual.x < requested.x or actual.y < requested.y:
+			label += " · below selected size"
+	return label
+
+
 static func populate_modes(option: OptionButton) -> void:
 	for height: int in WINDOW_HEIGHTS:
 		var dimensions := window_size_for(height)
 		option.add_item("%d × %d" % [dimensions.x, dimensions.y], height)
-	option.add_item("Fullscreen", FULLSCREEN)
+	option.add_item("Fullscreen (display resolution)", FULLSCREEN)
 	option.select(option.get_item_index(load_mode()))
 
 

@@ -81,6 +81,8 @@ func _play_bot(id: StringName, now: int, events: Array[DomainEvent]) -> bool:
 			var cards: Array = []
 			var contexts: Array = Projector.for_recipient(state, id, Types.RecipientRole.ACTIVE_PLAYER).active_contexts
 			for card in player.hand:
+				if card.card_id in player.submission_locked_card_ids:
+					continue
 				var eligible = card.eligible_half_indexes_for_contexts(PackedInt32Array(contexts))
 				if eligible.is_empty():
 					continue

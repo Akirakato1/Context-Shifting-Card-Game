@@ -62,6 +62,11 @@ func test_ability_draw_tracks_the_toggle_and_cancels_delayed_work() -> void:
 	var delayed: Control = renderer.call("play_ability_draw", card, Vector2(130, 160), toggle, 2.0)
 	assert_true(flight != null and delayed != null)
 	if flight != null and delayed != null:
+		var back := flight.get_node("AbilityBack") as TextureRect
+		assert_true(back.visible)
+		assert_eq(back.texture, preload("res://assets/artwork/card/ability_card_back.png"))
+		var face: Control = flight.get("face")
+		assert_false(face.visible)
 		assert_false(delayed.visible)
 		target[0] = toggle
 		slot.hide()

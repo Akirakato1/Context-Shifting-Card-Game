@@ -33,6 +33,7 @@ var completed_manipulation_ids: Array[StringName] = []
 var submission_locked_card_ids: Array[StringName] = []
 var finalized_score := 0
 var end_discard_complete := false
+var end_discard_copy_ids: Array[StringName] = []
 var activation_round := 0
 var disconnect_deadline_msec := -1
 var reconnect_token := ""

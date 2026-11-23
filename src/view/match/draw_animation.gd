@@ -5,6 +5,7 @@ signal sound_requested(cue: StringName)
 
 const CARD_SCENE := preload("res://src/view/match/card_widget.tscn")
 const ABILITY_SCENE := preload("res://src/view/match/ability_inventory_card.tscn")
+const ABILITY_BACK_ART := preload("res://assets/artwork/card/ability_card_back.png")
 const HALF_ART_FRACTION := 1508.0 / 2610.0
 const HAND_MERGE_SIZE := Vector2(106, 159)
 const HALF_LIFT_SIZE := Vector2(74, 65)
@@ -65,6 +66,7 @@ class Flight extends Control:
 	var sources: Array[Vector2] = []
 	var halves: Array[TextureRect] = []
 	var face: Control
+	var back: TextureRect
 	var pulse: Pulse
 	var tint: Color
 	var landing_art: Texture2D
@@ -116,6 +118,13 @@ func play_ability_draw(card: Dictionary, source: Vector2, destination: Variant, 
 	face.render(card, str(card.get("ability_id", "")), false)
 	face.modulate = Color.WHITE
 	_ignore_input(face)
+	flight.back = TextureRect.new()
+	flight.back.name = "AbilityBack"
+	flight.back.texture = ABILITY_BACK_ART
+	flight.back.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	flight.back.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	flight.back.size = ABILITY_LIFT_SIZE
+	flight.add_child(flight.back)
 	_make_pulse(flight)
 	_animate_ability(0.0, flight)
 	_play(flight, _animate_ability.bind(flight), ABILITY_TRAVEL_SECONDS, delay)
@@ -220,7 +229,12 @@ func _animate_ability(progress: float, flight: Flight) -> void:
 		end_size = Vector2(minf(target.size.x * 0.46, 84.0), minf(target.size.y * 0.8, 42.0))
 	var face_size := ABILITY_LIFT_SIZE.lerp(end_size, travel) * (1.0 + 0.24 * sway)
 	var center := source.lerp(target.get_center(), travel) + Vector2(0.0, -63.0) * sway
-	_place_face(flight.face, _centered_rect(center, face_size), 0.15 * sway)
+	var flip := smoothstep(0.20, 0.47, progress)
+	face_size.x *= maxf(absf(cos(flip * PI)), 0.04)
+	flight.back.visible = flip < 0.5
+	flight.face.visible = not flight.back.visible
+	var shown_side: Control = flight.back if flight.back.visible else flight.face
+	_place_face(shown_side, _centered_rect(center, face_size), 0.15 * sway)
 	flight.face.modulate.a = 1.0 - smoothstep(0.78, 1.0, progress) if ends_on_toggle else 1.0
 
 

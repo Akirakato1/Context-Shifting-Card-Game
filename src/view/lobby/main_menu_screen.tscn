@@ -86,7 +86,14 @@ stretch_mode = 5
 layout_mode = 2
 theme_override_colors/font_color = Color(1, 0.84, 0.54, 1)
 theme_override_font_sizes/font_size = 64
-text = "SHIFT"
+text = "ZEITKLUS"
+horizontal_alignment = 1
+
+[node name="Subtitle" type="Label" parent="Content"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.86, 0.77, 0.63, 1)
+theme_override_font_sizes/font_size = 24
+text = "The Cycle of Ages"
 horizontal_alignment = 1
 
 [node name="CreateLobbyButton" type="Button" parent="Content"]

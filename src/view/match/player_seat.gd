@@ -142,6 +142,8 @@ func render(
 	_request.visible = viewing_as_spectator and not request.is_empty()
 	_request.text = _request_text(request) if _request.visible else ""
 	var is_end := phase == GameTypes.Phase.END
+	if is_end and player.has("discard_complete"):
+		_seat_tally.text += "  ·  Ready" if bool(player.discard_complete) else "  ·  Discarding"
 	var revealed: Dictionary = {}
 	if is_end or phase == GameTypes.Phase.MAIN_2:
 		revealed = player.get("revealed_submission", {})
@@ -152,10 +154,13 @@ func render(
 		spectator_hand = player.get("spectator_hand", [])
 		backs = maxi(int(player.get("hand_count", 0)) - spectator_hand.size(), 0)
 	_render_hand(cards, spectator_hand, backs)
-	_score.visible = is_end and not revealed.is_empty()
-	_score.text = "Passed" if revealed.has("cards") and cards.is_empty() else "%d points this round" % int(revealed.get(
-		"finalized_score", revealed.get("score_breakdown", {}).get("final_score", 0)
-	))
+	_score.visible = not revealed.is_empty()
+	var score_key := "finalized_score" if is_end else "provisional_score"
+	var score := int(revealed.get(score_key, revealed.get("score_breakdown", {}).get("final_score", 0)))
+	if cards.is_empty():
+		_score.text = "Passed"
+	else:
+		_score.text = ("%d points this round" if is_end else "%d provisional points") % score
 	_score.tooltip_text = _score_text(revealed) if _score.visible else ""
 
 

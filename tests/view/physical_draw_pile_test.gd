@@ -12,6 +12,8 @@ func test_scene_decks_show_count_and_raise_draw_origin_with_stack_height() -> vo
 		assert_true(pile != null and pile.has_method("render"), pile_name + " renders a physical stack")
 		if pile == null or not pile.has_method("render"):
 			continue
+		if pile_name == "PileAbility":
+			assert_eq(pile.top_art, preload("res://assets/artwork/card/ability_card_back.png"))
 		pile.render(100, 100)
 		var full: Vector2 = pile.draw_origin()
 		pile.render(50, 100)

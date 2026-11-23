@@ -139,8 +139,10 @@ func tick(now_msec: int) -> Array[DomainEvent]:
 		if _can_close_main_phase(now_msec):
 			return _record_events(_finish_main_two(now_msec))
 	elif state.phase == GameTypes.Phase.END:
+		if state.match_complete:
+			return _record_events(_complete_end(now_msec))
 		_ensure_phase_clock(now_msec)
-		if _phase_deadline_reached(now_msec):
+		if _all_end_discards_complete() or _phase_deadline_reached(now_msec):
 			return _record_events(_finish_end_discards(now_msec))
 	return []
 
@@ -538,6 +540,7 @@ func _begin_end(now_msec: int) -> Array[DomainEvent]:
 		player.completed_manipulation_ids.clear()
 		player.submission_locked_card_ids.clear()
 		player.ready = false
+		player.end_discard_copy_ids.clear()
 		player.end_discard_complete = player.ability_hand.size() <= state.ability_deck.end_hand_limit
 
 	var expired_fields = state.ability_deck.tick_fields_end()
@@ -550,7 +553,7 @@ func _begin_end(now_msec: int) -> Array[DomainEvent]:
 		_apply_disconnect(queued.player_id, queued.detected_msec)
 	_queued_disconnects.clear()
 
-	if _all_end_discards_complete():
+	if state.match_complete or _all_end_discards_complete():
 		events.append_array(_complete_end(now_msec))
 	else:
 		state.phase = GameTypes.Phase.END
@@ -566,27 +569,27 @@ func _submit_end(command: GameCommand, now_msec: int) -> CommandResult:
 	if not command.payload.has("copy_ids") or not command.payload.copy_ids is Array:
 		return CommandResult.new(false, &"malformed_command")
 	var player = state.players[command.player_id]
+	if player.end_discard_complete:
+		return CommandResult.new(false, &"discard_already_confirmed")
 	var excess: int = max(player.ability_hand.size() - state.ability_deck.end_hand_limit, 0)
 	if command.payload.copy_ids.size() != excess:
 		return CommandResult.new(false, &"incorrect_discard_count")
-	var cards: Array[AbilityState] = []
-	var seen := {}
+	var selected: Array[StringName] = []
 	for raw_id in command.payload.copy_ids:
 		if not _is_identifier(raw_id):
 			return CommandResult.new(false, &"malformed_command")
 		var copy_id := StringName(raw_id)
-		if seen.has(copy_id):
+		if copy_id in selected:
 			return CommandResult.new(false, &"duplicate_ability_discard")
-		seen[copy_id] = true
-		var ability := _held_ability(command.player_id, copy_id)
-		if ability == null:
+		if _held_ability(command.player_id, copy_id) == null:
 			return CommandResult.new(false, &"ability_not_in_hand")
-		cards.append(ability)
+		selected.append(copy_id)
 	_ensure_phase_clock(now_msec)
-	var events := _discard_abilities(command.player_id, cards)
+	player.end_discard_copy_ids = selected
 	player.end_discard_complete = true
+	var events: Array[DomainEvent] = []
 	if _all_end_discards_complete():
-		events.append_array(_complete_end(now_msec))
+		events = _finish_end_discards(now_msec)
 	return CommandResult.new(true, &"", events)
 
 
@@ -594,14 +597,20 @@ func _finish_end_discards(now_msec: int) -> Array[DomainEvent]:
 	var events: Array[DomainEvent] = []
 	for player_id in state.seat_order:
 		var player = state.players[player_id]
-		if not player.active or player.end_discard_complete:
+		if not player.active or player.pending:
 			continue
-		var excess: int = max(player.ability_hand.size() - state.ability_deck.end_hand_limit, 0)
-		var shuffled: Array = state.rng.shuffle(player.ability_hand)
 		var cards: Array[AbilityState] = []
-		for index in range(excess):
-			cards.append(shuffled[index])
-		events.append_array(_discard_abilities(player_id, cards))
+		for copy_id: StringName in player.end_discard_copy_ids:
+			var selected := _held_ability(player_id, copy_id)
+			if selected != null:
+				cards.append(selected)
+		if not player.end_discard_complete:
+			var excess := maxi(player.ability_hand.size() - state.ability_deck.end_hand_limit, 0)
+			if excess > 0:
+				cards.assign(state.rng.shuffle(player.ability_hand).slice(0, excess))
+		if not cards.is_empty():
+			events.append_array(_discard_abilities(player_id, cards))
+		player.end_discard_copy_ids.clear()
 		player.end_discard_complete = true
 	events.append_array(_complete_end(now_msec))
 	return events
@@ -633,6 +642,9 @@ func _complete_end(now_msec: int) -> Array[DomainEvent]:
 		player.submission_revealed = false
 	if state.match_complete:
 		state.phase = GameTypes.Phase.COMPLETE
+		state.phase_started_msec = now_msec
+		state.phase_deadline_msec = -1
+		state.reaction_deadline_msec = -1
 		state.config.match_started = false
 		return [DomainEvent.new(EventKinds.MATCH_ENDED, {
 			"winner_id": str(state.winner_id),
@@ -876,6 +888,7 @@ func _forfeit_player(player_id: StringName) -> Array[DomainEvent]:
 	player.pending_manipulation.clear()
 	player.staged_submission.clear()
 	player.submission_locked_card_ids.clear()
+	player.end_discard_copy_ids.clear()
 	player.submitted_cards.clear()
 	player.submitted_faces.clear()
 	player.submitted_card_views.clear()

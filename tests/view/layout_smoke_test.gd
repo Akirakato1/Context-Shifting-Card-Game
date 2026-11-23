@@ -68,7 +68,9 @@ func test_end_shows_each_resolved_hand_at_its_seat_without_overlapping_discards(
 		var table = await _mount_table(viewport_size)
 		var model := _crowded_model()
 		model.phase = 5
-		model["required_ability_discards"] = 1
+		model["required_ability_discards"] = 3
+		model.private_abilities.append({"copy_id": "a4", "ability_id": "reshape"})
+		model.private_abilities.append({"copy_id": "a5", "ability_id": "pair_boost"})
 		model["public_history"] = [{
 			"kind": "round_finalized", "round_number": 8,
 			"payload": {"round_number": 8, "winner_id": "p1", "scores": {"p1": 20}},
@@ -88,8 +90,15 @@ func test_end_shows_each_resolved_hand_at_its_seat_without_overlapping_discards(
 		await Engine.get_main_loop().process_frame
 		await Engine.get_main_loop().process_frame
 		var discards: Control = table.get_node("PhaseControls/EndControls")
-		assert_true(discards.is_visible_in_tree())
+		assert_false(discards.is_visible_in_tree())
 		assert_false(table.get_node("PhaseControls/HandPlayControls").is_visible_in_tree())
+		var drawer: Control = table.get_node("AbilityPanel/Drawer")
+		assert_true(drawer.is_visible_in_tree())
+		var scroll: ScrollContainer = drawer.get_node("Layout/Scroll")
+		var choices: Control = scroll.get_node("Cards")
+		assert_eq(choices.get_child_count(), 5)
+		for card: Control in choices.get_children():
+			assert_true(scroll.get_global_rect().grow(1.0).encloses(card.get_global_rect()), card.name)
 		var seats := {"BottomSeat": "p1", "TopSeat": "p2", "LeftSeat": "p3", "RightSeat": "p4"}
 		var shown_cards: Array[Control] = []
 		for position: String in seats:
@@ -102,7 +111,6 @@ func test_end_shows_each_resolved_hand_at_its_seat_without_overlapping_discards(
 				assert_true(card.card_id.begins_with(seats[position]))
 				assert_false(card.face_down)
 				_assert_inside(card, Rect2(Vector2.ZERO, viewport_size), card.card_id)
-				assert_false(card.get_global_rect().intersects(discards.get_global_rect()))
 				for other in shown_cards:
 					assert_false(card.get_global_rect().intersects(other.get_global_rect()))
 				shown_cards.append(card)

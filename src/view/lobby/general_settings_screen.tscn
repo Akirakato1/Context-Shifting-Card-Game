@@ -70,7 +70,12 @@ text = "Display mode"
 custom_minimum_size = Vector2(0, 56)
 layout_mode = 2
 theme_override_font_sizes/font_size = 24
-tooltip_text = "Window sizes are limited to the current display."
+tooltip_text = "Window sizes are limited to the display exposed by your system or compatibility layer."
+
+[node name="DisplayStatus" type="Label" parent="Content"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.67, 0.76, 0.86, 1)
+theme_override_font_sizes/font_size = 16
 
 [node name="DrawAnimation" type="Label" parent="Content"]
 layout_mode = 2

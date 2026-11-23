@@ -85,6 +85,8 @@ func test_ability_card_uses_supplied_category_backdrop_and_frame() -> void:
 	assert_eq(card.get_node("Artwork").texture, backdrop)
 	assert_eq(card.get_theme_stylebox("panel"), frame)
 	card.render({"timing": 0}, "sample_manipulation", true)
+	assert_eq(card.get_node("Artwork").texture, preload("res://assets/artwork/card/card_ability_manipulation.png"))
+	card.render({}, "unconfigured_sample", true)
 	assert_true(card.get_node("Artwork").texture == null)
 	assert_true(card.get_theme_stylebox("panel") is StyleBoxFlat)
 	card.free()

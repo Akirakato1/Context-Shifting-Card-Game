@@ -7,8 +7,8 @@ param(
 $ErrorActionPreference = 'Stop'
 $projectRoot = [System.IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
 $windowsDirectory = [System.IO.Path]::GetFullPath((Join-Path $projectRoot 'build\windows'))
-$zipPath = [System.IO.Path]::GetFullPath((Join-Path $projectRoot 'build\shift-windows-x64.zip'))
-$executablePath = Join-Path $windowsDirectory 'Shift.exe'
+$zipPath = [System.IO.Path]::GetFullPath((Join-Path $projectRoot 'build\zeitklus-windows-x64.zip'))
+$executablePath = Join-Path $windowsDirectory 'Zeitklus.exe'
 $markerPath = Join-Path ([System.IO.Path]::GetTempPath()) ('shift-startup-smoke-' + [guid]::NewGuid().ToString('N') + '.txt')
 $releaseDll = Join-Path $projectRoot 'addons\webrtc_native\lib\libwebrtc_native.windows.template_release.x86_64.dll'
 $requiredGodotTemplateVersion = '4.7.2.stable'
@@ -26,7 +26,7 @@ function Assert-ProjectChildPath([string]$Path, [string]$ExpectedRelativePath) {
 }
 
 Assert-ProjectChildPath $windowsDirectory 'build\windows'
-Assert-ProjectChildPath $zipPath 'build\shift-windows-x64.zip'
+Assert-ProjectChildPath $zipPath 'build\zeitklus-windows-x64.zip'
 
 if ([string]::IsNullOrWhiteSpace($GodotBin)) {
     $godotCommand = Get-Command godot -ErrorAction SilentlyContinue
@@ -87,7 +87,7 @@ if (Test-Path -LiteralPath $zipPath) {
 }
 New-Item -ItemType Directory -Force -Path $windowsDirectory | Out-Null
 
-Write-Output "Exporting Shift for Windows x64 with Godot $versionOutput..."
+Write-Output "Exporting Zeitklus for Windows x64 with Godot $versionOutput..."
 $exportLogBase = Join-Path ([System.IO.Path]::GetTempPath()) ('shift-export-' + [guid]::NewGuid().ToString('N'))
 $exportOutputLog = $exportLogBase + '.out.log'
 $exportErrorLog = $exportLogBase + '.err.log'
@@ -141,7 +141,7 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 $archive = [System.IO.Compression.ZipFile]::OpenRead($zipPath)
 try {
     $entryNames = @($archive.Entries | ForEach-Object { $_.FullName.Replace('\', '/') })
-    foreach ($requiredName in @('Shift.exe', 'Shift.pck')) {
+    foreach ($requiredName in @('Zeitklus.exe', 'Zeitklus.pck')) {
         if ($entryNames -notcontains $requiredName) {
             throw "Windows ZIP is missing $requiredName."
         }

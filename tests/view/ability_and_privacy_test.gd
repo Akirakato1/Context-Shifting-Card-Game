@@ -80,12 +80,12 @@ func test_ability_drawer_expands_upward_and_enforces_all_four_timings() -> void:
 	assert_eq(panel.legal_ability_ids(), [&"field-copy", &"buff-copy", &"sabotage-copy"])
 	await Engine.get_main_loop().process_frame
 	var cards := panel.get_node("Drawer/Layout/Scroll/Cards") as Control
-	var borders: Array[Color] = []
+	var backgrounds: Array[Texture2D] = []
 	for card: Control in cards.get_children():
-		var frame := card.get_theme_stylebox("panel") as StyleBoxFlat
-		if frame.border_color not in borders:
-			borders.append(frame.border_color)
-	assert_eq(borders.size(), 4, "each category should have its own card border")
+		var art := card.get_node("Artwork") as TextureRect
+		if art.texture != null and art.texture not in backgrounds:
+			backgrounds.append(art.texture)
+	assert_eq(backgrounds.size(), 4, "each category has its own illustrated card face")
 	panel.render(_abilities(), 4, _catalog(), false)
 	assert_eq(panel.legal_ability_ids(), [&"buff-copy"])
 	panel.render(_abilities(), 3, _catalog(), false)
@@ -529,7 +529,10 @@ func test_ability_drawer_displays_name_and_rules_text() -> void:
 	assert_true(title.get_theme_font("font").resource_path.ends_with("MountainKingRegular.ttf"))
 	var body_font := rules.get_theme_font("font") as SystemFont
 	assert_true(body_font != null and body_font.font_names[0] == "Arial")
-	assert_true(card.find_child("Artwork") is TextureRect)
+	var art := card.find_child("Artwork") as TextureRect
+	assert_true(art != null and art.texture != null)
+	if art != null and art.texture != null:
+		assert_true(art.texture.resource_path.ends_with("card_ability_manipulation.png"))
 	await _unmount(panel)
 
 

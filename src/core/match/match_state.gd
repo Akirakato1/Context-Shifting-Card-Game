@@ -251,6 +251,7 @@ func to_dict() -> Dictionary:
 			"submission_locked_card_ids": submission_locks,
 			"finalized_score": player.finalized_score,
 			"end_discard_complete": player.end_discard_complete,
+			"end_discard_copy_ids": player.end_discard_copy_ids.map(func(id: StringName): return str(id)),
 			"activation_round": player.activation_round,
 			"disconnect_deadline_msec": player.disconnect_deadline_msec,
 			"reconnect_token": player.reconnect_token,
@@ -363,6 +364,8 @@ static func from_dict(data: Dictionary) -> MatchState:
 			player.submission_locked_card_ids.append(StringName(card_id))
 		player.finalized_score = player_data.get("finalized_score", 0)
 		player.end_discard_complete = player_data.get("end_discard_complete", false)
+		for copy_id: String in player_data.get("end_discard_copy_ids", []):
+			player.end_discard_copy_ids.append(StringName(copy_id))
 		player.activation_round = player_data.get("activation_round", 0)
 		player.disconnect_deadline_msec = player_data.get("disconnect_deadline_msec", -1)
 		player.reconnect_token = player_data.get("reconnect_token", "")

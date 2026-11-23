@@ -76,10 +76,14 @@ func test_main_two_submissions_stay_available_and_update_from_public_snapshots()
 	assert_false(tabs.get_child(1).button_pressed)
 	assert_eq(cards.get_child_count(), 6)
 	assert_eq(score.text, "55 provisional points")
+	var left_score := table.get_node("TableLayer/LeftSeat/Summary/ScoreSummary") as Label
+	assert_true(left_score.is_visible_in_tree())
+	assert_eq(left_score.text, "55 provisional points")
 	model.players[2].revealed_submission.provisional_score = 88
 	table.render(model)
 	assert_eq(cards.get_child_count(), 6)
 	assert_eq(score.text, "88 provisional points")
+	assert_eq(left_score.text, "88 provisional points")
 	model.erase("private_player_id")
 	model.erase("private_hand")
 	table.render(model)
@@ -91,6 +95,89 @@ func test_main_two_submissions_stay_available_and_update_from_public_snapshots()
 	model.phase = 5
 	table.render(model)
 	assert_false(reveal.visible)
+	await _unmount(table)
+
+
+func test_locked_card_is_marked_and_cannot_enter_a_preview() -> void:
+	var table = await _mount_match()
+	if table == null:
+		return
+	var model := _active_player_model()
+	var card: Dictionary = model.private_hand[0]
+	var id := StringName(card.card_id)
+	card["eligible_half_indexes"] = [0, 1]
+	table.render(model)
+	var controls = table.get_node("PhaseControls")
+	controls.click_card(id)
+	assert_true(controls.has_staged_card(id))
+	card["submission_locked"] = true
+	table.render(model)
+	assert_false(controls.has_staged_card(id))
+	var widget: Control = controls.card_widget(id)
+	var marker := widget.get_node_or_null("Face/SubmissionLock") as Label
+	assert_true(marker != null and marker.visible)
+	controls.click_card(id)
+	assert_false(controls.has_staged_card(id))
+	assert_eq(controls.get_node("HandPlayControls/InvalidReason").text, "This card is locked for this round.")
+	await _unmount(table)
+
+
+func test_end_opens_and_focuses_tray_and_confirms_only_the_unkept_cards() -> void:
+	var table = await _mount_match()
+	if table == null:
+		return
+	var model := _active_player_model()
+	model.phase = 5
+	model["private_abilities"] = [
+		{"copy_id": "a1", "ability_id": "mirror_rank"},
+		{"copy_id": "a2", "ability_id": "suit_imprint"},
+		{"copy_id": "a3", "ability_id": "rise_resonance"},
+	]
+	model["required_ability_discards"] = 1
+	model.players[1]["discard_complete"] = false
+	var intents: Array = []
+	table.intent_requested.connect(func(kind: StringName, payload: Dictionary): intents.append([kind, payload]))
+	var drawer: Control = table.get_node("AbilityPanel/Drawer")
+	assert_false(drawer.visible)
+	table.render(model)
+	assert_true(drawer.visible)
+	assert_true(table.get_node("AbilityFocus").visible)
+	assert_false(table.get_node("PhaseControls/EndControls").visible)
+	var cards: Control = drawer.get_node("Layout/Scroll/Cards")
+	var confirm := drawer.get_node_or_null("Layout/ConfirmKeep") as Button
+	assert_true(confirm != null)
+	if confirm == null:
+		await _unmount(table)
+		return
+	assert_eq(cards.get_child_count(), 3)
+	assert_true(confirm.disabled)
+	await Engine.get_main_loop().process_frame
+	await Engine.get_main_loop().process_frame
+	for card: Control in cards.get_children():
+		var point := card.get_global_transform_with_canvas() * (card.size / 2.0)
+		for pressed in [true, false]:
+			var event := InputEventMouseButton.new()
+			event.position = point
+			event.global_position = point
+			event.button_index = MOUSE_BUTTON_LEFT
+			event.pressed = pressed
+			table.get_viewport().push_input(event, true)
+	assert_false(confirm.disabled)
+	assert_true(drawer.get_node("Layout/Heading").text.contains("2 / 2"))
+	assert_true(table.get_node("TableLayer/TopSeat/Summary/SeatTally").text.contains("Discarding"))
+	model.players[1]["discard_complete"] = true
+	table.render(model)
+	assert_false(confirm.disabled, "Another player's discard preserves the local choices")
+	assert_true(table.get_node("TableLayer/TopSeat/Summary/SeatTally").text.contains("Ready"))
+	confirm.pressed.emit()
+	confirm.pressed.emit()
+	assert_eq(intents, [[&"choose_ability_discards", {"copy_ids": ["a3"]}]])
+	table.handle_command_result(&"choose_ability_discards", true, &"", 5)
+	model["required_ability_discards"] = 0
+	model.private_abilities.pop_back()
+	table.render(model)
+	assert_false(drawer.visible)
+	assert_false(table.get_node("AbilityFocus").visible)
 	await _unmount(table)
 
 

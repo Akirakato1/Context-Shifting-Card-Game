@@ -54,6 +54,8 @@ static func for_recipient(
 			"ability_count": player.ability_hand.size(), "match_score": player.match_score,
 			"round_wins": player.round_wins, "ready": player.ready,
 		}
+		if state.phase == GameTypes.Phase.END and player.active and not player.pending:
+			projected_player["discard_complete"] = player.end_discard_complete
 		if (
 			player.submission_revealed
 			and player.locked_normal != null
@@ -107,16 +109,17 @@ static func for_recipient(
 		snapshot["private_hand"] = _private_hand(
 			available_hand, active_contexts, recipient.submission_locked_card_ids
 		)
-		snapshot["private_abilities"] = _private_abilities(
-			recipient.ability_hand, state.phase
+		var available_abilities: Array = recipient.ability_hand.filter(
+			func(ability): return ability.copy_id not in recipient.end_discard_copy_ids
 		)
+		snapshot["private_abilities"] = _private_abilities(available_abilities, state.phase)
 		var modifiers: Array = []
 		for modifier in recipient.factor_modifiers:
 			modifiers.append(_project_modifier(modifier))
 		snapshot["private_score_modifiers"] = modifiers
 		snapshot["required_ability_discards"] = (
 			maxi(recipient.ability_hand.size() - state.ability_deck.end_hand_limit, 0)
-			if state.phase == GameTypes.Phase.END else 0
+			if state.phase == GameTypes.Phase.END and not recipient.end_discard_complete else 0
 		)
 		snapshot["private_staging"] = {
 			"pending_manipulation": recipient.pending_manipulation.duplicate(true),

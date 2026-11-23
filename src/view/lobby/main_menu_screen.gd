@@ -43,7 +43,8 @@ func _ready() -> void:
 
 func set_page(page: StringName, name_prefill: String = "") -> void:
 	var main := page == &"menu"
-	_title.text = "SHIFT"
+	_title.text = "ZEITKLUS"
+	$Content/Subtitle.visible = main
 	if page == &"create_lobby":
 		_title.text = "Create Lobby"
 	elif page == &"join_lobby":

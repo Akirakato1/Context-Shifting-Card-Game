@@ -1,27 +1,29 @@
-# Shift
+# Zeitklus: The Cycle of Ages
 
-**Shift** is a work-in-progress competitive card game built with Godot 4 and typed GDScript. Players combine context-specific half-cards, preserve useful cards for future contexts, and simultaneously submit hands to compete for the highest score.
+**Zeitklus: The Cycle of Ages** is a competitive card game built with Godot 4 and typed GDScript. Submit a hand using the current context, save cards for later rounds, and use abilities to reshape your hand, affect the table, or disrupt an opponent.
 
-The three contexts advance in a predictable cycle:
+The three contexts advance in a predictable cycle.
 
 ```text
 Rise (興) → Flourish (盛) → Fall (衰) → Rise
 ```
 
-The English names are used in code and the current placeholder interface. The traditional Chinese characters guide the visual direction.
+The clock tracks the current context. Abilities can change which contexts are active or reverse the cycle. The suits are Mountain, Cloud, and Sea.
+
+## Play the game
+
+- **Practice** starts an untimed round-win match against three bots.
+- **Create Lobby** hosts a match for two to four active players and up to four spectators. Share the six-character code so others can use **Join Lobby**.
+- During **Hand Play**, use the live score breakdown to compare submissions. In **Main 2**, review the revealed hands and play any final buffs or nerfs before round scores become final.
+- If the match continues and you have more than two abilities at **End**, the ability tray opens. Select exactly two cards to keep and confirm. Everyone can choose at the same time.
 
 ## Current scope
 
-- Two to four active players and up to four spectators.
-- Host-authoritative multiplayer entered through a six-character lobby code.
-- Direct WebRTC gameplay between each participant and the player-host.
-- Cloudflare TURN fallback for networks that cannot establish a direct route.
+- Host-authoritative multiplayer over direct WebRTC, with Cloudflare TURN fallback.
 - Simultaneous timed phases, reconnect grace, late player entry, and spectator-safe public state.
-- Deterministic, rendering-independent model and controller with a functional 2D interface.
-- Persistent card modifications, Joker half-cards, normal-hand evaluation, context-hand evaluation, abilities, fields, and two victory modes.
+- Joker half-cards, separate card and context hand scoring, and score-race or round-win victory modes.
+- Illustrated cards, context backgrounds, a context clock, deck animations, and adjustable hotkeys, audio levels, and animation speed.
 - Windows x64 as the initial game-jam and itch.io target.
-
-The suits are finalized as Mountain, Cloud, and Sea. The 40-pattern context-hand catalogue and 18-pattern normal-hand catalogue have rarity-derived priorities and exact initial multipliers. Ability copy-count tuning, artwork, animation, sound, and music remain open to playtesting and production work.
 
 ## Technology
 
@@ -42,15 +44,19 @@ The signaling service exchanges connection information and temporary ICE credent
    powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install_webrtc.ps1
    ```
 
-4. Install and start the local signaling service in a separate terminal:
+4. Run the project. Online matches use the hosted signaling service by default.
 
-   ```powershell
-   Set-Location service/signaling
-   npm install
-   npm start
-   ```
+### Optional local signaling
 
-5. For local signaling, set `SHIFT_SIGNALING_URL=ws://127.0.0.1:8080` in the environment that launches Godot. The project setting supplies the public signaling endpoint by default.
+Start the signaling service in a separate terminal.
+
+```powershell
+Set-Location service/signaling
+npm install
+npm start
+```
+
+Set `SHIFT_SIGNALING_URL=ws://127.0.0.1:8080` in the environment that launches Godot.
 
 Permanent Cloudflare TURN credentials belong only in the signaling host's encrypted environment settings. Never place them in `project.godot`, a game export, or source control.
 
@@ -87,7 +93,7 @@ Install the pinned Godot 4.7.2 Windows export template, then run:
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/export_windows.ps1
 ```
 
-The release archive is written to `build/shift-windows-x64.zip`. See the [release checklist](docs/release-checklist.md) before publishing to itch.io.
+The release archive is written to `build/zeitklus-windows-x64.zip`. See the [release checklist](docs/release-checklist.md) before publishing to itch.io.
 
 ## Repository layout
 

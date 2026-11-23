@@ -333,7 +333,7 @@ func test_practice_menu_uses_the_live_controller_through_hand_reveal() -> void:
 	await Engine.get_main_loop().process_frame
 
 
-func test_practice_winner_waits_for_bots_then_reaches_results() -> void:
+func test_practice_non_winning_end_waits_for_bots_when_the_host_is_done() -> void:
 	var scene := load("res://src/view/app/app_root.tscn") as PackedScene
 	var app = scene.instantiate()
 	Engine.get_main_loop().root.add_child(app)
@@ -341,9 +341,7 @@ func test_practice_winner_waits_for_bots_then_reaches_results() -> void:
 	var session = app._session
 	var state: MatchState = session._controller.state
 	state.phase = GameTypes.Phase.END
-	state.match_complete = true
-	state.winner_id = &"host"
-	state.players[&"host"].round_wins = 3
+	state.players[&"host"].round_wins = 2
 	for player_id in state.seat_order:
 		var player = state.players[player_id]
 		state.ability_deck.discard(player.ability_hand.pop_back())
@@ -361,8 +359,8 @@ func test_practice_winner_waits_for_bots_then_reaches_results() -> void:
 
 	session._next_bot_move = 0
 	session.poll()
-	assert_eq(state.phase, GameTypes.Phase.COMPLETE)
-	assert_eq(app.current_screen_id(), &"results")
+	assert_eq(state.phase, GameTypes.Phase.START)
+	assert_eq(app.current_screen_id(), &"match")
 	for player_id in state.seat_order:
 		assert_eq(state.players[player_id].ability_hand.size(), 2)
 	app.queue_free()

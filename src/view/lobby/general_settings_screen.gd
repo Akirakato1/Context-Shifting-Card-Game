@@ -9,6 +9,7 @@ var preferences: GameplayPreferences
 var _binding_action: StringName
 var _binding_buttons: Dictionary[StringName, Button] = {}
 @onready var _modes: OptionButton = $Content/Modes
+@onready var _display_status: Label = $Content/DisplayStatus
 @onready var _draw_speed: OptionButton = $Content/DrawSpeed
 @onready var _hotkeys: VBoxContainer = $Content/Hotkeys
 @onready var _hotkey_status: Label = $Content/HotkeyStatus
@@ -19,6 +20,8 @@ func _ready() -> void:
 		preferences = GameplayPreferences.new()
 	DisplayPreferences.populate_modes(_modes)
 	_modes.item_selected.connect(_on_display_mode_selected)
+	get_window().size_changed.connect(_refresh_display_status)
+	_refresh_display_status()
 	_draw_speed.add_item("Skip", GameplayPreferences.DRAW_SKIP)
 	_draw_speed.add_item("1.0×", GameplayPreferences.DRAW_NORMAL)
 	_draw_speed.add_item("2.0×", GameplayPreferences.DRAW_FAST)
@@ -55,6 +58,13 @@ func _on_display_mode_selected(index: int) -> void:
 	var mode := _modes.get_item_id(index)
 	DisplayPreferences.apply(get_window(), mode)
 	DisplayPreferences.save_mode(mode)
+	_refresh_display_status.call_deferred()
+
+
+func _refresh_display_status() -> void:
+	_display_status.text = DisplayPreferences.describe_window(
+		_modes.get_selected_id(), get_window().size
+	)
 
 
 func _bind_volume(row: HBoxContainer, bus: StringName) -> void:

@@ -140,6 +140,9 @@ func render(
 	_back.visible = hidden
 	_face.visible = not hidden
 	_artwork.visible = not hidden
+	var submission_locked := not hidden and bool(card.get("submission_locked", false))
+	$Face/SubmissionLock.visible = submission_locked
+	tooltip_text = "Locked for submission this round" if submission_locked else ""
 	var staged_in_place := _select_in_place and _staged
 	_frame.texture = selected_frame_art if staged_in_place and selected_frame_art != null else frame_art
 	_frame.visible = not hidden and _frame.texture != null

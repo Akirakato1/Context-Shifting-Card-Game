@@ -6,8 +6,8 @@
 - Prefer `scripts/install_windows_export_template.ps1`; it verifies the pinned official template SHA-256 before installing it.
 - Set `SHIFT_GODOT_BIN` to the Godot 4.7.2 console executable when Godot is not on `PATH`.
 - Run `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/export_windows.ps1`.
-- Confirm the script reports `export_ok` and creates `build/shift-windows-x64.zip`.
-- Extract the ZIP into a new folder on a clean Windows x64 machine and launch `Shift.exe`.
+- Confirm the script reports `export_ok` and creates `build/zeitklus-windows-x64.zip`.
+- Extract the ZIP into a new folder on a clean Windows x64 machine and launch `Zeitklus.exe`.
 - Expect an unsigned-app warning until a signing certificate is added. Allow the Windows Firewall prompt for the host on private networks; do not require public-network access for local testing.
 
 ## Multiplayer smoke test
@@ -29,7 +29,7 @@
 ## itch.io upload
 
 - Create or update an itch.io project of kind **Downloadable** for Windows.
-- Upload `build/shift-windows-x64.zip`, mark it for Windows, and describe it as the Windows x64 build.
-- For manual uploads, keep the ZIP structure flat so `Shift.exe`, `Shift.pck`, and the exported WebRTC DLL are together as produced.
-- For Butler, run `butler push build/shift-windows-x64.zip <account>/<game>:windows-x64` after installing and authenticating Butler.
+- Upload `build/zeitklus-windows-x64.zip`, mark it for Windows, and describe it as the Windows x64 build.
+- For manual uploads, keep the ZIP structure flat so `Zeitklus.exe`, `Zeitklus.pck`, and the exported WebRTC DLL are together as produced.
+- For Butler, run `butler push build/zeitklus-windows-x64.zip <account>/<game>:windows-x64` after installing and authenticating Butler.
 - Download the uploaded build through the itch.io app or browser and repeat the clean-machine launch plus a two-machine direct-connect check.

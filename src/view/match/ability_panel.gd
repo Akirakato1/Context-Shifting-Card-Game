@@ -5,10 +5,13 @@ signal ability_activated(copy_id: StringName, ability: Dictionary)
 signal ability_primed(copy_id: StringName, ability: Dictionary)
 signal ability_cancel_requested
 signal interaction_sound(cue: StringName)
+signal discards_confirmed(copy_ids: Array[String])
 
 const AbilityCard = preload("res://src/view/match/ability_card.gd")
 const AbilityCardScene = preload("res://src/view/match/ability_inventory_card.tscn")
 const CARD_SEPARATION := 7.0
+const INVENTORY_CARD_HEIGHT := 125.0
+const DISCARD_CARD_HEIGHT := 116.0
 const DRAG_THRESHOLD := 7.0
 const REORDER_DURATION := 0.14
 
@@ -27,6 +30,11 @@ var _pressed_id: StringName
 var _press_position := Vector2.ZERO
 var _grab_offset := Vector2.ZERO
 var _drag_order: Array[StringName] = []
+var _kept_ids: Array[StringName] = []
+var _keep_limit := 0
+var _discarding := false
+var _discard_pending := false
+var _expanded_before_discard := false
 
 @onready var _drawer: PanelContainer = $Drawer
 @onready var _heading: Label = $Drawer/Layout/Heading
@@ -34,11 +42,13 @@ var _drag_order: Array[StringName] = []
 @onready var _cards: Control = $Drawer/Layout/Scroll/Cards
 @onready var _drag_overlay: Control = $DragOverlay
 @onready var _toggle: Button = $ToggleButton
+@onready var _confirm_keep: Button = $Drawer/Layout/ConfirmKeep
 
 
 func _ready() -> void:
 	_cards.resized.connect(_layout_cards)
 	visibility_changed.connect(_on_visibility_changed)
+	_confirm_keep.pressed.connect(_on_confirm_keep_pressed)
 
 
 func _exit_tree() -> void:
@@ -51,9 +61,11 @@ func set_drawer_bounds(bounds: Rect2) -> void:
 	_drawer.size = bounds.size
 
 
-func render(abilities: Array, phase: int, catalog: Dictionary, input_locked: bool) -> void:
+func render(abilities: Array, phase: int, catalog: Dictionary, input_locked: bool, required_discards := 0) -> void:
 	var models: Dictionary = {}
 	var snapshot_order: Array[StringName] = []
+	if input_locked and not _input_locked:
+		_discard_pending = false
 	_input_locked = input_locked
 	_legal_ids.clear()
 	for ability_ref in abilities:
@@ -77,12 +89,13 @@ func render(abilities: Array, phase: int, catalog: Dictionary, input_locked: boo
 		if not _cards_by_id.has(copy_id):
 			inventory_changed = true
 			break
-	if _input_locked or inventory_changed:
+	if _input_locked or inventory_changed or required_discards > 0:
 		_finish_drag(false)
-	if _input_locked or _focused_id not in _legal_ids:
+	if _input_locked or required_discards > 0 or _focused_id not in _legal_ids:
 		_set_focused_id(&"")
 
 	_abilities = models
+	_set_discard_requirement(required_discards)
 	for copy_id in _order.duplicate():
 		if not _abilities.has(copy_id):
 			var card := _cards_by_id[copy_id]
@@ -103,10 +116,12 @@ func render(abilities: Array, phase: int, catalog: Dictionary, input_locked: boo
 			_order.append(copy_id)
 		var card := _cards_by_id[copy_id]
 		var model: Dictionary = _abilities[copy_id]
-		card.render(model, str(model.get("ability_id", "")), false, _can_play(copy_id))
+		card.custom_minimum_size.y = DISCARD_CARD_HEIGHT if _discarding else INVENTORY_CARD_HEIGHT
+		card.render(model, str(model.get("ability_id", "")), false, _discarding or _can_play(copy_id))
 		_update_draw_presentation(copy_id)
 	_drawer.visible = _expanded
 	_update_toggle()
+	_update_discard_controls()
 	_layout_cards()
 
 
@@ -169,6 +184,89 @@ func ability_focus_rect(copy_id: StringName) -> Rect2:
 	return card.get_global_rect().grow(7).intersection(_scroll.get_global_rect().grow(7))
 
 
+func discard_focus_rect() -> Rect2:
+	return _drawer.get_global_rect() if _discarding and not _input_locked and is_visible_in_tree() else Rect2()
+
+
+func discard_rejected(reason: StringName) -> void:
+	if not _discard_pending:
+		return
+	_discard_pending = false
+	_confirm_keep.tooltip_text = "Could not confirm: %s" % str(reason).replace("_", " ")
+	interaction_sound.emit(&"invalid")
+	_update_discard_controls()
+
+
+func _set_discard_requirement(required: int) -> void:
+	var was_discarding := _discarding
+	_discarding = required > 0
+	_keep_limit = maxi(_abilities.size() - required, 0)
+	if _discarding and not was_discarding:
+		_expanded_before_discard = _expanded
+		_expanded = true
+		_scroll.scroll_vertical = 0
+	elif was_discarding and not _discarding:
+		for copy_id in _kept_ids:
+			if _cards_by_id.has(copy_id):
+				_cards_by_id[copy_id].set_inventory_focused(false)
+		_kept_ids.clear()
+		_discard_pending = false
+		_confirm_keep.tooltip_text = ""
+		_expanded = _expanded_before_discard
+		_update_heading()
+	_kept_ids.assign(_kept_ids.filter(func(copy_id: StringName) -> bool: return _abilities.has(copy_id)))
+	if _kept_ids.size() > _keep_limit:
+		_kept_ids.resize(_keep_limit)
+
+
+func _update_discard_controls() -> void:
+	_confirm_keep.visible = _discarding
+	if not _discarding:
+		return
+	_heading.text = "Discard down to %d\nSelect cards to keep · %d / %d" % [_keep_limit, _kept_ids.size(), _keep_limit]
+	_confirm_keep.disabled = _input_locked or _discard_pending or _kept_ids.size() != _keep_limit
+	_confirm_keep.text = "CONFIRM KEEP %d" % _keep_limit
+	if _discard_pending:
+		_confirm_keep.text = "CONFIRMING…"
+	elif not _confirm_keep.tooltip_text.is_empty():
+		_confirm_keep.text = "TRY CONFIRMING AGAIN"
+	for copy_id in _order:
+		var kept := copy_id in _kept_ids
+		var card := _cards_by_id[copy_id]
+		card.set_inventory_focused(kept)
+		var at_limit := not kept and _kept_ids.size() == _keep_limit
+		var opacity := card.modulate.a
+		card.modulate = Color(0.76, 0.76, 0.76, opacity) if at_limit else Color(1.0, 1.0, 1.0, opacity)
+
+
+func _toggle_keep(copy_id: StringName) -> void:
+	if _discard_pending:
+		return
+	if copy_id in _kept_ids:
+		_kept_ids.erase(copy_id)
+	elif _kept_ids.size() < _keep_limit:
+		_kept_ids.append(copy_id)
+	else:
+		interaction_sound.emit(&"invalid")
+		return
+	_confirm_keep.tooltip_text = ""
+	interaction_sound.emit(&"select")
+	_update_discard_controls()
+
+
+func _on_confirm_keep_pressed() -> void:
+	if not _discarding or _confirm_keep.disabled:
+		return
+	var discarded: Array[String] = []
+	for copy_id in _order:
+		if copy_id not in _kept_ids:
+			discarded.append(str(copy_id))
+	_confirm_keep.tooltip_text = ""
+	_discard_pending = true
+	_update_discard_controls()
+	discards_confirmed.emit(discarded)
+
+
 func set_activating_copy(copy_id: StringName) -> void:
 	if _cards_by_id.has(_activating_id):
 		_cards_by_id[_activating_id].set_inventory_focused(_activating_id == _focused_id)
@@ -182,7 +280,7 @@ func clear_primed_ability() -> void:
 
 
 func _on_toggle_pressed() -> void:
-	if not _activating_id.is_empty():
+	if _discarding or not _activating_id.is_empty():
 		interaction_sound.emit(&"invalid")
 		return
 	_finish_drag(false)
@@ -194,11 +292,11 @@ func _on_toggle_pressed() -> void:
 
 func _update_toggle() -> void:
 	_toggle.text = "ABILITIES  %d  %s" % [_abilities.size(), "▼" if _expanded else "▲"]
-	_toggle.disabled = _abilities.is_empty() and not _expanded
+	_toggle.disabled = _discarding or (_abilities.is_empty() and not _expanded)
 
 
 func _can_play(copy_id: StringName) -> bool:
-	return not _input_locked and copy_id in _legal_ids and _abilities.has(copy_id)
+	return not _input_locked and not _discarding and copy_id in _legal_ids and _abilities.has(copy_id)
 
 
 func _set_focused_id(copy_id: StringName, notify := true) -> void:
@@ -209,14 +307,23 @@ func _set_focused_id(copy_id: StringName, notify := true) -> void:
 	_focused_id = copy_id
 	if _cards_by_id.has(copy_id):
 		_cards_by_id[copy_id].set_inventory_focused(true)
-	_heading.text = ("Right-click to target or prime" if copy_id.is_empty() else "Left-click to play") + " · Drag to reorder"
+	_update_heading()
 	if notify:
 		interaction_sound.emit(&"unprime" if copy_id.is_empty() else &"prime")
 		ability_primed.emit(copy_id, _abilities.get(copy_id, {}).duplicate(true))
 
 
+func _update_heading() -> void:
+	_heading.text = ("Right-click to target or prime" if _focused_id.is_empty() else "Left-click to play") + " · Drag to reorder"
+
+
 func _on_ability_gui_input(event: InputEvent, card: AbilityCard, copy_id: StringName) -> void:
 	if _input_locked or _pending_draws.has(copy_id) or not event is InputEventMouseButton or not event.pressed:
+		return
+	if _discarding:
+		if event.button_index == MOUSE_BUTTON_LEFT:
+			card.accept_event()
+			_toggle_keep(copy_id)
 		return
 	if not _activating_id.is_empty():
 		if event.button_index == MOUSE_BUTTON_RIGHT and copy_id == _activating_id:

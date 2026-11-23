@@ -12,6 +12,7 @@ const CATEGORY_COLORS := [
 ]
 const PHASE_NAMES := ["Hand Play", "Main 1", "Main 1 / Main 2", "Main 1"]
 const DEFAULT_ACCENT := Color("adbdcf")
+static var _art_frame := StyleBoxEmpty.new()
 const CONTEXT_EMBLEMS := {
 	GameTypes.Context.RISE: preload("res://assets/artwork/context_emblems/context_emblem_rish.png"),
 	GameTypes.Context.FLOURISH: preload("res://assets/artwork/context_emblems/context_emblem_flourish.png"),
@@ -68,6 +69,7 @@ func render(entry: Dictionary, ability_id: String, show_copies: bool, playable :
 	_title.text = str(entry.get("display_name", entry.get("label", ability_id.capitalize())))
 	_rules.text = str(entry.get("rules_text", ""))
 	_timing.text = _timing_text(timing, entry) if valid_timing else "Unconfigured"
+	tooltip_text = "%s\n%s\n%s" % [_title.text, _timing.text, _rules.text]
 	_count.visible = show_copies
 	var copies := int(entry.get("copies", 0))
 	_count.text = "%d %s" % [copies, "copy" if copies == 1 else "copies"]
@@ -82,6 +84,8 @@ func render(entry: Dictionary, ability_id: String, show_copies: bool, playable :
 		_artwork.texture = backgrounds[timing]
 		var frames := [manipulation_frame, field_frame, buff_nerf_frame, sabotage_frame]
 		_custom_frame = frames[timing]
+		if _custom_frame == null and _artwork.texture != null:
+			_custom_frame = _art_frame
 	_border = _accent.darkened(0.15 if playable or show_copies else 0.44)
 	add_theme_stylebox_override("panel", _custom_frame if _custom_frame != null else _fallback_frame)
 	_timing.add_theme_color_override("font_color", _accent)
@@ -143,7 +147,7 @@ func _update_border(hovered: bool) -> void:
 func _draw_placeholder() -> void:
 	if _artwork.texture != null:
 		return
-	var art_width := _art_space.custom_minimum_size.x
+	var art_width := _artwork.size.x * 0.25
 	var center := Vector2(art_width * 0.5, _artwork.size.y * 0.5)
 	var ink := _accent.darkened(0.23)
 	_artwork.draw_rect(Rect2(Vector2.ZERO, Vector2(art_width, _artwork.size.y)), _accent.darkened(0.84))

@@ -64,6 +64,7 @@ var _orientations: Dictionary = {}
 var _card_widgets: Dictionary = {}
 var _pending_draws: Dictionary[StringName, bool] = {}
 var _ability_discards: Array[StringName] = []
+var _discard_acknowledged := false
 var _start_counts := {0: 0, 1: 0, 2: 0}
 var _start_keypads: Array[VBoxContainer] = []
 var _start_keys: Array[Array] = []
@@ -225,7 +226,6 @@ func _draw() -> void:
 
 func _position_phase_content() -> void:
 	var panel_width := minf(size.x - 24, 780.0) if table_cockpit else size.x
-	var horizontal_padding := (size.x - panel_width) / 2.0
 	for controls: Control in [_start, _main, _end]:
 		if not controls.visible:
 			continue
@@ -234,7 +234,7 @@ func _position_phase_content() -> void:
 		var top := -height - 16 if table_cockpit else 48.0
 		if table_cockpit and controls == _main and _phase == PHASE_MAIN_2:
 			top = 49.0
-		controls.position = Vector2(horizontal_padding, top)
+		controls.position = Vector2((size.x - panel_width) / 2.0, top)
 	_hand_play.offset_top = 0.0 if table_cockpit else 42.0
 	_hand_play.offset_bottom = _hand_play.offset_top + (410.0 if table_cockpit else 478.0)
 	_status.position = Vector2(0, -240 if table_cockpit else 0)
@@ -281,6 +281,7 @@ func render(model: Dictionary) -> void:
 		_hand_lock_acknowledged = false
 		_status.text = ""
 		_ability_discards.clear()
+		_discard_acknowledged = false
 		_staged.clear()
 		_staged_order.clear()
 		_authoritative_staging_signature = ""
@@ -307,7 +308,7 @@ func render(model: Dictionary) -> void:
 		$HandPlayControls/Preview.visible = hand_playing
 		$HandPlayControls/ActionRow.visible = hand_playing
 		_invalid_reason.visible = hand_playing
-	_end.visible = _phase == PHASE_END
+	_end.visible = _phase == PHASE_END and (not table_cockpit or _required_ability_discards() == 0)
 	_timeout_notice.text = str(_model.get("timeout_notice", ""))
 	_timeout_notice.visible = not _timeout_notice.text.is_empty()
 	if _start.visible:
@@ -344,6 +345,10 @@ func click_card(card_id: StringName) -> void:
 		_staged_order.erase(card_id)
 	elif _staged_order.size() < 6 and _hand_cards.has(card_id):
 		var card: Dictionary = _hand_cards[card_id]
+		if bool(card.get("submission_locked", false)):
+			_show_hand_feedback("This card is locked for this round.")
+			interaction_sound.emit(&"invalid")
+			return
 		var half_index := _top_half(card_id) if table_cockpit else _default_half_index_for_card(card_id)
 		if not _half_index_is_eligible(card, half_index):
 			_show_hand_feedback("The top half is outside the active contexts.")
@@ -777,10 +782,13 @@ func clear_targeting() -> void:
 
 
 func toggle_ability_discard(copy_id: StringName, selected: bool) -> void:
-	if selected and copy_id not in _ability_discards:
+	if _phase != PHASE_END or _discard_inputs_locked():
+		return
+	if selected and copy_id not in _ability_discards and _ability_discards.size() < _required_ability_discards():
 		_ability_discards.append(copy_id)
 	elif not selected:
 		_ability_discards.erase(copy_id)
+	interaction_sound.emit(&"select")
 	_update_end_button()
 
 
@@ -832,6 +840,8 @@ func handle_command_result(
 		_hand_lock_acknowledged = true
 		_render_hand_play()
 		return
+	if kind == &"choose_ability_discards":
+		_discard_acknowledged = true
 	_refresh_buttons()
 
 
@@ -848,7 +858,11 @@ func _render_hand_play() -> void:
 	var hand_changed := _load_private_hand()
 	if _phase == PHASE_HAND_PLAY:
 		_load_authoritative_staging_if_needed()
-		for card_id in _staged:
+		for card_id in _staged.keys():
+			if bool(_hand_cards[card_id].get("submission_locked", false)):
+				_staged.erase(card_id)
+				_staged_order.erase(card_id)
+				continue
 			var selection: Dictionary = _staged[card_id]
 			selection["joker_choices"] = _default_joker_choices(
 				_hand_cards[card_id], selection.get("joker_choices", [])
@@ -1233,23 +1247,21 @@ func _render_end() -> void:
 	var required := _required_ability_discards()
 	_ability_choices.visible = required > 0
 	_end_confirm.visible = required > 0
-	_update_end_button()
 	if required == 0:
 		_ability_discards.clear()
-		_end_required.text = "Waiting for other players to discard…"
+		_update_end_button()
 		return
-	_end_required.text = "Choose %d to discard" % required
 	var abilities: Array = _model.get("private_abilities", [])
 	for ability in abilities:
 		if not ability is Dictionary:
 			continue
-		var choice := CheckButton.new()
 		var copy_id := StringName(ability.get("copy_id", ""))
-		choice.text = str(ability.get("ability_id", "Ability")).replace("_", " ").capitalize()
-		choice.button_pressed = copy_id in _ability_discards
-		choice.disabled = _input_locked
+		var choice := CheckButton.new()
+		choice.text = str(ability.get("ability_id", "Ability")).capitalize()
+		choice.set_meta("copy_id", copy_id)
 		choice.toggled.connect(func(selected: bool): toggle_ability_discard(copy_id, selected))
 		_ability_choices.add_child(choice)
+	_update_end_button()
 
 
 func _update_start_total() -> void:
@@ -1288,10 +1300,23 @@ func _start_selected_count() -> int:
 
 func _update_end_button() -> void:
 	var required := _required_ability_discards()
-	_end_confirm.disabled = (
-		_input_locked or required <= 0 or _ability_discards.size() != required
-		or _pending.has(&"choose_ability_discards")
-	)
+	var count := _ability_discards.size()
+	var locked := _discard_inputs_locked()
+	_end_confirm.disabled = locked or required <= 0 or count != required
+	if required <= 0 or _discard_acknowledged:
+		_end_required.text = "Waiting for other players to discard…"
+	elif _pending.has(&"choose_ability_discards"):
+		_end_required.text = "Confirming discard…"
+	else:
+		_end_required.text = "Choose %d to discard" % required
+	for choice: BaseButton in _ability_choices.get_children():
+		var selected: bool = choice.get_meta("copy_id") in _ability_discards
+		choice.set_pressed_no_signal(selected)
+		choice.disabled = locked or (not selected and count >= required)
+
+
+func _discard_inputs_locked() -> bool:
+	return _input_locked or _discard_acknowledged or _pending.has(&"choose_ability_discards")
 
 
 func _required_ability_discards() -> int:
