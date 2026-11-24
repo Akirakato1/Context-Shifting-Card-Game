@@ -15,6 +15,7 @@ var _victory_mode: int
 var _victory_target: int
 var _information_visibility: int
 var _phase_timers: Dictionary
+var _no_time_limit: bool
 var _reaction_window_msec: int
 var _public_hard_limit_msec: int
 var _reconnect_grace_msec: int
@@ -34,6 +35,8 @@ var information_visibility: int:
 	get: return _information_visibility
 var phase_timers: Dictionary:
 	get: return _phase_timers.duplicate()
+var no_time_limit: bool:
+	get: return _no_time_limit
 var reaction_window_msec: int:
 	get: return _reaction_window_msec
 var public_hard_limit_msec: int:
@@ -60,7 +63,8 @@ func _init(
 	initial_reconnect_grace_msec: int,
 	initial_ability_definitions: Array,
 	initial_normal_definitions: Array = [],
-	initial_context_definitions: Array = []
+	initial_context_definitions: Array = [],
+	initial_no_time_limit: bool = false
 ) -> void:
 	_active_player_ids.assign(initial_active_ids)
 	_spectator_ids.assign(initial_spectator_ids)
@@ -68,6 +72,7 @@ func _init(
 	_victory_target = initial_victory_target
 	_information_visibility = initial_visibility
 	_phase_timers = initial_phase_timers.duplicate()
+	_no_time_limit = initial_no_time_limit
 	_reaction_window_msec = initial_reaction_window_msec
 	_public_hard_limit_msec = initial_public_hard_limit_msec
 	_reconnect_grace_msec = initial_reconnect_grace_msec
@@ -76,8 +81,9 @@ func _init(
 	_context_definitions.assign(initial_context_definitions)
 
 
-func validate() -> StringName:
-	if _active_player_ids.size() < 2 or _active_player_ids.size() > 4:
+func validate(allow_single_player: bool = false) -> StringName:
+	var minimum_players := 1 if allow_single_player else 2
+	if _active_player_ids.size() < minimum_players or _active_player_ids.size() > 4:
 		return &"active_player_count_out_of_range"
 	if _spectator_ids.size() > 4:
 		return &"spectator_count_out_of_range"
@@ -146,7 +152,17 @@ func set_victory_target(value: int) -> StringName:
 
 func set_victory_mode(value: int) -> StringName:
 	if match_started: return &"config_locked"
-	_victory_mode = value
+	if value not in [GameTypes.VictoryMode.SCORE_RACE, GameTypes.VictoryMode.ROUND_WIN_RACE]:
+		return &"invalid_victory_mode"
+	if value != _victory_mode:
+		_victory_mode = value
+		_victory_target = GameTypes.default_victory_target(value)
+	return &""
+
+
+func set_no_time_limit(value: bool) -> StringName:
+	if match_started: return &"config_locked"
+	_no_time_limit = value
 	return &""
 
 
@@ -234,6 +250,7 @@ func to_dict() -> Dictionary:
 		"active_player_ids": active, "spectator_ids": spectators,
 		"victory_mode": _victory_mode, "victory_target": _victory_target,
 		"information_visibility": _information_visibility, "phase_timers": timers,
+		"no_time_limit": _no_time_limit,
 		"reaction_window_msec": _reaction_window_msec,
 		"public_hard_limit_msec": _public_hard_limit_msec,
 		"reconnect_grace_msec": _reconnect_grace_msec,
@@ -282,7 +299,7 @@ static func from_dict(data: Dictionary) -> MatchConfig:
 		active, spectators, data.victory_mode, data.victory_target,
 		data.information_visibility, timers, data.reaction_window_msec,
 		data.public_hard_limit_msec, data.reconnect_grace_msec, definitions,
-		normal_definitions, context_definitions
+		normal_definitions, context_definitions, bool(data.get("no_time_limit", false))
 	)
 	config.match_started = data.match_started
 	return config

@@ -1,5 +1,7 @@
 extends Control
 
+const GameIcons := preload("res://src/view/common/game_icons.gd")
+
 signal closed
 
 const AbilityCatalog = preload("res://src/core/abilities/ability_catalog.gd")
@@ -11,6 +13,18 @@ const MUTED := Color("afc3d4")
 const GOLD := Color("ffd166")
 const BLUE := Color("8edcf0")
 const ABILITY_TABS := ["Manipulation", "Field", "Buff/Nerf", "Sabotage"]
+const HAND_TYPES := {
+	"high_card": "High Card",
+	"family": "Family",
+	"group": "Group",
+	"straight": "Straight",
+	"flush": "Flush",
+	"single_context": "Single Context",
+	"two_context": "Two Contexts",
+	"three_context": "Three Contexts",
+}
+
+enum HandSort { PRIORITY, MULTIPLIER_HIGH, MULTIPLIER_LOW }
 
 var _ability_catalog: Dictionary = {}
 var _scoring_catalog: Dictionary = {}
@@ -18,10 +32,13 @@ var _catalog_dirty := true
 var _previous_focus: Control
 var _rules_pages: Array[ScrollContainer] = []
 var _ability_pages: Array[ScrollContainer] = []
-var _normal_rows: VBoxContainer
-var _context_rows: VBoxContainer
+var _hand_pages: Dictionary = {}
 var _ability_grids: Array[GridContainer] = []
 var _ability_tabs: TabContainer
+var _ability_search: LineEdit
+var _search_scroll: ScrollContainer
+var _search_grid: GridContainer
+var _ability_index: Array[Dictionary] = []
 
 @onready var _tabs: TabContainer = $Panel/Layout/RulesTabs
 @onready var _close_button: Button = $Panel/Layout/Header/Close
@@ -30,12 +47,12 @@ var _ability_tabs: TabContainer
 func _ready() -> void:
 	_style_tabs(_tabs, 23)
 	_build_how_to_play()
-	_normal_rows = _build_scoring_page(
-		"Hand Shapes",
+	_build_scoring_page(
+		"normal", "Hand Shapes",
 		"Rank patterns use the chosen scoring half of each submitted card. The highest-priority rank pattern wins. When the ruleset includes a Flush, its multiplier adds to that pattern if all submitted scoring halves share a suit."
 	)
-	_context_rows = _build_scoring_page(
-		"Context Hands",
+	_build_scoring_page(
+		"context", "Context Hands",
 		"Count the effective context on both halves of every submitted full card. Thresholds are minimums. If multiple patterns qualify, only the highest-priority one applies."
 	)
 	_build_ability_tabs()
@@ -90,9 +107,17 @@ func _input(event: InputEvent) -> void:
 func _move_modal_focus(direction: int) -> void:
 	var stops: Array[Control] = [_close_button, _tabs.get_tab_bar()]
 	if _tabs.current_tab == 3:
-		stops.append(_ability_tabs.get_tab_bar())
-		stops.append(_ability_pages[_ability_tabs.current_tab])
+		stops.append(_ability_search)
+		if _search_scroll.visible:
+			stops.append(_search_scroll)
+		else:
+			stops.append(_ability_tabs.get_tab_bar())
+			stops.append(_ability_pages[_ability_tabs.current_tab])
 	else:
+		if _tabs.current_tab in [1, 2]:
+			var page: Dictionary = _hand_pages["normal" if _tabs.current_tab == 1 else "context"]
+			stops.append(page.sort)
+			stops.append(page.group)
 		stops.append(_rules_pages[_tabs.current_tab])
 	var current := stops.find(get_viewport().gui_get_focus_owner())
 	stops[posmod(current + direction, stops.size())].grab_focus()
@@ -113,7 +138,7 @@ func _build_how_to_play() -> void:
 	_add_phase(steps, "Main 1",
 		"Play Field, Sabotage, or Buff/Nerf abilities. Ready when you’re done.")
 	_add_phase(steps, "Hand Play",
-		"Use Manipulation abilities, then choose cards with a half that matches an active context. Choose which half scores and submit or pass. Submitted cards leave your hand immediately.")
+		"Use Manipulation abilities, then choose cards with a half that matches an active context. Choose which half scores and submit or pass. Use Undo Submit to edit your hand while other players are still choosing.")
 	_add_phase(steps, "Main 2",
 		"Review the revealed hands and provisional scores. Play any final Buff/Nerf abilities and ready.")
 	_add_phase(steps, "End",
@@ -126,7 +151,7 @@ func _build_how_to_play() -> void:
 	_label(content, "Scoring", 27, GOLD)
 	_label(
 		content,
-		"Add the ranks of all chosen scoring halves, then multiply by the Hand Shape, Context Hand, and Field factors. Round the result up. A Joker half has rank 0. Choose its context and suit directly on the card. It keeps those choices while it stays in your hand, even when unstaged.",
+		"Base Score adds the ranks of your selected scoring halves. Multiply that base by the Hand Shape, Context Hand, and Field factors, then round up. Choose a Joker half’s context, suit, and optional rank directly on the card. Its rank can form hand shapes and contributes zero to Base Score. A Joker keeps its choices while it stays in your hand.",
 		20, INK
 	)
 	_label(
@@ -147,9 +172,25 @@ func _add_phase(parent: Control, title: String, description: String) -> void:
 	detail.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 
 
-func _build_scoring_page(title: String, intro: String) -> VBoxContainer:
+func _build_scoring_page(key: String, title: String, intro: String) -> void:
 	var content := _new_page(_tabs, title)
 	_label(content, intro, 21, BLUE)
+	var filters := HBoxContainer.new()
+	filters.add_theme_constant_override("separation", 16)
+	content.add_child(filters)
+	_label(filters, "Sort by", 18, MUTED).vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	var sort := OptionButton.new()
+	sort.name = "HandSort"
+	sort.add_item("Priority", HandSort.PRIORITY)
+	sort.add_item("Multiplier (high to low)", HandSort.MULTIPLIER_HIGH)
+	sort.add_item("Multiplier (low to high)", HandSort.MULTIPLIER_LOW)
+	sort.add_theme_font_size_override("font_size", 18)
+	filters.add_child(sort)
+	var group := CheckButton.new()
+	group.name = "GroupHandTypes"
+	group.text = "Group by hand type"
+	group.add_theme_font_size_override("font_size", 18)
+	filters.add_child(group)
 	var column_labels := HBoxContainer.new()
 	column_labels.add_theme_constant_override("separation", 18)
 	content.add_child(column_labels)
@@ -158,26 +199,52 @@ func _build_scoring_page(title: String, intro: String) -> VBoxContainer:
 	_centered_label(column_labels, "Multiplier", 18, MUTED, 102)
 	_centered_label(column_labels, "Priority", 18, MUTED, 82)
 	var rows := VBoxContainer.new()
+	rows.name = "HandRows"
 	rows.add_theme_constant_override("separation", 7)
 	content.add_child(rows)
-	return rows
+	_hand_pages[key] = {"rows": rows, "sort": sort, "group": group, "entries": []}
+	sort.item_selected.connect(func(_index: int): _fill_scoring_rows(key))
+	group.toggled.connect(func(_pressed: bool): _fill_scoring_rows(key))
 
 
 func _build_ability_tabs() -> void:
+	var page := VBoxContainer.new()
+	page.add_theme_constant_override("separation", 10)
+	_tabs.add_child(page)
+	_tabs.set_tab_title(3, "Ability Cards")
+	_ability_search = LineEdit.new()
+	_ability_search.name = "AbilitySearch"
+	_ability_search.placeholder_text = "Search ability names and card text"
+	_ability_search.clear_button_enabled = true
+	_ability_search.custom_minimum_size.y = 42
+	_ability_search.add_theme_font_override("font", ThemeDB.fallback_font)
+	_ability_search.add_theme_font_size_override("font_size", 20)
+	_ability_search.text_changed.connect(_filter_abilities)
+	page.add_child(_ability_search)
 	_ability_tabs = TabContainer.new()
 	_ability_tabs.name = "AbilityTabs"
 	_ability_tabs.clip_tabs = false
+	_ability_tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_style_tabs(_ability_tabs, 20)
-	_tabs.add_child(_ability_tabs)
-	_tabs.set_tab_title(3, "Ability Cards")
+	page.add_child(_ability_tabs)
 	for category: String in ABILITY_TABS:
 		var content := _new_page(_ability_tabs, category)
-		var grid := GridContainer.new()
-		grid.columns = 2
-		grid.add_theme_constant_override("h_separation", 15)
-		grid.add_theme_constant_override("v_separation", 15)
-		content.add_child(grid)
-		_ability_grids.append(grid)
+		_ability_grids.append(_ability_grid(content))
+	_search_scroll = ScrollContainer.new()
+	_search_scroll.name = "AbilitySearchResults"
+	_search_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_search_scroll.hide()
+	page.add_child(_search_scroll)
+	_search_grid = _ability_grid(_scroll_content(_search_scroll))
+
+
+func _ability_grid(content: VBoxContainer) -> GridContainer:
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 15)
+	grid.add_theme_constant_override("v_separation", 15)
+	content.add_child(grid)
+	return grid
 
 
 func _style_tabs(tabs: TabContainer, font_size: int) -> void:
@@ -211,14 +278,18 @@ func _tab_style(fill: Color, line: Color) -> StyleBoxFlat:
 
 func _new_page(tabs: TabContainer, title: String) -> VBoxContainer:
 	var scroll := ScrollContainer.new()
-	scroll.focus_mode = Control.FOCUS_ALL
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	tabs.add_child(scroll)
 	tabs.set_tab_title(tabs.get_tab_count() - 1, title)
 	if tabs == _tabs:
 		_rules_pages.append(scroll)
 	else:
 		_ability_pages.append(scroll)
+	return _scroll_content(scroll)
+
+
+func _scroll_content(scroll: ScrollContainer) -> VBoxContainer:
+	scroll.focus_mode = Control.FOCUS_ALL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	var margins := MarginContainer.new()
 	margins.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	margins.add_theme_constant_override("margin_top", 18)
@@ -239,19 +310,56 @@ func _refresh_catalogs() -> void:
 	var scoring := _scoring_catalog
 	if scoring.is_empty():
 		scoring = ScoringReference.default_catalog()
-	_fill_scoring_rows(_normal_rows, scoring.get("normal", []), true)
-	_fill_scoring_rows(_context_rows, scoring.get("context", []), false)
+	for key: String in _hand_pages:
+		_hand_pages[key].entries = scoring.get(key, [])
+		_fill_scoring_rows(key)
 	var abilities := _ability_catalog
 	if abilities.is_empty():
 		abilities = AbilityCatalog.public_catalog(AbilityCatalog.provisional_deck_recipe())
 	_fill_ability_grids(abilities)
 
 
-func _fill_scoring_rows(rows: VBoxContainer, entries: Array, show_example: bool) -> void:
+func _fill_scoring_rows(key: String) -> void:
+	var page: Dictionary = _hand_pages[key]
+	var rows: VBoxContainer = page.rows
 	for child in rows.get_children():
 		child.free()
+	var entries: Array = page.entries.duplicate()
 	if entries.is_empty():
 		_label(rows, "No patterns are configured.", 21, MUTED)
+		return
+	entries.sort_custom(_hand_comes_first.bind(page.sort.get_selected_id()))
+	var group_by_type: bool = page.group.button_pressed
+	var sections := {}
+	for entry: Dictionary in entries:
+		var type := str(entry.get("broad_category_id", ""))
+		var section: String = HAND_TYPES.get(type, "Other") if group_by_type else ""
+		if not sections.has(section):
+			sections[section] = []
+		sections[section].append(entry)
+	for section: String in sections:
+		if not section.is_empty():
+			var heading := _label(rows, section, 22, BLUE)
+			heading.name = "HandTypeHeading"
+		_add_hand_rows(rows, sections[section], key == "normal")
+
+
+func _hand_comes_first(left: Dictionary, right: Dictionary, order: int) -> bool:
+	if order != HandSort.PRIORITY:
+		var lhs: Dictionary = left.get("multiplier", {})
+		var rhs: Dictionary = right.get("multiplier", {})
+		var left_value := int(lhs.get("numerator", 1)) * maxi(1, int(rhs.get("denominator", 1)))
+		var right_value := int(rhs.get("numerator", 1)) * maxi(1, int(lhs.get("denominator", 1)))
+		if left_value != right_value:
+			return left_value > right_value if order == HandSort.MULTIPLIER_HIGH else left_value < right_value
+	var left_priority := int(left.get("priority", 0))
+	var right_priority := int(right.get("priority", 0))
+	if left_priority != right_priority:
+		return left_priority > right_priority
+	return str(left.get("id", "")) < str(right.get("id", ""))
+
+
+func _add_hand_rows(rows: VBoxContainer, entries: Array, show_example: bool) -> void:
 	for entry: Dictionary in entries:
 		var panel := _panel(rows, Color("304556"), 9)
 		var row := HBoxContainer.new()
@@ -262,13 +370,22 @@ func _fill_scoring_rows(rows: VBoxContainer, entries: Array, show_example: bool)
 		detail.add_theme_constant_override("separation", 3)
 		row.add_child(detail)
 		_label(detail, _display_name(entry), 22, INK)
-		_label(detail, str(entry.get("rules_text", "")), 18, MUTED)
+		_scoring_text(detail, str(entry.get("rules_text", "")), MUTED)
 		if show_example:
 			var example := _shape_example(entry)
 			if not example.is_empty():
-				_label(detail, "Example  %s" % example, 18, BLUE)
+				_scoring_text(detail, "Example  %s" % example, BLUE)
 		_centered_label(row, _multiplier(entry.get("multiplier", {})), 22, GOLD, 102)
 		_centered_label(row, str(entry.get("priority", "")), 20, MUTED, 82)
+
+
+func _scoring_text(parent: Control, words: String, ink: Color) -> void:
+	if not GameIcons.has_mentions(words):
+		_label(parent, words, 18, ink)
+		return
+	var detail := GameIcons.label(ThemeDB.fallback_font, 18, ink)
+	parent.add_child(detail)
+	GameIcons.write(detail, words)
 
 
 func _shape_example(entry: Dictionary) -> String:
@@ -305,6 +422,7 @@ func _multiplier(value: Dictionary) -> String:
 
 
 func _fill_ability_grids(catalog: Dictionary) -> void:
+	_ability_index.clear()
 	for grid in _ability_grids:
 		for child in grid.get_children():
 			child.free()
@@ -318,13 +436,36 @@ func _fill_ability_grids(catalog: Dictionary) -> void:
 		var entry: Dictionary = catalog[id]
 		var timing := int(entry.get("timing", -1))
 		if timing >= 0 and timing < _ability_grids.size():
-			var grid := _ability_grids[timing]
-			var card = AbilityCard.instantiate()
-			grid.add_child(card, true)
-			card.render(entry, str(id), true)
+			_add_ability_card(_ability_grids[timing], entry, str(id))
+			var text := "%s %s" % [_display_name(entry, str(id)), str(entry.get("rules_text", ""))]
+			_ability_index.append({"id": str(id), "entry": entry, "text": text.to_lower()})
 	for grid in _ability_grids:
 		if grid.get_child_count() == 0:
 			_label(grid, "No abilities are configured in this category.", 21, MUTED)
+	_filter_abilities(_ability_search.text)
+
+
+func _filter_abilities(query: String) -> void:
+	var terms := query.to_lower().split(" ", false)
+	_ability_tabs.visible = terms.is_empty()
+	_search_scroll.visible = not terms.is_empty()
+	for child in _search_grid.get_children():
+		child.free()
+	if terms.is_empty():
+		return
+	for item in _ability_index:
+		var indexed_text: String = item.text
+		if Array(terms).all(func(term: String) -> bool: return term in indexed_text):
+			_add_ability_card(_search_grid, item.entry, item.id)
+	if _search_grid.get_child_count() == 0:
+		_label(_search_grid, "No abilities match your search.", 21, MUTED)
+	_search_scroll.scroll_vertical = 0
+
+
+func _add_ability_card(grid: GridContainer, entry: Dictionary, id: String) -> void:
+	var card = AbilityCard.instantiate()
+	grid.add_child(card, true)
+	card.render(entry, id, true)
 
 
 func _display_name(entry: Dictionary, fallback_id: String = "") -> String:

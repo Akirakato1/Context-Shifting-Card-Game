@@ -147,8 +147,9 @@ text = "Victory target"
 [node name="VictoryTarget" type="SpinBox" parent="Layout/Body/Settings"]
 layout_mode = 2
 min_value = 1.0
-max_value = 999.0
-value = 10.0
+max_value = 1000.0
+value = 1000.0
+allow_greater = true
 
 [node name="VisibilityLabel" type="Label" parent="Layout/Body/Settings"]
 layout_mode = 2
@@ -157,6 +158,16 @@ text = "Replacement requests"
 [node name="Visibility" type="OptionButton" parent="Layout/Body/Settings"]
 custom_minimum_size = Vector2(0, 40)
 layout_mode = 2
+
+[node name="TimeLimitLabel" type="Label" parent="Layout/Body/Settings"]
+layout_mode = 2
+text = "Phase timers"
+
+[node name="NoTimeLimit" type="CheckButton" parent="Layout/Body/Settings"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 22
+tooltip_text = "Players advance each phase by readying, submitting a hand, or finishing discards."
+text = "No Time Limit"
 
 [node name="StartTimerLabel" type="Label" parent="Layout/Body/Settings"]
 layout_mode = 2
@@ -300,6 +311,7 @@ theme_override_styles/normal = ExtResource("6_primary")
 
 [connection signal="item_selected" from="Layout/Body/Settings/VictoryMode" to="." method="_on_victory_mode_selected"]
 [connection signal="value_changed" from="Layout/Body/Settings/VictoryTarget" to="." method="_on_victory_target_changed"]
+[connection signal="toggled" from="Layout/Body/Settings/NoTimeLimit" to="." method="_on_no_time_limit_toggled"]
 [connection signal="item_selected" from="Layout/Body/Settings/Visibility" to="." method="_on_visibility_selected"]
 [connection signal="value_changed" from="Layout/Body/Settings/StartTimer" to="." method="_on_start_timer_changed"]
 [connection signal="value_changed" from="Layout/Body/Settings/MainTimer" to="." method="_on_main_timer_changed"]

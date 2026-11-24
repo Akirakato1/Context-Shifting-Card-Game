@@ -13,8 +13,8 @@ func test_default_reference_uses_complete_normal_hand_catalog() -> void:
 	assert_eq(by_id.pair.multiplier.numerator, 5)
 	assert_eq(by_id.pair.multiplier.denominator, 4)
 	assert_eq(by_id.four_house.rule_parameters.group_sizes, [4, 2])
-	assert_eq(by_id.six_kind.multiplier.numerator, 19)
-	assert_eq(by_id.six_kind.multiplier.denominator, 4)
+	assert_eq(by_id.six_kind.multiplier.numerator, 6)
+	assert_eq(by_id.six_kind.multiplier.denominator, 1)
 
 	var catalog := ScoringReference.default_catalog()
 	assert_eq(catalog.normal.size(), 18)
@@ -22,9 +22,11 @@ func test_default_reference_uses_complete_normal_hand_catalog() -> void:
 	for entry: Dictionary in catalog.normal:
 		normal_names[entry.id] = entry.display_name
 	assert_eq(normal_names.full_house, "Full House")
-	assert_eq(normal_names.two_pair, "Two Pair")
+	assert_eq(normal_names.two_pair, "Two-Pair")
+	assert_eq(normal_names.three_pair, "Three-Pair")
 	assert_eq(normal_names.six_kind, "Six of a Kind")
-	assert_eq(normal_names.flush_5, "5-card Flush")
+	assert_eq(normal_names.flush_5, "Five-card Flush")
+	assert_eq(normal_names.straight_4, "Four-card Straight")
 	var context_names := {}
 	for entry: Dictionary in catalog.context:
 		context_names[entry.id] = entry.display_name

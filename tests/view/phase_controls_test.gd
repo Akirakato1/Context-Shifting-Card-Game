@@ -100,7 +100,7 @@ func test_pending_hand_draw_keeps_its_slot_across_render_and_reorder() -> void:
 	await _unmount(controls)
 
 
-func test_start_request_autosaves_exact_totals_and_readies_only_the_latest_selection() -> void:
+func test_start_request_autosaves_partial_counts_and_readies_only_the_latest_selection() -> void:
 	var controls = await _mount_controls()
 	if controls == null:
 		return
@@ -126,14 +126,20 @@ func test_start_request_autosaves_exact_totals_and_readies_only_the_latest_selec
 	assert_true(rise_two.button_pressed)
 	assert_true(keypads[2].find_child("Count4", true, false).disabled)
 	assert_eq(controls.get_node("StartControls/Total").text, "3 / 6 selected")
-	assert_true(intents.is_empty())
+	assert_eq(intents, [{"kind": &"set_replenishment_request", "payload": {"request": {0: 2}}}])
+	if intents.is_empty():
+		await _unmount(controls)
+		return
 	assert_true(ready_button.disabled)
+	controls.handle_command_result(&"set_replenishment_request", true, &"", 1)
+	assert_eq(intents[-1].payload.request, {0: 2, 1: 1})
 	rise_five.pressed.emit()
 	assert_false(rise_two.button_pressed)
 	assert_true(fall_one.disabled)
 	fall_one.pressed.emit()
 	assert_eq(controls.get_node("StartControls/Total").text, "6 / 6 selected")
-	assert_eq(intents, [{"kind": &"set_replenishment_request", "payload": {"request": {0: 5, 1: 1, 2: 0}}}])
+	controls.handle_command_result(&"set_replenishment_request", true, &"", 1)
+	assert_eq(intents[-1].payload.request, {0: 5, 1: 1})
 	flourish_one.pressed.emit()
 	assert_false(flourish_one.button_pressed)
 	assert_false(fall_one.disabled)
@@ -142,11 +148,11 @@ func test_start_request_autosaves_exact_totals_and_readies_only_the_latest_selec
 	assert_false(ready_button.disabled)
 	ready_button.pressed.emit()
 	ready_button.pressed.emit()
-	assert_eq(intents.size(), 1, "Ready waits for the save in flight")
+	assert_eq(intents.size(), 3, "Ready waits for the save in flight")
 	controls.handle_command_result(&"set_replenishment_request", true, &"", 1)
-	assert_eq(intents.slice(1), [{"kind": &"set_replenishment_request", "payload": {"request": {0: 5, 1: 0, 2: 1}}}])
+	assert_eq(intents.slice(3), [{"kind": &"set_replenishment_request", "payload": {"request": {0: 5, 2: 1}}}])
 	controls.handle_command_result(&"set_replenishment_request", true, &"", 1)
-	assert_eq(intents.slice(2), [{"kind": &"set_ready", "payload": {"ready": true}}])
+	assert_eq(intents.slice(4), [{"kind": &"set_ready", "payload": {"ready": true}}])
 	controls.handle_command_result(&"set_ready", true, &"", 1)
 	assert_true(ready_button.disabled)
 	assert_true(fall_one.disabled)
@@ -192,11 +198,41 @@ func test_start_keypads_appear_directly_below_the_context_piles() -> void:
 		assert_true(absf(keys.get_center().x - stack.get_center().x) < 2.0)
 		assert_true(keypad.find_child("Count1", true, false).disabled)
 		assert_false(keypad.find_child("Count2", true, false).disabled)
+		var key: Button = keypad.find_child("Count2", true, false)
+		var point := key.get_global_transform_with_canvas() * (key.size / 2.0)
+		for pressed in [true, false]:
+			var click := InputEventMouseButton.new()
+			click.button_index = MOUSE_BUTTON_LEFT
+			click.pressed = pressed
+			click.position = point
+			click.global_position = point
+			key.get_viewport().push_input(click, true)
+		assert_true(key.button_pressed, "Mouse input should reach the %s draw keypad" % context)
 	match_view.render(model.merged({"phase": 2}, true))
 	assert_true(match_view.find_children("Count1", "Button", true, false).all(
 		func(button: Button): return not button.is_visible_in_tree()
 	))
 	await _unmount(match_view)
+
+
+func test_draw_timeout_notice_uses_only_the_local_players_unselected_count() -> void:
+	var table = await _mount_path(MATCH_SCREEN_PATH)
+	var start := _model(1, [], {"private_player_id": "p1", "round_number": 2})
+	table.render(start)
+	table.present_ability_events([{
+		"kind": "hand_replenished",
+		"payload": {"player_id": "p2", "round_number": 2, "automatic_halves": 12},
+	}, {
+		"kind": "hand_replenished",
+		"payload": {"player_id": "p1", "round_number": 2, "automatic_halves": 3},
+	}])
+	table.render(start.merged({"phase": 2}, true))
+	var notice: Label = table.get_node("PhaseControls/TimeoutNotice")
+	assert_true(notice.visible)
+	assert_true(notice.text.contains("3 unselected half-cards"))
+	table.render(start.merged({"phase": 3}, true))
+	assert_false(notice.visible)
+	await _unmount(table)
 
 
 func test_hand_builder_stages_eligible_cards_requires_half_choice_and_defaults_joker() -> void:
@@ -240,20 +276,25 @@ func test_hand_builder_stages_eligible_cards_requires_half_choice_and_defaults_j
 	assert_true(controls.card_widget(&"c4").joker_prompts_visible())
 	var intents: Array = []
 	controls.intent_requested.connect(func(kind, payload): intents.append([kind, payload]))
-	controls.set_joker_choice(&"c4", 0, 2, 1)
-	assert_eq(intents, [[&"configure_joker", {"card_id": "c4", "half_index": 0, "context": 2, "suit": 1}]])
 	var hand := _hand()
 	hand[3].first["joker_context"] = 2
 	hand[3].first["joker_suit"] = 1
+	controls.render(_model(3, hand, {}))
+	var joker_rank: OptionButton = controls.card_widget(&"c4").get_node("Face/FirstChoices/Rank")
+	assert_eq(joker_rank.item_count, 11)
+	joker_rank.item_selected.emit(7)
+	assert_eq(intents, [[&"configure_joker", {"card_id": "c4", "half_index": 0, "context": 2, "suit": 1, "rank": 7}]])
+	hand[3].first["joker_rank"] = 7
 	controls.handle_command_result(&"configure_joker", true, &"", 3)
 	controls.render(_model(3, hand, {}))
+	assert_true(controls.card_widget(&"c4").has_node("Face/FirstRankArt/Digit7"))
 	controls.click_card(&"c4")
-	assert_eq(controls.staged_selection(&"c4").get("joker_choices", []), [{"half_index": 0, "context": 2, "suit": 1}])
+	assert_eq(controls.staged_selection(&"c4").get("joker_choices", []), [{"half_index": 0, "context": 2, "suit": 1, "rank": 7}])
 	controls.render(_model(4, hand, {}))
 	controls.render(_model(3, hand, {}))
 	assert_false(controls.has_staged_card(&"c4"))
 	controls.click_card(&"c4")
-	assert_eq(controls.staged_selection(&"c4").get("joker_choices", []), [{"half_index": 0, "context": 2, "suit": 1}])
+	assert_eq(controls.staged_selection(&"c4").get("joker_choices", []), [{"half_index": 0, "context": 2, "suit": 1, "rank": 7}])
 	await _unmount(controls)
 
 
@@ -385,6 +426,41 @@ func test_same_phase_snapshot_reconciles_only_when_authoritative_staging_changes
 		},
 	}))
 	assert_true(controls.staged_order().is_empty())
+	await _unmount(controls)
+
+
+func test_undo_submit_waits_for_the_restored_hand_and_preserves_staging() -> void:
+	var controls = await _mount_controls()
+	var intents: Array[StringName] = []
+	controls.intent_requested.connect(func(kind: StringName, _payload: Dictionary):
+		intents.append(kind)
+	)
+	var action: Button = controls.get_node("HandPlayControls/ActionRow/SubmitButton")
+	var selected := [{"card_id": "c1", "half_index": 0, "joker_choices": []}]
+	var model := _model(3, _hand(), {
+		"private_staging": {"staged_submission": selected, "hand_locked": false},
+	})
+	controls.render(model)
+	assert_true(controls.has_staged_card(&"c1"))
+	controls.reorder_hand(&"c1", 2)
+	var order: Array = controls.local_hand_order().duplicate()
+	var locked := model.duplicate(true)
+	locked.private_staging.hand_locked = true
+	locked.private_hand.pop_front()
+	controls.render(locked)
+	assert_eq(action.text, "UNDO SUBMIT")
+	assert_false(action.disabled)
+	action.pressed.emit()
+	assert_eq(intents, [&"unlock_hand"])
+	controls.handle_command_result(&"unlock_hand", true, &"", 3)
+	assert_true(action.disabled)
+	controls.render(model)
+	assert_true(controls.has_staged_card(&"c1"))
+	assert_eq(controls.local_hand_order(), order)
+	assert_eq(action.text, "SUBMIT HAND")
+	assert_false(action.disabled)
+	controls.click_card(&"c1")
+	assert_false(controls.has_staged_card(&"c1"))
 	await _unmount(controls)
 
 

@@ -2,14 +2,13 @@
 
 This directory separates source assets by how the game consumes them:
 
-- `artwork/`: static visual assets, texture sources, and visual source/export notes.
-- `sound_effects/`: short sounds for UI and gameplay events.
-- `music/`: background tracks, loops, stems, and their source/export notes.
-- `animations/`: Godot animation resources and event or interaction timing definitions.
+- `artwork/` holds textures, sprite sheets, rendered frames, and their source and export notes.
+- `sound_effects/` holds short sounds for UI and gameplay events.
+- `music/` holds background tracks, loops, stems, and their source and export notes.
 
 Use Godot paths rooted at `res://assets/`. Keep editable source files beside concise export notes when the shipped file is produced from a separate working format.
 
-Rendered frames and sprite-sheet images belong in `artwork/`; the Godot resources that control their playback and timing belong in `animations/`.
+Keep motion driven by match state, such as card draws and score reveals, in `src/view/match/` next to the UI that plays it. Keep fixed, editor-authored timelines with their Godot scenes. If several scenes use the same timeline, save it as an `AnimationLibrary` resource in their shared view folder.
 
 ## Match UI artwork
 

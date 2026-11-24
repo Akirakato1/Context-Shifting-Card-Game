@@ -6,6 +6,7 @@ signal closed(reason: StringName)
 signal selection_changed(kind: StringName, eligible: Array, selected: Array)
 
 const GameTypes := preload("res://src/core/common/game_types.gd")
+const GameIcons := preload("res://src/view/common/game_icons.gd")
 
 var _steps: Array = []
 var _choices: Dictionary = {}
@@ -126,7 +127,11 @@ func _render_step() -> void:
 		for value in eligible:
 			var button := Button.new()
 			if kind == "suit":
-				button.text = GameTypes.suit_name(int(value))
+				button.icon = GameIcons.suit(int(value))
+				button.tooltip_text = GameTypes.suit_name(int(value))
+				button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+				button.custom_minimum_size = Vector2(56, 44)
+				button.add_theme_constant_override("icon_max_width", 30)
 			else:
 				button.text = str(_player_labels.get(str(value), str(value))).replace("_", " ").capitalize()
 			button.pressed.connect(func(): select_value(value))

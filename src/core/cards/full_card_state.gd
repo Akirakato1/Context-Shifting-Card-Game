@@ -26,12 +26,17 @@ func face_snapshot() -> Dictionary:
 
 
 func _face(half: HalfCardState) -> Dictionary:
-	return {
-		"kind": half.kind,
+	var face := {
+		"kind": half.effective_kind(),
 		"effective_context": half.effective_context(),
 		"effective_rank": half.effective_rank(),
 		"effective_suit": half.effective_suit(),
 	}
+	if half.is_joker() and half.joker_suit >= 0:
+		face["joker_context"] = half.joker_context
+		face["joker_suit"] = half.joker_suit
+		face["joker_rank"] = half.joker_rank
+	return face
 
 
 func eligible_half_indexes(active_context: int) -> PackedInt32Array:

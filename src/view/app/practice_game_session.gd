@@ -9,11 +9,13 @@ const Runtime := preload("res://src/view/app/runtime_game_session.gd")
 const Controller := preload("res://src/core/match/match_controller.gd")
 const State := preload("res://src/core/match/match_state.gd")
 const Command := preload("res://src/core/commands/game_command.gd")
+const CommandResult := preload("res://src/core/commands/command_result.gd")
 const DomainEvent := preload("res://src/core/events/domain_event.gd")
 const Projector := preload("res://src/core/match/snapshot_projector.gd")
 const HOST := &"host"
 const OPPONENTS := [&"mika", &"ren", &"jo"]
 
+var _opponents := OPPONENTS.duplicate()
 var _runtime := Runtime.new()
 var _controller: Controller
 var _sequence := 0
@@ -25,15 +27,19 @@ var _closed := false
 
 
 func start() -> void:
-	var config = _runtime._build_config([HOST] + OPPONENTS)
+	var config = _runtime._build_config([HOST] + _opponents)
 	config.set_victory_mode(Types.VictoryMode.ROUND_WIN_RACE)
 	config.set_victory_target(3)
 	config.set_information_visibility(Types.InformationVisibility.PRIVATE)
-	_controller = Controller.new(State.create(config, randi()), null, Callable(), false)
+	_controller = Controller.new(_create_starting_state(config), null, Callable(), false)
 	_controller.begin_match(Time.get_ticks_msec())
 	_runtime._controller = _controller
 	_runtime._display_names = {HOST: "You", &"mika": "Mika", &"ren": "Ren", &"jo": "Jo"}
 	_publish()
+
+
+func _create_starting_state(config: MatchConfig) -> State:
+	return State.create(config, randi())
 
 
 func submit_command(request_message_id: String, command: Dictionary) -> Error:
@@ -46,10 +52,14 @@ func submit_command(request_message_id: String, command: Dictionary) -> Error:
 func _submit_local(request_message_id: String, command: Dictionary) -> void:
 	if _closed:
 		return
-	var result = _controller.submit(Command.new(StringName(command.command_id), HOST,
+	var result = _submit_player_command(Command.new(StringName(command.command_id), HOST,
 		StringName(command.kind), command.payload), Time.get_ticks_msec())
 	_publish(result.events)
 	command_result_received.emit(request_message_id, {"accepted": result.accepted, "error_code": str(result.error_code)})
+
+
+func _submit_player_command(command: Command, now: int) -> CommandResult:
+	return _controller.submit(command, now)
 
 
 func poll() -> void:
@@ -61,7 +71,7 @@ func poll() -> void:
 	var changed := not events.is_empty()
 	if now >= _next_bot_move:
 		_next_bot_move = now + 1_100
-		for opponent in OPPONENTS:
+		for opponent in _opponents:
 			if _controller.state.phase != _last_phase or _controller.state.round_number != _last_round:
 				break
 			changed = _play_bot(opponent, now, events) or changed
@@ -126,12 +136,16 @@ func _publish(events: Array = []) -> void:
 	snapshot["lobby_settings"] = state.config.to_dict()
 	snapshot["server_now_msec"] = Time.get_ticks_msec()
 	snapshot = _runtime._decorate_snapshot(snapshot, HOST, Types.RecipientRole.ACTIVE_PLAYER)
-	snapshot["is_practice"] = true
+	_append_local_snapshot_data(snapshot)
 	_sequence += 1
 	var projected := DomainEvent.for_recipient(events, HOST, Types.RecipientRole.ACTIVE_PLAYER)
 	if not projected.is_empty():
 		events_applied.emit(projected, _sequence)
 	snapshot_applied.emit(snapshot, _sequence)
+
+
+func _append_local_snapshot_data(snapshot: Dictionary) -> void:
+	snapshot["is_practice"] = true
 
 
 func close() -> void:

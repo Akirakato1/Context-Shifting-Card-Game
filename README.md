@@ -12,8 +12,9 @@ The clock tracks the current context. Abilities can change which contexts are ac
 
 ## Play the game
 
+- **Tutorial** is an untimed, scripted first-to-three match against Mika. Follow the in-game lessons to learn the controls, build scoring hands, and play every category of ability.
 - **Practice** starts an untimed round-win match against three bots.
-- **Create Lobby** hosts a match for two to four active players and up to four spectators. Share the six-character code so others can use **Join Lobby**.
+- **Create Lobby** hosts a match for two to four active players and up to four spectators. Share the six-character code so others can use **Join Lobby**. Each guest player must select **Ready** before the host can start.
 - During **Hand Play**, use the live score breakdown to compare submissions. In **Main Phase 2**, review the revealed hands and play any final buffs or nerfs. The score counter pulses and changes color at every 100-point milestone.
 - During the Main Phases, each seat shows whether that player is ready. The **Ready** button sits beside the total ready count.
 - Open **Abilities** and right-click a playable card to begin. Use the eye on a card to expand its description, or the eye beside **Abilities** to switch the entire tray between concise and expanded views.
@@ -25,7 +26,7 @@ The clock tracks the current context. Abilities can change which contexts are ac
 - Simultaneous timed phases, reconnect grace, late player entry, and spectator-safe public state.
 - Joker half-cards, separate card and context hand scoring, and score-race or round-win victory modes.
 - Illustrated cards and piles, context backgrounds and clock, animated draws, and adjustable hotkeys, audio levels, and animation speed.
-- Windows x64 as the initial game-jam and itch.io target.
+- Playtest builds for Windows x64 and native macOS on Apple Silicon and Intel.
 
 ## Technology
 
@@ -87,7 +88,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test_network.ps1
 
 The network fixture starts a local signaling process, one authoritative host, three remote active players, one spectator, and a relaunched client that reclaims its seat.
 
-## Windows export
+## Playtest exports
+
+Export both platforms from the same game revision for each playtest build.
+
+### Windows x64
 
 Install the pinned Godot 4.7.2 Windows export template, then run:
 
@@ -97,6 +102,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/export_windows.ps1
 
 The release archive is written to `build/zeitklus-windows-x64.zip`. See the [release checklist](docs/release-checklist.md) before publishing to itch.io.
 
+### Native macOS
+
+Use the Godot 4.7.2 macOS export template and the matching macOS WebRTC framework from `webrtc-native` 1.2.2. Export a universal macOS ZIP with **High Res** enabled to `build/zeitklus-macos.zip`. The extracted `.app` runs directly on Apple Silicon and Intel Macs.
+
 ### Report a display issue in Wineskin
 
 1. Launch `Zeitklus.exe` in your Wineskin wrapper. In **Settings**, select the mode that looks pixelated, such as **2560 × 1440**.
@@ -104,6 +113,10 @@ The release archive is written to `build/zeitklus-windows-x64.zip`. See the [rel
 3. Share the pasted report and a screenshot of the affected screen.
 
 The game starts a fresh `display-diagnostics.log` in its data folder each launch. The report includes the selected resolution, the window and screen sizes the game sees through Wine, Godot’s render size, and the reported DPI and scale. It stays local until you share it.
+
+### Report a disconnect
+
+Copy the lines starting with `[network]` from `logs/godot.log` soon after the disconnect. If you relaunched the game, check the newest dated log in that folder. Logs are kept under `%APPDATA%/Godot/app_userdata/Shift` on Windows and `~/Library/Application Support/Godot/app_userdata/Shift` on native macOS. If possible, include both the host and disconnected player’s logs and the approximate time. The network entries omit player names, room codes, and credentials.
 
 ## Repository layout
 

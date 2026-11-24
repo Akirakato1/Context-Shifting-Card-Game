@@ -3,6 +3,7 @@ extends Control
 const Card := preload("res://src/view/match/card_widget.tscn")
 const Events := preload("res://src/core/events/event_kinds.gd")
 const Types := preload("res://src/core/common/game_types.gd")
+const GameIcons := preload("res://src/view/common/game_icons.gd")
 const ContextArt := [
 	preload("res://assets/artwork/context_emblems/context_emblem_rish.png"),
 	preload("res://assets/artwork/context_emblems/context_emblem_flourish.png"),
@@ -15,6 +16,7 @@ const SuitArt := [
 ]
 const CONTEXT_COLORS := [Color("9edaff"), Color("bcf39c"), Color("ffb29a")]
 const SABOTAGE_COLOR := Color("ff9a87")
+const SABOTAGE_REVIEW_SECONDS := 1.6
 const CARD_SIZE := Vector2(128, 136)
 
 var _board := Rect2()
@@ -26,7 +28,7 @@ var _progress := 0.0
 var _showing_after := false
 var _cards: Array[CardWidget] = []
 var _title := Label.new()
-var _subtitle := Label.new()
+var _subtitle: RichTextLabel
 var _glow: GradientTexture2D
 
 
@@ -45,18 +47,18 @@ func _ready() -> void:
 	_glow.fill_to = Vector2(1.0, 0.5)
 	var font := SystemFont.new()
 	font.font_names = PackedStringArray(["Arial", "Liberation Sans", "DejaVu Sans"])
+	_subtitle = GameIcons.label(font, 21, Color.WHITE, false)
 	for label in [_title, _subtitle]:
 		label.mouse_filter = MOUSE_FILTER_IGNORE
-		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		label.add_theme_font_override("font", font)
 		label.add_theme_color_override("font_outline_color", Color("101724"))
 		label.add_theme_constant_override("outline_size", 9)
 		label.hide()
 		add_child(label)
 	_title.name = "EffectTitle"
 	_subtitle.name = "EffectDetail"
+	_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_title.add_theme_font_override("font", font)
 	_title.add_theme_font_size_override("font_size", 31)
-	_subtitle.add_theme_font_size_override("font_size", 21)
 
 
 func set_regions(board: Rect2, seats: Dictionary) -> void:
@@ -158,6 +160,9 @@ func _sabotage_cue(
 		"nudge_context": "Move a half’s context one step",
 		"swap_halves": "Swap halves between two cards",
 		"lock_card": "Lock a card for this round",
+		"randomize_all_ranks": "Reroll every rank in the hand",
+		"disable_abilities": "Seal abilities for the rest of the round",
+		"convert_to_jokers": "Turn up to five cards into double-sided Jokers",
 	}.get(operation, "Card effect")
 	if victim and bool(payload.get("no_eligible_half", false)):
 		description = "No eligible half"
@@ -168,9 +173,13 @@ func _sabotage_cue(
 	cue["operation"] = operation
 	if victim:
 		cue["changes"] = payload.card_changes
+		cue["hold_for_review"] = bool(payload.get("changed", true))
 	else:
 		# An attacker's demonstration uses card backs and the ability's public rules.
-		var count := 2 if operation in ["exchange_contexts", "swap_halves"] else 1
+		var count := int({
+			"exchange_contexts": 2, "swap_halves": 2, "disable_abilities": 0,
+			"randomize_all_ranks": 6, "convert_to_jokers": 5,
+		}.get(operation, 1))
 		var changes: Array = []
 		changes.resize(count)
 		changes.fill({})
@@ -185,9 +194,9 @@ func _start_next() -> void:
 	_title.text = _cue.title
 	_title.add_theme_color_override("font_color", _cue.color)
 	_title.add_theme_font_size_override("font_size", 24 if _cue.kind in ["buff", "nerf"] else 31)
-	_subtitle.text = _cue.detail
+	GameIcons.write(_subtitle, _cue.detail)
 	_title.show()
-	_subtitle.visible = not _subtitle.text.is_empty()
+	_subtitle.visible = not str(_cue.detail).is_empty()
 	var changes: Array = _cue.get("changes", [])
 	for change: Dictionary in changes:
 		var card := Card.instantiate() as CardWidget
@@ -202,7 +211,13 @@ func _start_next() -> void:
 	if _cue.kind in ["buff", "nerf"]:
 		duration = 1.35
 	_timeline = create_tween()
-	_timeline.tween_method(_animate, 0.0, 1.0, duration)
+	if not changes.is_empty() and bool(_cue.get("hold_for_review", false)):
+		# Pause after the changed faces are visible and the card motion has finished.
+		_timeline.tween_method(_animate, 0.0, 0.72, duration * 0.72)
+		_timeline.tween_interval(SABOTAGE_REVIEW_SECONDS)
+		_timeline.tween_method(_animate, 0.72, 1.0, duration * 0.28)
+	else:
+		_timeline.tween_method(_animate, 0.0, 1.0, duration)
 	_timeline.tween_callback(_finish)
 
 
@@ -332,7 +347,7 @@ func _seat(id: String) -> Rect2:
 	return _seats.get(id, Rect2(_board.get_center() - Vector2(100, 46), Vector2(200, 92)))
 
 
-func _place_caption(label: Label, center: Vector2, alpha: float) -> void:
+func _place_caption(label: Control, center: Vector2, alpha: float) -> void:
 	label.reset_size()
 	var half_width := label.size.x * 0.5
 	var safe_x := clampf(center.x, half_width + 12.0, maxf(half_width + 12.0, size.x - half_width - 12.0))

@@ -20,6 +20,9 @@ func test_default_match_hotkeys_ready_and_toggle_the_drawers() -> void:
 	var requests: Array[StringName] = []
 	app.game_intent_requested.connect(func(kind: StringName, _payload: Dictionary): requests.append(kind))
 	await Engine.get_main_loop().process_frame
+	assert_true(match_view.get_node("AbilityPanel/Drawer").visible)
+	_press(window, KEY_A)
+	assert_false(match_view.get_node("AbilityPanel/Drawer").visible)
 	_press(window, KEY_A)
 	assert_true(match_view.get_node("AbilityPanel/Drawer").visible)
 	_press(window, KEY_H)

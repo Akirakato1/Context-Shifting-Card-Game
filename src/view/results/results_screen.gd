@@ -5,6 +5,8 @@ signal rematch_requested(payload: Dictionary)
 signal return_to_lobby_requested(payload: Dictionary)
 signal menu_requested
 
+const MatchButtonArt := preload("res://src/view/match/match_button_art.gd")
+
 var _model: Dictionary = {}
 var _action_pending := false
 
@@ -18,6 +20,11 @@ var _action_pending := false
 @onready var _rematch: Button = $Layout/Actions/RematchButton
 @onready var _lobby: Button = $Layout/Actions/LobbyButton
 @onready var _menu: Button = $Layout/Actions/MenuButton
+
+
+func _ready() -> void:
+	for button: Button in [_menu, _lobby, _rematch]:
+		MatchButtonArt.skin(button, MatchButtonArt.ACTION)
 
 
 func render(model: Dictionary) -> void:
@@ -49,6 +56,8 @@ func render(model: Dictionary) -> void:
 	var practice := bool(_model.get("is_practice", false))
 	_room.visible = not practice and not host_loss
 	_rematch.text = "Play Again" if practice else "Rematch"
+	if bool(_model.get("is_tutorial", false)):
+		_rematch.text = "Replay Tutorial"
 	_rematch.visible = practice or (host and not host_loss)
 	_lobby.visible = host and not host_loss and not practice
 	_menu.visible = true
@@ -124,6 +133,7 @@ func _transition_payload(host_settings_unlocked: bool) -> Dictionary:
 			occupant_ids.append(str(player.get("player_id", "")))
 	return {
 		"is_practice": bool(_model.get("is_practice", false)),
+		"is_tutorial": bool(_model.get("is_tutorial", false)),
 		"room_code": str(_model.get("room_code", "")),
 		"occupant_ids": occupant_ids,
 		"host_settings_unlocked": host_settings_unlocked,

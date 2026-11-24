@@ -59,6 +59,10 @@ enum VictoryMode {
 	ROUND_WIN_RACE,
 }
 
+static func default_victory_target(mode: int) -> int:
+	return 10 if mode == VictoryMode.ROUND_WIN_RACE else 1_000
+
+
 enum InformationVisibility {
 	PUBLIC,
 	PRIVATE,

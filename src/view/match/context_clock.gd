@@ -1,12 +1,16 @@
 class_name ContextClock
 extends Control
 
+signal transition_sound(cue: StringName)
+
 const GameTypes := preload("res://src/core/common/game_types.gd")
 const NameBacklight := preload("res://src/view/match/context_clock_backlight.gdshader")
-const HUB := Vector2(0.493, 0.512)
+const HUB := Vector2(0.510, 0.511)
 const NAME_CENTERS := [Vector2(0.496, 0.228), Vector2(0.758, 0.643), Vector2(0.287, 0.648)]
-const POINTER_PIVOT := Vector2(121, 443)
+const POINTER_PIVOT := Vector2(124, 439)
+const POINTER_AXIS := Vector2(121, 16) - POINTER_PIVOT
 const POINTER_SCALE := 0.53 / 1000.0
+const PRIMARY_LIGHT := 0.42
 
 @export var dial_art: Texture2D = preload("res://assets/artwork/board/clock_background.png")
 @export var names_art: Texture2D = preload("res://assets/artwork/board/clock_text.png")
@@ -68,13 +72,19 @@ func render(context: int, direction: int, active_contexts: Array) -> void:
 	if context != _context:
 		_move_pointer(context, first_render)
 		_context = context
+		if not first_render:
+			transition_sound.emit(&"clock_tick")
 	direction = -1 if direction < 0 else 1
 	if first_render or direction != _direction:
 		_change_direction(direction, first_render)
 		_direction = direction
+		if not first_render:
+			transition_sound.emit(&"clock_reverse")
 	var lights := Vector3.ZERO
 	for index in NAME_CENTERS.size():
-		if index != context and index in active_contexts:
+		if index == context:
+			lights[index] = PRIMARY_LIGHT
+		elif index in active_contexts:
 			lights[index] = 1.0
 	if lights != _light_target:
 		_light_target = lights
@@ -88,7 +98,7 @@ func render(context: int, direction: int, active_contexts: Array) -> void:
 
 
 func _move_pointer(context: int, immediate: bool) -> void:
-	var target := Vector2.UP.angle_to(NAME_CENTERS[context] - HUB)
+	var target := POINTER_AXIS.angle_to(NAME_CENTERS[context] - HUB)
 	if _pointer_tween != null:
 		_pointer_tween.kill()
 	if immediate:

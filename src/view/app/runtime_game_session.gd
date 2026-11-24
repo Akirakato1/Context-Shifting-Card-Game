@@ -6,6 +6,7 @@ signal events_applied(events: Array, sequence: int)
 signal snapshot_applied(snapshot: Dictionary, sequence: int)
 signal session_failed(reason: String)
 signal connection_state_changed(state: Dictionary)
+signal leave_completed
 
 const GameTypes = preload("res://src/core/common/game_types.gd")
 const AbilityCatalog = preload("res://src/core/abilities/ability_catalog.gd")
@@ -22,10 +23,13 @@ const WebRTCPeerTransport = preload("res://src/network/webrtc_peer_transport.gd"
 const HostNetworkSession = preload("res://src/network/host_network_session.gd")
 const ClientNetworkSession = preload("res://src/network/client_network_session.gd")
 const ReconnectStore = preload("res://src/network/reconnect_store.gd")
+const NetworkDiagnostics = preload("res://src/network/network_diagnostics.gd")
 
 const MATCH_ID := "shift-match"
 const HOST_PLAYER_ID := &"host"
 const RECONNECT_MESSAGE_ID := "runtime-reconnect-message"
+const LEAVE_MESSAGE_ID := "runtime-leave-message"
+const LEAVE_ACK_TIMEOUT_MSEC := 1000
 
 var _transport: Variant
 var _now: Callable
@@ -48,6 +52,7 @@ var _reconnect_store: ReconnectStore
 var _reconnect_pending := false
 var _reconnect_token := ""
 var _transport_factory: Callable
+var _leave_deadline_msec := -1
 
 
 func _init(
@@ -108,9 +113,13 @@ func start_join(
 
 func retry_connection() -> Error:
 	if _mode != "client" or _role != "active" or _room_code.is_empty():
+		NetworkDiagnostics.log_event(_mode, "reconnect_not_configured")
 		return ERR_UNCONFIGURED
+	if _reconnect_pending and not _failed:
+		return ERR_BUSY
 	var record := _reconnect_store.load_record(_reconnect_now_msec())
 	if record.is_empty():
+		NetworkDiagnostics.log_event("client", "reconnect_record_missing_or_expired")
 		return ERR_DOES_NOT_EXIST
 	if _client_session != null:
 		_client_session.close()
@@ -125,11 +134,49 @@ func retry_connection() -> Error:
 	_failed = false
 	_ensure_transport()
 	_wire_transport()
+	NetworkDiagnostics.log_event("client", "reconnect_started")
 	_emit_connection("reconnecting", "direct")
-	return _transport.join_room(
+	var error: Error = _transport.join_room(
 		_signaling_url, _room_code, _role, _local_display_name,
 		str(_local_player_id)
 	)
+	if error != OK:
+		_reconnect_pending = false
+		_failed = true
+		NetworkDiagnostics.log_event("client", "reconnect_socket_open_failed_%d" % error)
+	return error
+
+
+func request_match_leave() -> bool:
+	if _mode != "client" or _role != "active":
+		return false
+	if _leave_deadline_msec >= 0:
+		return true
+	_reconnect_store.clear()
+	if _client_session == null or _failed:
+		return false
+	var snapshot: Dictionary = _client_session.latest_snapshot
+	if (
+		not snapshot.get("match_started", false) or snapshot.get("match_complete", false)
+		or not snapshot.has("private_player_id")
+	):
+		return false
+	_leave_deadline_msec = _now_msec() + LEAVE_ACK_TIMEOUT_MSEC
+	var result: Error = _client_session.submit_command(LEAVE_MESSAGE_ID, {
+		"command_id": "runtime-leave-command", "kind": "forfeit", "payload": {},
+	})
+	if result != OK:
+		_finish_requested_leave()
+	return true
+
+
+func _finish_requested_leave() -> void:
+	if _leave_deadline_msec < 0:
+		return
+	_leave_deadline_msec = -1
+	_reconnect_store.clear()
+	# Let the active receive/poll callback finish before the app closes the transport.
+	leave_completed.emit.call_deferred()
 
 
 func submit_command(message_id: String, command: Dictionary) -> Error:
@@ -229,11 +276,25 @@ func start_match() -> Error:
 		return ERR_UNAVAILABLE
 	if not state.config.validate().is_empty():
 		return ERR_UNAVAILABLE
+	if _unready_lobby_guest_count() > 0:
+		return ERR_BUSY
 	var events: Array = _controller.begin_match(_now_msec())
 	if events.is_empty():
 		return ERR_INVALID_DATA
 	_host_session.publish_state_change(events)
 	return OK
+
+
+func _unready_lobby_guest_count() -> int:
+	var waiting := 0
+	for player_id in _controller.state.seat_order:
+		var player: PlayerState = _controller.state.players[player_id]
+		if (
+			player_id != HOST_PLAYER_ID and player.active and not player.pending
+			and (not player.connected or not player.ready)
+		):
+			waiting += 1
+	return waiting
 
 
 func start_rematch() -> Error:
@@ -246,7 +307,7 @@ func reset_for_rematch(start_immediately: bool = false) -> Error:
 	var state: MatchState = _controller.state
 	if (
 		state.phase != GameTypes.Phase.COMPLETE or not state.match_complete
-		or not state.config.validate().is_empty()
+		or not state.config.validate(not start_immediately).is_empty()
 	):
 		return ERR_UNAVAILABLE
 	_controller.reset_for_rematch(Time.get_ticks_usec(), GameTypes.Phase.START)
@@ -257,6 +318,9 @@ func reset_for_rematch(start_immediately: bool = false) -> Error:
 
 func poll() -> void:
 	if _closed or _transport == null:
+		return
+	if _leave_deadline_msec >= 0 and _now_msec() >= _leave_deadline_msec:
+		_finish_requested_leave()
 		return
 	if _mode == "host" and _host_session != null:
 		_host_session.poll()
@@ -319,6 +383,7 @@ func _disconnect_transport_signals() -> void:
 
 
 func _on_lobby_created(code: String) -> void:
+	NetworkDiagnostics.log_event("host", "signaling_ready")
 	_room_code = code.to_upper()
 	_emit_connection("connected", "")
 	if _controller == null:
@@ -363,8 +428,12 @@ func _on_peer_connected(peer_id: String) -> void:
 		)
 		_client_session.command_result_received.connect(
 			func(message_id: String, result: Dictionary):
+				if message_id == LEAVE_MESSAGE_ID:
+					_finish_requested_leave()
+					return
 				if message_id == RECONNECT_MESSAGE_ID:
 					if bool(result.get("accepted", false)):
+						NetworkDiagnostics.log_event("client", "reconnect_accepted")
 						_reconnect_pending = false
 						_reconnect_token = ""
 						_emit_connection("connected", "")
@@ -379,6 +448,7 @@ func _on_peer_connected(peer_id: String) -> void:
 		_client_session.snapshot_applied.connect(_on_client_snapshot)
 		_client_session.session_failed.connect(_fail)
 		if _reconnect_pending:
+			NetworkDiagnostics.log_event("client", "reconnect_data_channel_open")
 			var reconnect_error: Error = _client_session.submit_command(
 				RECONNECT_MESSAGE_ID, {
 					"command_id": "runtime-reconnect-%d" % _reconnect_now_msec(),
@@ -388,6 +458,7 @@ func _on_peer_connected(peer_id: String) -> void:
 			if reconnect_error != OK:
 				_fail("reconnect_send_failed")
 		else:
+			NetworkDiagnostics.log_event("client", "data_channel_open")
 			_emit_connection("connected", "")
 		return
 	if not _peer_assignments.has(peer_id):
@@ -503,6 +574,7 @@ func _decorate_snapshot(
 			continue
 		var player_id := StringName(player.get("player_id", ""))
 		player["name"] = str(_display_names.get(player_id, _fallback_name(player)))
+		player["is_host"] = player_id == HOST_PLAYER_ID
 		player["role"] = "spectator" if bool(player.get("spectator", false)) else "active"
 		if bool(player.get("spectator", false)):
 			spectator_count += 1
@@ -518,9 +590,11 @@ func _decorate_snapshot(
 	snapshot["screen_id"] = "match" if started else "lobby"
 	snapshot["active_player_count"] = active_count
 	snapshot["spectator_count"] = spectator_count
+	if not started and _controller != null:
+		snapshot["lobby_unready_guests"] = _unready_lobby_guest_count()
 	snapshot["settings"] = _flatten_settings(settings)
-	snapshot["victory_mode"] = int(settings.get("victory_mode", 0))
-	snapshot["victory_target"] = int(settings.get("victory_target", 10))
+	snapshot["victory_mode"] = snapshot.settings.victory_mode
+	snapshot["victory_target"] = snapshot.settings.victory_target
 	var active_catalog := _ability_catalog(settings.get("ability_definitions", []))
 	var recipe := {}
 	for id in active_catalog:
@@ -546,6 +620,7 @@ func _emit_lobby_snapshot() -> void:
 	_local_sequence += 1
 	var players: Array = [{
 		"player_id": str(HOST_PLAYER_ID), "name": _local_display_name,
+		"is_host": true,
 		"role": "active", "spectator": false, "active": true,
 		"pending": false, "connected": true, "ready": false,
 	}]
@@ -558,12 +633,13 @@ func _emit_lobby_snapshot() -> void:
 			"active": assignment.role == "active", "pending": true,
 			"connected": bool(assignment.get("connected", false)), "ready": false,
 		})
-	var active_count := players.filter(func(player): return not player.spectator).size()
-	var spectator_count := players.size() - active_count
+	var active_count := players.filter(func(player): return not player.spectator and player.connected).size()
+	var spectator_count := players.filter(func(player): return player.spectator).size()
 	snapshot_applied.emit({
 		"screen_id": "lobby", "room_code": _room_code, "is_host": true,
 		"match_started": false, "players": players,
 		"active_player_count": active_count, "spectator_count": spectator_count,
+		"lobby_unready_guests": maxi(active_count - 1, 0),
 		"settings": _settings.duplicate(true),
 		"ability_catalog": AbilityCatalog.public_catalog(_settings.ability_deck_recipe),
 		"scoring_catalog": ScoringReference.default_catalog(),
@@ -572,11 +648,16 @@ func _emit_lobby_snapshot() -> void:
 
 
 func _on_peer_disconnected(peer_id: String, reason: String) -> void:
+	NetworkDiagnostics.log_event(_mode, "peer_disconnected", reason)
 	if _mode == "client" and peer_id == "host":
 		_fail("host_lost" if reason != "direct_connection_failed" else reason)
+	elif _mode == "host" and _peer_assignments.erase(peer_id) and _controller == null:
+		_display_names.erase(StringName(peer_id))
+		_emit_lobby_snapshot()
 
 
 func _on_transport_failed(reason: String) -> void:
+	NetworkDiagnostics.log_event(_mode, "transport_failed", reason)
 	if reason == "signaling_closed" and not _room_code.is_empty():
 		if _mode == "host" and _transport.has_method("reconnect_signaling"):
 			var reconnect_error: Error = _transport.reconnect_signaling()
@@ -591,6 +672,9 @@ func _on_transport_failed(reason: String) -> void:
 func _fail(reason: String) -> void:
 	if _closed or _failed:
 		return
+	if _leave_deadline_msec >= 0:
+		_finish_requested_leave()
+		return
 	var reported_reason := reason
 	if (
 		reason == "direct_connection_failed" and _transport != null
@@ -599,6 +683,9 @@ func _fail(reason: String) -> void:
 	):
 		reported_reason = "relay_unavailable"
 	_failed = true
+	NetworkDiagnostics.log_event(
+		_mode, "reconnect_failed" if _reconnect_pending else "session_failed", reported_reason
+	)
 	_emit_connection("failed", reported_reason)
 	session_failed.emit(reported_reason)
 
@@ -619,15 +706,17 @@ func _build_config(active_ids: Array) -> MatchConfig:
 		}, int(_settings.reaction_window_msec),
 		int(_settings.public_hard_limit_msec), int(_settings.reconnect_grace_msec),
 		AbilityCatalog.build_deck(_settings.ability_deck_recipe),
-		ScoringReference.normal_definitions(), ContextHandCatalog.definitions()
+		ScoringReference.normal_definitions(), ContextHandCatalog.definitions(),
+		bool(_settings.no_time_limit)
 	)
 
 
 func _default_settings() -> Dictionary:
 	return {
 		"victory_mode": GameTypes.VictoryMode.SCORE_RACE,
-		"victory_target": 100,
+		"victory_target": GameTypes.default_victory_target(GameTypes.VictoryMode.SCORE_RACE),
 		"information_visibility": GameTypes.InformationVisibility.PUBLIC,
+		"no_time_limit": false,
 		"start_timer_msec": 20_000,
 		"main_timer_msec": 30_000,
 		"hand_timer_msec": 45_000,
@@ -640,11 +729,21 @@ func _default_settings() -> Dictionary:
 
 
 func _apply_setting(settings: Dictionary, key: StringName, value: Variant) -> StringName:
-	if not settings.has(str(key)) or not value is int or int(value) <= 0:
-		if key in [&"victory_mode", &"information_visibility"] and value is int:
-			pass
-		else:
-			return &"invalid_setting"
+	match key:
+		&"victory_mode":
+			if not value is int or value not in [GameTypes.VictoryMode.SCORE_RACE, GameTypes.VictoryMode.ROUND_WIN_RACE]:
+				return &"invalid_victory_mode"
+			if value != settings.victory_mode:
+				settings.victory_target = GameTypes.default_victory_target(value)
+		&"no_time_limit":
+			if not value is bool:
+				return &"invalid_setting"
+		&"information_visibility":
+			if not value is int:
+				return &"invalid_setting"
+		_:
+			if not settings.has(str(key)) or not value is int or int(value) <= 0:
+				return &"invalid_setting"
 	settings[str(key)] = value
 	return &""
 
@@ -653,6 +752,7 @@ func _apply_config_setting(config: MatchConfig, key: StringName, value: Variant)
 	match key:
 		&"victory_mode": return config.set_victory_mode(int(value))
 		&"victory_target": return config.set_victory_target(int(value))
+		&"no_time_limit": return config.set_no_time_limit(bool(value))
 		&"information_visibility": return config.set_information_visibility(int(value))
 		&"start_timer_msec": return config.set_phase_timer(GameTypes.Phase.START, int(value))
 		&"main_timer_msec":
@@ -671,10 +771,12 @@ func _apply_config_setting(config: MatchConfig, key: StringName, value: Variant)
 
 func _flatten_settings(config: Dictionary) -> Dictionary:
 	var timers: Dictionary = config.get("phase_timers", {})
+	var victory_mode := int(config.get("victory_mode", GameTypes.VictoryMode.SCORE_RACE))
 	return {
-		"victory_mode": int(config.get("victory_mode", 0)),
-		"victory_target": int(config.get("victory_target", 100)),
+		"victory_mode": victory_mode,
+		"victory_target": int(config.get("victory_target", GameTypes.default_victory_target(victory_mode))),
 		"information_visibility": int(config.get("information_visibility", 0)),
+		"no_time_limit": bool(config.get("no_time_limit", false)),
 		"start_timer_msec": int(timers.get(str(GameTypes.Phase.START), 20_000)),
 		"main_timer_msec": int(config.get("public_hard_limit_msec", 30_000)),
 		"hand_timer_msec": int(timers.get(str(GameTypes.Phase.HAND_PLAY), 45_000)),

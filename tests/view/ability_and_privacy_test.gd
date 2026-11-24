@@ -137,7 +137,6 @@ func test_right_click_again_unprimes_without_playing() -> void:
 	var commands: Array[StringName] = []
 	screen.intent_requested.connect(func(kind: StringName, _payload: Dictionary): commands.append(kind))
 	var panel: Control = screen.get_node("AbilityPanel")
-	panel.get_node("ToggleButton").pressed.emit()
 	await Engine.get_main_loop().process_frame
 	var card: Control = panel.get_node("Drawer/Layout/Scroll/Cards").get_child(1)
 	_click_card(card, MOUSE_BUTTON_RIGHT)
@@ -175,7 +174,7 @@ func test_targeting_can_be_cancelled_with_the_same_ability_or_escape() -> void:
 	_click_card(cards.get_child(1), MOUSE_BUTTON_RIGHT)
 	assert_eq(commands, [&"stage_manipulation"], "Another copy cannot switch an active workflow")
 	assert_true(activate.visible and activate.disabled)
-	screen.get_node("PhaseControls").choose_half(&"c1", 0)
+	screen.get_node("PhaseControls").click_card(&"c1")
 	assert_true(overlay.visible and not activate.disabled, "Variable targets still need Activate")
 	assert_eq(commands, [&"stage_manipulation"])
 	_click_card(cards.get_child(0), MOUSE_BUTTON_RIGHT)
@@ -208,7 +207,6 @@ func test_sabotage_targets_the_opponent_seat_and_clears_on_play() -> void:
 	screen.intent_requested.connect(func(kind: StringName, payload: Dictionary):
 		commands.append({"kind": kind, "payload": payload}))
 	var panel: Control = screen.get_node("AbilityPanel")
-	panel.get_node("ToggleButton").pressed.emit()
 	await Engine.get_main_loop().process_frame
 	_click_card(panel.get_node("Drawer/Layout/Scroll/Cards").get_child(0), MOUSE_BUTTON_RIGHT)
 	var overlay: Control = screen.get_node("TargetingOverlay")
@@ -419,7 +417,8 @@ func test_fixed_targeting_auto_commits_after_final_required_choice() -> void:
 	assert_true(overlay.visible)
 	assert_eq(overlay.current_step_index(), 1)
 	var buttons: Array[Node] = overlay.get_node("Panel/Layout/Options").get_children()
-	assert_eq(buttons.map(func(button): return button.text), ["Mountain", "Cloud", "Sea"])
+	assert_eq(buttons.map(func(button): return button.tooltip_text), ["Mountain", "Cloud", "Sea"])
+	assert_true(buttons.all(func(button): return button.icon != null and button.text.is_empty()))
 	if buttons.size() == 3:
 		buttons[2].pressed.emit()
 	assert_eq(commits[-1], {"cards": ["c2"], "suit": [2]})
@@ -527,9 +526,9 @@ func test_ability_drawer_displays_name_and_rules_text() -> void:
 	assert_true(_control_tree_text(card).contains("Mirror Rank"))
 	assert_true(_control_tree_text(card).contains("Mirror both ranks"))
 	var title := card.find_child("Title") as Label
-	var rules := card.find_child("Rules") as Label
+	var rules := card.find_child("Rules") as RichTextLabel
 	assert_true(title.get_theme_font("font").resource_path.ends_with("MountainKingRegular.ttf"))
-	var body_font := rules.get_theme_font("font") as SystemFont
+	var body_font := rules.get_theme_font("normal_font") as SystemFont
 	assert_true(body_font != null and body_font.font_names[0] == "Arial")
 	var art := card.find_child("Artwork") as TextureRect
 	assert_true(art != null and art.texture != null)
@@ -550,8 +549,8 @@ func test_ability_drawer_expands_individual_descriptions_and_switches_all_with_t
 	var cards: Control = panel.get_node("Drawer/Layout/Scroll/Cards")
 	var first := cards.get_child(0) as Control
 	var second := cards.get_child(1) as Control
-	var first_rules := first.find_child("Rules") as Label
-	var second_rules := second.find_child("Rules") as Label
+	var first_rules := first.find_child("Rules") as RichTextLabel
+	var second_rules := second.find_child("Rules") as RichTextLabel
 	assert_false(first_rules.visible)
 	assert_false(second_rules.visible)
 	var eye := first.get_node_or_null("Face/DetailsButton") as Button
@@ -598,8 +597,8 @@ func test_ability_drawer_keeps_five_long_cards_visible_without_scrolling() -> vo
 	])
 	for card: Control in scroll.get_node("Cards").get_children():
 		assert_true(scroll.get_global_rect().encloses(card.get_global_rect()), "each card is fully visible: %s" % card.get_global_rect())
-		var rules := card.find_child("Rules") as Label
-		assert_eq(rules.get_visible_line_count(), rules.get_line_count(), "each rules paragraph is visible")
+		var rules := card.find_child("Rules") as RichTextLabel
+		assert_true(rules.size.y >= rules.get_content_height(), "each rules paragraph is visible")
 	await _unmount(panel)
 
 
@@ -894,8 +893,10 @@ func _private_cards(count: int) -> Array:
 func _control_tree_text(root: Node) -> String:
 	var parts: Array[String] = []
 	for node in root.find_children("*", "Control", true, false):
-		if node is Label or node is Button or node is RichTextLabel:
+		if node is Label or node is Button:
 			parts.append(str(node.text))
+		elif node is RichTextLabel:
+			parts.append(node.get_parsed_text())
 		parts.append(str(node.tooltip_text))
 		for metadata_key in node.get_meta_list():
 			parts.append(str(node.get_meta(metadata_key)))

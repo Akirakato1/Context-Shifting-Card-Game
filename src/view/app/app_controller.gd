@@ -15,6 +15,7 @@ const PresentationQueue = preload("res://src/view/common/presentation_queue.gd")
 const UICommandGateway = preload("res://src/view/common/ui_command_gateway.gd")
 const RuntimeGameSession = preload("res://src/view/app/runtime_game_session.gd")
 const PracticeGameSession = preload("res://src/view/app/practice_game_session.gd")
+const TutorialGameSession = preload("res://src/view/app/tutorial_game_session.gd")
 const DisplayPreferences = preload("res://src/view/app/display_preferences.gd")
 const DisplayDiagnostics = preload("res://src/view/app/display_diagnostics.gd")
 const GameplayPreferences = preload("res://src/view/app/gameplay_preferences.gd")
@@ -90,6 +91,7 @@ func bind_session(session: Variant) -> void:
 		_disconnect_if_present(_session, "events_applied", _on_events_applied)
 		_disconnect_if_present(_session, "session_failed", _on_session_failed)
 		_disconnect_if_present(_session, "connection_state_changed", _on_connection_state_changed)
+		_disconnect_if_present(_session, "leave_completed", _return_to_menu)
 	_session = session
 	command_gateway.bind_session(session)
 	command_gateway.set_input_locked(false)
@@ -100,6 +102,7 @@ func bind_session(session: Variant) -> void:
 	_connect_if_present(session, "events_applied", _on_events_applied)
 	_connect_if_present(session, "session_failed", _on_session_failed)
 	_connect_if_present(session, "connection_state_changed", _on_connection_state_changed)
+	_connect_if_present(session, "leave_completed", _return_to_menu)
 	_set_connection("connected", "")
 
 
@@ -234,6 +237,11 @@ func _on_command_result(
 	_request_message_id: String,
 	result: Dictionary
 ) -> void:
+	if _current_screen_id == &"lobby" and kind == &"set_lobby_ready":
+		if not bool(result.get("accepted", false)):
+			_current_screen.render(_last_presentation)
+			_current_screen.show_error(&"ready_update_failed")
+		return
 	if _current_screen_id != &"match" or not _current_screen.has_method("handle_command_result"):
 		return
 	_current_screen.handle_command_result(
@@ -285,6 +293,7 @@ func _wire_current_screen() -> void:
 			_current_screen.screen_requested.connect(_on_menu_screen_requested)
 			_current_screen.settings_requested.connect(_open_general_settings)
 			_current_screen.practice_requested.connect(start_practice)
+			_current_screen.tutorial_requested.connect(start_tutorial)
 		&"lobby":
 			_current_screen.setting_change_requested.connect(func(key: StringName, value: Variant): _on_lobby_intent(&"setting", {"key": key, "value": value}))
 			_current_screen.ready_requested.connect(func(ready: bool): _on_lobby_intent(&"ready", {"ready": ready}))
@@ -296,7 +305,7 @@ func _wire_current_screen() -> void:
 			_current_screen.intent_requested.connect(_on_match_intent)
 			_current_screen.connection_action_requested.connect(_on_connection_action)
 			_connect_if_present(_current_screen, "settings_requested", _open_general_settings)
-			_connect_if_present(_current_screen, "leave_requested", _return_to_menu)
+			_connect_if_present(_current_screen, "leave_requested", _on_match_leave_requested)
 		&"results":
 			_current_screen.rematch_requested.connect(_on_rematch_requested)
 			_current_screen.return_to_lobby_requested.connect(_on_return_to_lobby_requested)
@@ -346,6 +355,12 @@ func start_practice() -> void:
 	_session.start()
 
 
+func start_tutorial() -> void:
+	_close_current_session()
+	bind_session(TutorialGameSession.new())
+	_session.start()
+
+
 func _begin_host_runtime(player_name: String) -> void:
 	_player_name = player_name
 	host_requested.emit(player_name)
@@ -387,15 +402,22 @@ func _on_lobby_intent(kind: StringName, payload: Dictionary) -> void:
 			if not error.is_empty() and _current_screen.has_method("show_error"):
 				_current_screen.show_error(error)
 		&"ready":
-			command_gateway.send(&"set_ready", {"ready": bool(payload.get("ready", false))})
+			command_gateway.send(&"set_lobby_ready", {"ready": bool(payload.get("ready", false))}, true)
 		&"start":
 			if not _session.has_method("start_match"):
 				return
 			var result: Error = _session.start_match()
 			if result != OK:
 				if _current_screen.has_method("show_error"):
-					_current_screen.show_error(&"not_enough_players")
+					_current_screen.show_error(&"players_not_ready" if result == ERR_BUSY else &"not_enough_players")
 				return
+
+
+func _on_match_leave_requested() -> void:
+	if _session != null and _session.has_method("request_match_leave") and _session.request_match_leave():
+		command_gateway.set_input_locked(true)
+		return
+	_return_to_menu()
 
 
 func _return_to_menu() -> void:
@@ -430,6 +452,9 @@ func _connection_error_message(reason: String) -> String:
 	var messages := {
 		"room_not_found": "That room was not found. Check the code and try again.",
 		"signaling_timeout": "The room service did not respond. Try again.",
+		"signaling_closed": "The connection to the room service closed. Try again.",
+		"signaling_connect_failed": "Could not reach the room service. Try again.",
+		"reconnect_unavailable": "Your seat is no longer available for reconnecting.",
 		"active_capacity_reached": "The player seats are full. Try joining as a spectator.",
 		"spectator_capacity_reached": "The spectator seats are full.",
 		"direct_connection_failed": "The direct and relay routes could not establish a connection on this network.",
@@ -439,6 +464,13 @@ func _connection_error_message(reason: String) -> String:
 
 
 func _on_match_intent(kind: StringName, payload: Dictionary) -> void:
+	if kind in [&"tutorial_next", &"tutorial_flip"]:
+		if _session is TutorialGameSession:
+			if kind == &"tutorial_next":
+				_session.advance_lesson()
+			else:
+				_session.complete_card_flip(StringName(payload.card_id), int(payload.top_half))
+		return
 	game_intent_requested.emit(kind, payload.duplicate(true))
 	if _session != null:
 		command_gateway.send(kind, payload)
@@ -451,13 +483,17 @@ func _on_connection_action(action: StringName) -> void:
 		show_screen(&"lobby", _lobby_from_result({}))
 	elif action == &"retry" and _session != null and _session.has_method("retry_connection"):
 		var error: Error = _session.retry_connection()
-		if error != OK:
-			_return_to_menu()
+		if error in [ERR_DOES_NOT_EXIST, ERR_UNCONFIGURED]:
+			_on_session_failed("reconnect_unavailable")
+		elif error not in [OK, ERR_BUSY]:
+			_on_session_failed("signaling_connect_failed")
 
 
 func _on_rematch_requested(payload: Dictionary) -> void:
 	rematch_requested.emit(payload.duplicate(true))
-	if bool(payload.get("is_practice", false)):
+	if bool(payload.get("is_tutorial", false)):
+		start_tutorial()
+	elif bool(payload.get("is_practice", false)):
 		start_practice()
 	elif _session == null or not _session.has_method("start_rematch") or _session.start_rematch() != OK:
 		_show_current_error("Could not start a rematch. Try again.")
@@ -488,9 +524,10 @@ func _lobby_from_result(payload: Dictionary) -> Dictionary:
 		})
 	var settings: Dictionary = _last_presentation.get("lobby_settings", {}).duplicate(true)
 	if settings.is_empty():
+		var victory_mode := int(_last_presentation.get("victory_mode", GameTypes.VictoryMode.SCORE_RACE))
 		settings = {
-			"victory_mode": int(_last_presentation.get("victory_mode", 0)),
-			"victory_target": int(_last_presentation.get("victory_target", 10)),
+			"victory_mode": victory_mode,
+			"victory_target": int(_last_presentation.get("victory_target", GameTypes.default_victory_target(victory_mode))),
 			"information_visibility": 0, "start_timer_msec": 5000,
 			"main_timer_msec": 10000, "hand_timer_msec": 30000,
 			"end_timer_msec": 5000, "reconnect_grace_msec": 30000,

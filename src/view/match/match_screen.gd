@@ -11,11 +11,15 @@ const MatchState = preload("res://src/core/match/match_state.gd")
 const Rules := preload("res://src/view/help/rules_and_cards_modal.tscn")
 const AbilityDefinition := preload("res://src/core/abilities/ability_definition.gd")
 const TableScenery := preload("res://src/view/match/table_scenery.gd")
+const MatchButtonArt := preload("res://src/view/match/match_button_art.gd")
+const CornerAlpha := preload("res://src/view/match/art_corner_alpha.tres")
 const TableAbilityTargets := preload("res://src/view/match/table_ability_targets.gd")
 const CardInteractionAudio := preload("res://src/view/match/card_interaction_audio.gd")
 const GameplayPreferences := preload("res://src/view/app/gameplay_preferences.gd")
 const AbilityFocusShader := preload("res://src/view/match/ability_focus.gdshader")
+const GameIcons := preload("res://src/view/common/game_icons.gd")
 const AbilityEffectAnimation := preload("res://src/view/match/ability_effect_animation.gd")
+const EventKinds := preload("res://src/core/events/event_kinds.gd")
 const MAX_FOCUS_REGIONS := 6
 const PHASE_NAMES := ["SETUP", "START", "MAIN PHASE 1", "HAND PLAY", "MAIN PHASE 2", "END", "COMPLETE"]
 const OPENING_DRAW_WINDOW_MSEC := 2000
@@ -48,6 +52,7 @@ var _rules: Control
 var _field_details: AcceptDialog
 var _selected_sort := -1
 var _history_items: Array[String] = []
+var _field_detail_text: RichTextLabel
 var _draw_generation := 0
 var _draw_speed := GameplayPreferences.DRAW_NORMAL
 
@@ -74,6 +79,8 @@ var _draw_speed := GameplayPreferences.DRAW_NORMAL
 @onready var _round_result: Label = $Center/RoundResult
 @onready var _phase_controls = $PhaseControls
 @onready var _ability_panel: AbilityPanel = $AbilityPanel
+@onready var _discard_notice: PanelContainer = $DiscardNotice
+@onready var _discard_notice_title: Label = $DiscardNotice/Title
 @onready var _targeting_overlay: TargetingOverlay = $TargetingOverlay
 @onready var _history_toggle: Button = $AbilityHistory/Toggle
 @onready var _history_drawer: PanelContainer = $AbilityHistory/Drawer
@@ -85,11 +92,15 @@ var _draw_speed := GameplayPreferences.DRAW_NORMAL
 
 
 func _ready() -> void:
+	$Tutorial/Margin/Content/Body.add_theme_font_override("normal_font", _phase_controls.score_font)
+	$Tutorial/Margin/Content/Next.pressed.connect(func(): intent_requested.emit(&"tutorial_next", {}))
 	_configure_artwork()
 	_phase_instruction.add_theme_font_override("font", _phase_controls.score_font)
+	_discard_notice_title.add_theme_font_override("font", _phase_controls.score_font)
 	_timer.add_theme_font_override("font", _phase_controls.score_font)
 	_card_audio.name = "CardInteractionAudio"
 	add_child(_card_audio)
+	$TableScenery/ContextClock.transition_sound.connect(_card_audio.play)
 	_table_targets.name = "TableAbilityTargets"
 	add_child(_table_targets)
 	# The lower semicircle overlaps the cockpit's bounds. Its hit polygon wins
@@ -117,6 +128,9 @@ func _ready() -> void:
 	_field_details = AcceptDialog.new()
 	_field_details.dialog_autowrap = true
 	add_child(_field_details)
+	_field_detail_text = GameIcons.label(_phase_controls.score_font, 18, Color("edf2fa"))
+	_field_detail_text.custom_minimum_size = Vector2(424, 84)
+	_field_details.add_child(_field_detail_text)
 	_active_effects.details_requested.connect(_show_field_details)
 	$MenuButton.pressed.connect(func():
 		_cancel_ability_focus()
@@ -149,26 +163,16 @@ func _ready() -> void:
 		button.add_theme_constant_override("icon_max_width", 25)
 		button.add_theme_constant_override("h_separation", 3)
 		button.expand_icon = true
-		if show_placeholder_guides or (i < context_sort_art.size() and context_sort_art[i] != null):
-			var disc := TextureRect.new()
-			var has_art := i < context_sort_art.size() and context_sort_art[i] != null
-			disc.texture = context_sort_art[i] if has_art else preload("res://assets/artwork/board/figma/sort_button.svg")
-			disc.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-			disc.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			disc.show_behind_parent = true
-			button.add_child(disc)
-			disc.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-			if not has_art:
-				disc.modulate = Color("586b7f")
-				button.toggled.connect(func(pressed: bool):
-					disc.modulate = Color("98743a") if pressed else Color("586b7f"))
+		var disc := context_sort_art[i] if i < context_sort_art.size() else null
+		MatchButtonArt.skin(button, disc if disc != null else MatchButtonArt.ROUND)
 	_refresh_sort_buttons()
 	var start_piles: Array[Control] = [$Center/Piles/PileRise, $Center/Piles/PileFlourish, $Center/Piles/PileFall]
 	_phase_controls.attach_start_keypads(start_piles)
 	resized.connect(_position_cockpit)
 	var toggle: Button = $AbilityPanel/ToggleButton
 	toggle.offset_top = -88
-	$AbilityPanel/DetailsMode.offset_top = toggle.offset_top
+	$AbilityPanel/DetailsMode.offset_top = -71
+	$AbilityPanel/DetailsMode.offset_bottom = -17
 	_position_cockpit()
 	_top_seat.seat_position = &"top"
 	_left_seat.seat_position = &"left"
@@ -179,6 +183,10 @@ func _ready() -> void:
 	_phase_controls.card_target_requested.connect(_targeting_overlay.select_value)
 	_phase_controls.half_target_requested.connect(_on_half_target_requested)
 	_phase_controls.hand_reordered_manually.connect(_clear_context_sort)
+	_phase_controls.hand_card_flipped.connect(func(card_id: StringName, top_half: int):
+		if str(card_id) == str(_model.get("tutorial", {}).get("flip_card_id", "")):
+			intent_requested.emit(&"tutorial_flip", {"card_id": str(card_id), "top_half": top_half})
+	)
 	_phase_controls.interaction_sound.connect(_card_audio.play)
 	_ability_panel.interaction_sound.connect(_card_audio.play)
 	_draw_animation.sound_requested.connect(_card_audio.play)
@@ -202,7 +210,9 @@ func _configure_artwork() -> void:
 		seat.show_placeholder_guides = show_placeholder_guides
 		seat.seat_art = opponent_seat_art
 	var art_by_panel := {
-		$PhaseBadge: phase_badge_art, $MatchScore: match_score_art, $RoundReveal: reveal_panel_art,
+		$PhaseBadge: phase_badge_art if phase_badge_art != null else MatchButtonArt.surface(MatchButtonArt.PILL),
+		$MatchScore: match_score_art if match_score_art != null else MatchButtonArt.surface(MatchButtonArt.BAR),
+		$RoundReveal: reveal_panel_art,
 		_history_drawer: history_panel_art,
 	}
 	for panel: PanelContainer in art_by_panel:
@@ -211,9 +221,30 @@ func _configure_artwork() -> void:
 			panel.add_theme_stylebox_override("panel", artwork)
 		elif not show_placeholder_guides:
 			panel.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
+	MatchButtonArt.skin($SortControls/Rank, MatchButtonArt.PILL)
+	for button: Button in [
+		$MenuButton, $MatchMenu/Options/Settings, $MatchMenu/Options/Leave,
+		$ConfirmLeave.get_ok_button(), $ConfirmLeave.get_cancel_button(),
+		$Tutorial/Margin/Content/Next, _connection_action_button,
+	]:
+		MatchButtonArt.skin(button, MatchButtonArt.ACTION)
+	MatchButtonArt.skin($HelpButton, MatchButtonArt.ROUND)
+	MatchButtonArt.skin(_history_toggle, MatchButtonArt.BAR)
+	var menu_frame := MatchButtonArt.surface(MatchButtonArt.MENU)
+	menu_frame.content_margin_left = 16.0
+	menu_frame.content_margin_right = 16.0
+	menu_frame.content_margin_top = 13.0
+	menu_frame.content_margin_bottom = 13.0
+	$MatchMenu.add_theme_stylebox_override("panel", menu_frame)
+	$MatchMenu.material = CornerAlpha
 
 
 func render(model: Dictionary) -> void:
+	var entered_main_one: bool = int(model.get("phase", -1)) == GameTypes.Phase.MAIN_1 and (
+		_model.get("phase") != model.get("phase")
+		or _model.get("round_number") != model.get("round_number")
+		or _model.get("private_player_id") != model.get("private_player_id")
+	)
 	if not _model.is_empty() and (
 		_model.get("private_player_id") != model.get("private_player_id")
 		or (bool(model.get("frozen", false)) and not bool(_model.get("frozen", false)))
@@ -235,11 +266,23 @@ func render(model: Dictionary) -> void:
 	_active_effects.render(_model, _phase_controls.score_font)
 	_render_seats()
 	_render_phase_controls()
-	_render_abilities()
+	_render_abilities(entered_main_one)
 	_render_connection_state()
+	_render_tutorial()
 	$RoundReveal.render(_model)
 	if not draws.is_empty():
 		_play_draws.call_deferred(draws, origins, _draw_generation)
+
+
+func _render_tutorial() -> void:
+	var lesson: Dictionary = _model.get("tutorial", {})
+	$Tutorial.visible = not lesson.is_empty()
+	if lesson.is_empty():
+		return
+	$Tutorial/Margin/Content/Progress.text = "TUTORIAL  ·  %d / %d" % [lesson.step, lesson.total]
+	$Tutorial/Margin/Content/Title.text = lesson.title
+	GameIcons.write($Tutorial/Margin/Content/Body, lesson.body)
+	$Tutorial/Margin/Content/Next.visible = lesson.show_next
 
 
 func _play_new_round_result(model: Dictionary) -> void:
@@ -314,6 +357,9 @@ func _new_draw_items(model: Dictionary, inventory_key: String, id_key: String) -
 	var existing := {}
 	for item: Dictionary in _model.get(inventory_key, []):
 		existing[str(item.get(id_key, ""))] = true
+	if inventory_key == "private_hand" and _model.get("private_staging", {}).get("hand_locked", false):
+		for selection: Dictionary in _model.private_staging.get("staged_submission", []):
+			existing[str(selection.get("card_id", ""))] = true
 	return model.get(inventory_key, []).filter(func(item: Dictionary):
 		var id := str(item.get(id_key, ""))
 		return not id.is_empty() and not existing.has(id)
@@ -400,7 +446,7 @@ func handle_command_result(
 	if kind == &"choose_ability_discards" and not accepted:
 		_ability_panel.discard_rejected(error_code)
 	if not accepted and kind in [
-		&"stage_hand", &"lock_hand", &"stage_manipulation", &"commit_manipulation",
+		&"stage_hand", &"lock_hand", &"unlock_hand", &"stage_manipulation", &"commit_manipulation",
 		&"play_public_ability", &"configure_joker",
 	]:
 		_card_audio.play(&"invalid")
@@ -446,7 +492,9 @@ func _render_header() -> void:
 	_spectators.text = "SPECTATORS  %d / 4" % spectator_count
 	var progress_player := _progress_player()
 	var victory_mode := int(_model.get("victory_mode", _lobby_setting("victory_mode", 0)))
-	var target := int(_model.get("victory_target", _lobby_setting("victory_target", 10)))
+	var target := int(_model.get(
+		"victory_target", _lobby_setting("victory_target", GameTypes.default_victory_target(victory_mode))
+	))
 	if victory_mode == 1:
 		_progress.text = "ROUND-WIN RACE  ·  %d / %d" % [int(progress_player.get("round_wins", 0)), target]
 	else:
@@ -457,7 +505,8 @@ func _update_timer(remaining_msec: int) -> void:
 	if _timer_local_deadline_msec >= 0:
 		_timer.text = "%.1fs" % (remaining_msec / 1000.0)
 	else:
-		_timer.text = "UNTIMED" if bool(_model.get("is_practice", false)) else "—"
+		var untimed := bool(_model.get("is_practice", false)) or bool(_lobby_setting("no_time_limit", false))
+		_timer.text = "UNTIMED" if untimed else "—"
 
 
 func _render_context_and_piles() -> void:
@@ -481,7 +530,7 @@ func _render_context_and_piles() -> void:
 
 func _show_field_details(field_name: String, rules: String) -> void:
 	_field_details.title = field_name
-	_field_details.dialog_text = rules
+	GameIcons.write(_field_detail_text, rules)
 	_field_details.popup_centered(Vector2i(440, 150))
 
 
@@ -530,6 +579,14 @@ func _active_contexts() -> Array:
 
 
 func present_ability_events(events: Array) -> void:
+	_mark_sabotaged_hand(events)
+	for event in events:
+		if not event is Dictionary or StringName(event.get("kind", "")) != EventKinds.HAND_REPLENISHED:
+			continue
+		var payload: Dictionary = event.get("payload", {})
+		var automatic_halves := int(payload.get("automatic_halves", 0))
+		if automatic_halves > 0 and payload.get("player_id") == _model.get("private_player_id"):
+			_phase_controls.note_draw_timeout(int(payload.get("round_number", 0)), automatic_halves)
 	var scenery: Control = $TableScenery
 	var view_scale := scenery.size / TableScenery.BASE
 	var transform := _ability_effects.get_global_transform().affine_inverse()
@@ -547,6 +604,31 @@ func present_ability_events(events: Array) -> void:
 		seats
 	)
 	_ability_effects.present(events, _model)
+
+
+func _mark_sabotaged_hand(events: Array) -> void:
+	var local_id := str(_model.get("private_player_id", ""))
+	if local_id.is_empty():
+		return
+	for event in events:
+		if not event is Dictionary or StringName(event.get("kind", "")) != EventKinds.SABOTAGE_RESOLVED:
+			continue
+		var payload: Dictionary = event.get("payload", {})
+		if (
+			str(payload.get("target_player_id", "")) != local_id
+			or not payload.has("card_changes") or not bool(payload.get("changed", true))
+		):
+			continue
+		var ids: Array = payload.get("replacement_card_ids", [])
+		if not payload.has("replacement_card_ids"):
+			var changes: Array = payload.card_changes
+			var locked := bool(payload.get("locked", false))
+			ids = changes.filter(func(change: Dictionary) -> bool:
+				return change.has("card_id") and (locked or change.get("before") != change.get("after"))
+			).map(func(change: Dictionary) -> Variant: return change.card_id)
+			if changes.any(func(change: Dictionary) -> bool: return not change.has("card_id")):
+				ids = payload.get("card_ids", [])
+		_phase_controls.mark_sabotaged_cards(ids)
 
 
 func _render_phase_controls() -> void:
@@ -616,18 +698,23 @@ func _refresh_sort_buttons() -> void:
 		button.tooltip_text = "%s facing up · rank %s" % [_context_name(i), order]
 
 
-func _render_abilities() -> void:
+func _render_abilities(entered_main_one: bool) -> void:
 	var has_private_player := not str(_model.get("private_player_id", "")).is_empty()
 	var phase := int(_model.get("phase", 0))
 	var frozen := bool(_model.get("frozen", false))
 	var hand_locked := phase == GameTypes.Phase.HAND_PLAY and bool(_model.get("private_staging", {}).get("hand_locked", false))
+	var required_discards := int(_model.get("required_ability_discards", 0)) if phase == GameTypes.Phase.END else 0
 	_ability_panel.visible = has_private_player
 	if has_private_player:
 		_ability_panel.render(
 			_model.get("private_abilities", []), phase,
-			_model.get("ability_catalog", {}), frozen or hand_locked,
-			int(_model.get("required_ability_discards", 0)) if phase == GameTypes.Phase.END else 0
+			_model.get("ability_catalog", {}), frozen or hand_locked, required_discards
 		)
+		if entered_main_one:
+			_ability_panel.open_drawer()
+	_discard_notice.visible = has_private_player and required_discards > 0
+	if _discard_notice.visible:
+		_discard_notice_title.text = "Select %d cards to keep" % _ability_panel.discard_keep_limit()
 	_render_ability_history()
 	if not _active_ability.is_empty() and (
 		not has_private_player or frozen or phase != _active_ability_phase
@@ -667,11 +754,16 @@ func _render_ability_history() -> void:
 		_history_rows.remove_child(child)
 		child.queue_free()
 	for text in items:
-		var row := Label.new()
-		row.add_theme_font_override("font", _phase_controls.score_font)
-		row.text = text
-		row.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		_history_rows.add_child(row)
+		if text.begins_with("Clock moved to ") or text.contains("  ·  Clock moved to "):
+			var row := GameIcons.label(_phase_controls.score_font, 18, Color("edf2fa"))
+			_history_rows.add_child(row)
+			GameIcons.write(row, text)
+		else:
+			var row := Label.new()
+			row.add_theme_font_override("font", _phase_controls.score_font)
+			row.text = text
+			row.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			_history_rows.add_child(row)
 
 
 func _toggle_history() -> void:
@@ -740,9 +832,16 @@ func show_connection_failure(reason: StringName) -> void:
 	var states := {
 		&"forfeit": ["You forfeited this match.", "RETURN TO LOBBY", &"lobby"],
 		&"host_lost": ["The host connection was lost. Reconnect before your grace period expires.", "TRY RECONNECT", &"retry"],
+		&"transport_send_failed": ["The host connection was interrupted.", "TRY RECONNECT", &"retry"],
 		&"direct_connection_failed": ["The direct and relay routes could not establish a connection.", "TRY AGAIN", &"retry"],
 		&"relay_unavailable": ["A direct route could not be established, and relay fallback was unavailable.", "TRY AGAIN", &"retry"],
+		&"signaling_closed": ["The connection to the room service closed.", "TRY AGAIN", &"retry"],
+		&"signaling_timeout": ["The room service did not respond.", "TRY AGAIN", &"retry"],
+		&"signaling_connect_failed": ["Could not reach the room service.", "TRY AGAIN", &"retry"],
+		&"reconnect_unavailable": ["Your seat is no longer available for reconnecting. The reconnect window may have expired.", "RETURN TO MENU", &"menu"],
+		&"room_not_found": ["The room is no longer available.", "RETURN TO MENU", &"menu"],
 		&"room_closed": ["This room was closed by the host.", "RETURN TO MENU", &"menu"],
+		&"host_closed": ["This room was closed by the host.", "RETURN TO MENU", &"menu"],
 	}
 	var state: Array = states.get(reason, ["The match connection ended.", "RETURN TO MENU", &"menu"])
 	_connection_overlay.visible = true
@@ -907,8 +1006,10 @@ func _clear_active_ability() -> void:
 
 func _refresh_ability_focus() -> void:
 	var ability := _active_ability if not _active_ability.is_empty() else _primed_ability
-	_phase_instruction.text = "Open Abilities and right-click a playable card."
-	if _active_ability.is_empty() and not _primed_ability.is_empty():
+	_phase_instruction.text = "Right-click a playable ability to begin."
+	if bool(_model.get("private_abilities_disabled", false)):
+		_phase_instruction.text = "Ability Seal is active until the end of this round."
+	elif _active_ability.is_empty() and not _primed_ability.is_empty():
 		_phase_instruction.text = "Left-click the highlighted ability to play it."
 	var timing := int(ability.get("timing", -1))
 	var has_focus := not ability.is_empty() and not bool(_model.get("frozen", false))

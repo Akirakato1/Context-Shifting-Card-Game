@@ -4,6 +4,7 @@ signal recipe_changed(recipe: Dictionary)
 
 const AbilityCatalog = preload("res://src/core/abilities/ability_catalog.gd")
 const AbilityDefinition = preload("res://src/core/abilities/ability_definition.gd")
+const MatchButtonArt := preload("res://src/view/match/match_button_art.gd")
 
 const CATEGORIES := {
 	AbilityDefinition.Timing.HAND_MANIPULATION: "Manipulation",
@@ -24,6 +25,8 @@ var _editable := false
 
 
 func _ready() -> void:
+	for button: Button in [_open, _restore, _dialog.get_ok_button(), _dialog.get_cancel_button()]:
+		MatchButtonArt.skin(button, MatchButtonArt.ACTION)
 	_open.pressed.connect(_open_editor)
 	_restore.pressed.connect(_restore_defaults)
 	_dialog.confirmed.connect(_confirm_recipe)

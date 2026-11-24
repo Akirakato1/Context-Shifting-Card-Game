@@ -11,6 +11,7 @@ const EventKinds = preload("res://src/core/events/event_kinds.gd")
 const GameProtocol = preload("res://src/network/game_protocol.gd")
 const SnapshotProjector = preload("res://src/core/match/snapshot_projector.gd")
 const PeerTransport = preload("res://src/network/peer_transport.gd")
+const NetworkDiagnostics = preload("res://src/network/network_diagnostics.gd")
 
 const MAX_QUEUED_MESSAGES := 32
 const DEFAULT_HEARTBEAT_INTERVAL_MSEC := 2000
@@ -370,8 +371,10 @@ func _handle_unregistered_message(peer_id: String, bytes: PackedByteArray) -> vo
 	var player_id := StringName(raw_player_id)
 	var result := reconnect_peer(peer_id, player_id, payload["payload"]["token"])
 	if not result.accepted:
+		NetworkDiagnostics.log_event("host", "reconnect_rejected", result.error_code)
 		_disconnect(peer_id, "reconnect_rejected:%s" % result.error_code)
 		return
+	NetworkDiagnostics.log_event("host", "reconnect_accepted")
 	_send_command_result(peer_id, player_id, envelope["message_id"], true, &"")
 
 
@@ -477,8 +480,8 @@ func _on_peer_disconnected(peer_id: String, reason: String) -> void:
 	var player_id: StringName = registration["player_id"]
 	var role: int = registration["role"]
 	unregister_peer(peer_id)
-	if role in [GameTypes.RecipientRole.PENDING_PLAYER, GameTypes.RecipientRole.SPECTATOR]:
-		var events: Array = _controller.remove_transient_participant(player_id)
+	var events: Array = _controller.remove_transient_participant(player_id)
+	if not events.is_empty():
 		_player_response_cache.erase(player_id)
 		_recipient_sequences.erase(player_id)
 		publish_state_change(events)

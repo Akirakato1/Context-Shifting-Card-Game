@@ -13,6 +13,74 @@ const SnapshotProjector = preload("res://src/core/match/snapshot_projector.gd")
 const DomainEvent = preload("res://src/core/events/domain_event.gd")
 
 
+func test_ability_seal_survives_reload_and_expires_at_round_end() -> void:
+	var state := _state(440)
+	_set_sabotage(state, &"one", &"ability_seal")
+	_set_sabotage(state, &"two", &"rank_scramble")
+	var controller := MatchController.new(state)
+	var sealed := controller.submit(_play(&"seal", state, &"one", &"two"), 1)
+	assert_true(sealed.accepted)
+	if not sealed.accepted:
+		return
+	assert_eq(controller.submit(_play(&"blocked", state, &"two", &"one"), 2).error_code, &"abilities_disabled")
+	var restored := MatchState.from_dict(state.to_dict())
+	controller = MatchController.new(restored)
+	restored.phase = GameTypes.Phase.HAND_PLAY
+	var action := GameCommand.new(&"blocked-same-round", &"two", CommandKinds.STAGE_MANIPULATION, {
+		"copy_id": restored.players[&"two"].ability_hand[0].copy_id,
+	})
+	assert_eq(controller.submit(action, 3).error_code, &"abilities_disabled")
+	var projection := SnapshotProjector.for_recipient(restored, &"two", GameTypes.RecipientRole.ACTIVE_PLAYER)
+	assert_true(projection.get("private_abilities_disabled", false))
+	assert_eq(projection.private_abilities.size(), 3)
+
+	controller.call("_begin_end", 4)
+	assert_false(restored.players[&"two"].abilities_disabled)
+	controller.tick(3_000)
+	controller.tick(3_001)
+	assert_eq(restored.round_number, 2)
+	assert_eq(restored.phase, GameTypes.Phase.MAIN_1)
+	_set_sabotage(restored, &"two", &"rank_scramble")
+	assert_true(controller.submit(_play(&"after-expiry", restored, &"two", &"one"), 3_002).accepted)
+
+
+func test_rank_blackout_leaves_the_targets_abilities_playable() -> void:
+	var state := _state(443)
+	_set_sabotage(state, &"one", &"rank_blackout")
+	_set_sabotage(state, &"two", &"rank_scramble")
+	var controller := MatchController.new(state)
+	assert_true(controller.submit(_play(&"blackout", state, &"one", &"two"), 1).accepted)
+	var projection := SnapshotProjector.for_recipient(state, &"two", GameTypes.RecipientRole.ACTIVE_PLAYER)
+	assert_false(projection.private_abilities_disabled)
+	assert_true(projection.private_abilities[0].legal)
+	assert_true(controller.submit(_play(&"counter", state, &"two", &"one"), 2).accepted)
+
+
+func test_joker_takeover_converts_five_cards_without_polluting_the_piles() -> void:
+	var state := _state(441)
+	_set_sabotage(state, &"one", &"joker_takeover")
+	var sabotage := MatchController.new(state).submit(_play(&"takeover", state, &"one", &"two"), 1)
+	assert_true(sabotage.accepted)
+	if not sabotage.accepted:
+		return
+	var restored := MatchState.from_dict(state.to_dict())
+	var target := restored.players[&"two"] as PlayerState
+	var converted := target.hand.filter(func(card): return card.first.is_joker() and card.second.is_joker())
+	assert_eq(converted.size(), 5)
+	var projection := SnapshotProjector.for_recipient(restored, &"two", GameTypes.RecipientRole.ACTIVE_PLAYER)
+	var joker_cards: Array = projection.private_hand.filter(
+		func(card): return card.first.kind == GameTypes.HalfKind.JOKER and card.second.kind == GameTypes.HalfKind.JOKER
+	)
+	assert_eq(joker_cards.size(), 5)
+	for card in converted:
+		assert_eq(card.first.effective_rank(), 0)
+		assert_eq(card.second.effective_rank(), 0)
+		card.leave_hand()
+		for half in [card.first, card.second]:
+			assert_eq(half.effective_rank(), half.base_rank)
+			assert_eq(half.is_joker(), half.kind == GameTypes.HalfKind.JOKER)
+
+
 func test_momentary_lock_is_private_blocks_submission_and_round_end_clears_it() -> void:
 	var state := _state(401)
 	_set_sabotage(state, &"one", &"momentary_lock")

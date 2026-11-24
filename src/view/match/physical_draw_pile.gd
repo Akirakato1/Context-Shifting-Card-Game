@@ -39,7 +39,10 @@ var _draw_count := -1
 var _capacity := 0
 var _active := false
 
+const GameIcons := preload("res://src/view/common/game_icons.gd")
+
 @onready var _name_label: Label = $Name
+@onready var _context_icon: TextureRect = $ContextIcon
 @onready var _count_label: Label = $Count
 
 
@@ -66,6 +69,10 @@ func _update_labels() -> void:
 		return
 	_name_label.text = pile_name
 	_name_label.add_theme_color_override("font_color", accent_color.lightened(0.42))
+	_context_icon.texture = GameIcons.context(GameIcons.CONTEXT_NAMES.find(pile_name))
+	_context_icon.visible = _context_icon.texture != null
+	_context_icon.tooltip_text = pile_name
+	_name_label.visible = not _context_icon.visible
 	_count_label.text = "Hidden" if _draw_count < 0 else "%d left" % _draw_count
 
 

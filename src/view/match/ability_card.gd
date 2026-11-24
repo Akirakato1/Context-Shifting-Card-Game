@@ -4,6 +4,7 @@ signal card_hovered
 
 const AbilityDefinition = preload("res://src/core/abilities/ability_definition.gd")
 const GameTypes = preload("res://src/core/common/game_types.gd")
+const GameIcons = preload("res://src/view/common/game_icons.gd")
 const HOVER_AURA := preload("res://src/view/match/hover_card_aura.tres")
 const PRIMED_AURA := preload("res://src/view/match/primed_card_aura.tres")
 const CATEGORY_NAMES := ["Manipulation", "Field", "Buff / Nerf", "Sabotage"]
@@ -20,6 +21,7 @@ const CONTEXT_EMBLEMS := {
 }
 
 @export var inventory_layout := false
+@export var inventory_playable_aura: StyleBox
 @export_group("Background Artwork")
 @export var manipulation_background: Texture2D
 @export var field_background: Texture2D
@@ -37,7 +39,9 @@ var _custom_frame: StyleBox
 var _border := DEFAULT_ACCENT
 var _playable := false
 var _inventory_focused := false
+var _inventory_playable_highlight := false
 var _hovered := false
+var _rules_text := ""
 
 @onready var _artwork: TextureRect = $Artwork
 @onready var _art_space: Control = $Face/ArtSpace
@@ -47,7 +51,7 @@ var _hovered := false
 @onready var _title: Label = $Face/Copy/Layout/Heading/Title
 @onready var _count: Label = $Face/Copy/Layout/Heading/Count
 @onready var _timing: Label = $Face/Copy/Layout/Timing
-@onready var _rules: Label = $Face/Copy/Layout/Rules
+@onready var _rules: RichTextLabel = $Face/Copy/Layout/Rules
 @onready var _aura: Node2D = $Aura
 
 
@@ -69,9 +73,10 @@ func render(entry: Dictionary, ability_id: String, show_copies: bool, playable :
 	mouse_filter = Control.MOUSE_FILTER_PASS if playable else Control.MOUSE_FILTER_IGNORE
 	mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND if inventory_layout or playable else Control.CURSOR_ARROW
 	_title.text = str(entry.get("display_name", entry.get("label", ability_id.capitalize())))
-	_rules.text = str(entry.get("rules_text", ""))
+	_rules_text = str(entry.get("rules_text", ""))
+	GameIcons.write(_rules, _rules_text)
 	_timing.text = _timing_text(timing, entry) if valid_timing else "Unconfigured"
-	tooltip_text = "%s\n%s\n%s" % [_title.text, _timing.text, _rules.text]
+	tooltip_text = "%s\n%s\n%s" % [_title.text, _timing.text, _rules_text]
 	_count.visible = show_copies
 	var copies := int(entry.get("copies", 0))
 	_count.text = "%d %s" % [copies, "copy" if copies == 1 else "copies"]
@@ -92,9 +97,11 @@ func render(entry: Dictionary, ability_id: String, show_copies: bool, playable :
 	add_theme_stylebox_override("panel", _custom_frame if _custom_frame != null else _fallback_frame)
 	_timing.add_theme_color_override("font_color", _accent)
 	_count.add_theme_color_override("font_color", _accent)
+	_context_emblem.texture = CONTEXT_EMBLEMS.get(int(entry.get("context_emblem", -1)))
+	if _context_emblem.texture == null:
+		_context_emblem.texture = GameIcons.suit(int(entry.get("suit_emblem", -1)))
+	_context_emblem.visible = _context_emblem.texture != null
 	if inventory_layout:
-		_context_emblem.texture = CONTEXT_EMBLEMS.get(int(entry.get("context_emblem", -1)))
-		_context_emblem.visible = _context_emblem.texture != null
 		modulate = Color.WHITE if playable else Color("b7bdc8")
 	_artwork.queue_redraw()
 	_update_border(_hovered)
@@ -102,6 +109,13 @@ func render(entry: Dictionary, ability_id: String, show_copies: bool, playable :
 
 func set_inventory_focused(focused: bool) -> void:
 	_inventory_focused = focused
+	_aura.queue_redraw()
+
+
+func set_inventory_playable_highlight(highlighted: bool) -> void:
+	if _inventory_playable_highlight == highlighted:
+		return
+	_inventory_playable_highlight = highlighted
 	_aura.queue_redraw()
 
 
@@ -119,26 +133,31 @@ func set_tray_details(expanded: bool) -> void:
 	_art_space.anchor_bottom = 0.93 if expanded else 0.85
 	_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_title.max_lines_visible = 2
-	_title.add_theme_font_size_override("font_size", 22)
+	_title.add_theme_font_size_override("font_size", 26)
 	_timing.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_timing.max_lines_visible = 2
 	_timing.add_theme_font_size_override("font_size", 14)
-	_rules.add_theme_font_size_override("font_size", 16)
-	tooltip_text = "%s\n%s\n%s" % [_title.text, _timing.text, _rules.text] if expanded else _title.text
+	if _rules.get_theme_font_size("normal_font_size") != 16:
+		_rules.add_theme_font_size_override("normal_font_size", 16)
+		GameIcons.write(_rules, _rules_text)
+	tooltip_text = "%s\n%s\n%s" % [_title.text, _timing.text, _rules_text] if expanded else _title.text
 
 
 func tray_height(width: float, expanded: bool) -> float:
 	if not expanded:
-		return 66.0
+		return 64.0
 	var text_width := width * (_copy.anchor_right - _copy.anchor_left) - 6.0
 	var content_height := 12.0
-	for label: Label in [_title, _timing, _rules]:
+	for label: Label in [_title, _timing]:
 		var font := label.get_theme_font("font")
 		content_height += font.get_multiline_string_size(
 			label.text, HORIZONTAL_ALIGNMENT_LEFT, text_width,
 			label.get_theme_font_size("font_size"), label.max_lines_visible
 		).y
-	return maxf(146.0, ceilf(content_height / (_copy.anchor_bottom - _copy.anchor_top)))
+	content_height += _rules.get_theme_font("normal_font").get_multiline_string_size(
+		_rules_text, HORIZONTAL_ALIGNMENT_LEFT, text_width, _rules.get_theme_font_size("normal_font_size")
+	).y
+	return maxf(132.0, ceilf(content_height / (_copy.anchor_bottom - _copy.anchor_top)))
 
 
 func _on_mouse_entered() -> void:
@@ -158,6 +177,8 @@ func _on_mouse_exited() -> void:
 
 
 func _draw_aura() -> void:
+	if _inventory_playable_highlight and inventory_playable_aura != null and not _hovered and not _inventory_focused:
+		_aura.draw_style_box(inventory_playable_aura, Rect2(Vector2.ZERO, size))
 	if _hovered:
 		_aura.draw_style_box(HOVER_AURA, Rect2(Vector2.ZERO, size))
 	if inventory_layout and _inventory_focused:

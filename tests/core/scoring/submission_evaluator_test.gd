@@ -63,6 +63,38 @@ func test_double_joker_choices_resolve_independently_and_both_count_for_context(
 	assert_eq(result.resolved_cards[0]["halves"][1]["joker"], true)
 
 
+func test_joker_rank_can_make_a_pair_but_contributes_no_base_points() -> void:
+	var joker := _joker_card(&"ranked-joker", GameTypes.Context.RISE)
+	var ordinary := _normal_card(
+		&"ordinary", GameTypes.Context.RISE, 7, GameTypes.Suit.MOUNTAIN,
+		GameTypes.Context.FALL, 4, GameTypes.Suit.CLOUD
+	)
+	var choice := {"half_index": 0, "context": GameTypes.Context.RISE, "suit": GameTypes.Suit.SEA, "rank": 7}
+	var selections := [_selection(joker.card_id, 0, [choice]), _selection(ordinary.card_id, 0, [])]
+	var sum := SubmissionEvaluator.evaluate(
+		[joker, ordinary], selections, GameTypes.Context.RISE,
+		_normal_definitions(), _context_definitions(), []
+	)
+	assert_true(sum.is_valid)
+	assert_eq(sum.normal_result.category_id, &"pair")
+	assert_eq(sum.selected_faces[0].rank, 7)
+	assert_eq(sum.score_breakdown.base_value, 7)
+	choice.rank = 10
+	var higher_ranked_joker := SubmissionEvaluator.evaluate(
+		[joker, ordinary], selections, GameTypes.Context.RISE,
+		_normal_definitions(), _context_definitions(), []
+	)
+	assert_true(higher_ranked_joker.is_valid)
+	assert_eq(higher_ranked_joker.selected_faces[0].rank, 10)
+	assert_eq(higher_ranked_joker.score_breakdown.base_value, 7)
+	choice.rank = 11
+	var invalid := SubmissionEvaluator.evaluate(
+		[joker, ordinary], selections, GameTypes.Context.RISE,
+		_normal_definitions(), _context_definitions(), []
+	)
+	assert_eq(invalid.error_code, &"invalid_joker_rank")
+
+
 func test_mixed_overridden_and_joker_submission_scores_without_mutating_inputs() -> void:
 	var ordinary := _normal_card(
 		&"ordinary", GameTypes.Context.FALL, 3, GameTypes.Suit.MOUNTAIN,

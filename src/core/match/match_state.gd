@@ -32,6 +32,7 @@ var active_context := GameTypes.Context.RISE
 var context_direction := GameTypes.ContextDirection.FORWARD
 var phase := GameTypes.Phase.START
 var winner_id: StringName = &""
+var end_reason := ""
 var match_complete := false
 var start_ability_drawn_round := 0
 var start_prepared_round := 0
@@ -50,8 +51,9 @@ var public_history: Array[Dictionary] = []
 const PUBLIC_HISTORY_LIMIT := 32
 
 
-static func create(match_config: MatchConfig, match_seed: int) -> MatchState:
-	assert(match_config.validate().is_empty(), "invalid match config: %s" % match_config.validate())
+static func create(match_config: MatchConfig, match_seed: int, allow_single_player: bool = false) -> MatchState:
+	var config_error := match_config.validate(allow_single_player)
+	assert(config_error.is_empty(), "invalid match config: %s" % config_error)
 	var state := _new_state()
 	state.config = match_config
 	state.seed = match_seed
@@ -155,9 +157,9 @@ func remove_active_player(player_id: StringName) -> void:
 	player.ready = false
 	player.match_score = 0
 	player.round_wins = 0
-	var remaining := active_player_ids()
+	var remaining := active_player_ids().filter(func(id): return not players[id].pending)
 	if remaining.size() == 1:
-		_set_winner(remaining[0])
+		_set_winner(remaining[0], "last_player_standing")
 
 
 func active_player_ids() -> Array[StringName]:
@@ -234,6 +236,7 @@ func to_dict() -> Dictionary:
 			"spectator": player.spectator, "active": player.active, "pending": player.pending,
 			"connected": player.connected, "ready": player.ready, "hand": serialized_hand,
 			"ability_hand": ability_ids, "match_score": player.match_score,
+			"abilities_disabled": player.abilities_disabled,
 			"round_wins": player.round_wins, "replenishment_needed": player.replenishment_needed,
 			"factor_modifiers": modifiers,
 			"pending_manipulation": player.pending_manipulation.duplicate(true),
@@ -283,7 +286,7 @@ func to_dict() -> Dictionary:
 		"piles": serialized_piles, "ability_deck": ability_deck.to_dict(),
 		"players": serialized_players, "seat_order": seats, "round_number": round_number,
 		"active_context": active_context, "context_direction": context_direction, "phase": phase,
-		"winner_id": str(winner_id), "match_complete": match_complete,
+		"winner_id": str(winner_id), "end_reason": end_reason, "match_complete": match_complete,
 		"start_ability_drawn_round": start_ability_drawn_round,
 		"start_prepared_round": start_prepared_round,
 		"phase_started_msec": phase_started_msec, "phase_deadline_msec": phase_deadline_msec,
@@ -337,6 +340,7 @@ static func from_dict(data: Dictionary) -> MatchState:
 				StringName(modifier_data.source_definition_id)
 			))
 		player.pending_manipulation = player_data.get("pending_manipulation", {}).duplicate(true)
+		player.abilities_disabled = player_data.get("abilities_disabled", false)
 		for raw_selection: Dictionary in player_data.get("staged_submission", []):
 			var selection: Dictionary = raw_selection.duplicate(true)
 			if not selection.has("joker_choices"):
@@ -375,6 +379,7 @@ static func from_dict(data: Dictionary) -> MatchState:
 	state.context_direction = data.context_direction
 	state.phase = data.phase
 	state.winner_id = StringName(data.winner_id)
+	state.end_reason = str(data.get("end_reason", ""))
 	state.match_complete = data.match_complete
 	state.start_ability_drawn_round = data.start_ability_drawn_round
 	state.start_prepared_round = data.get("start_prepared_round", 0)
@@ -408,13 +413,13 @@ static func from_dict(data: Dictionary) -> MatchState:
 func _serialize_face(face: ScoringTypes.SelectedCardFace) -> Dictionary:
 	return {
 		"card_id": str(face.card_id), "half_index": face.half_index,
-		"rank": face.rank, "suit": face.suit,
+		"rank": face.rank, "suit": face.suit, "joker": face.is_joker,
 	}
 
 
 func _deserialize_face(data: Dictionary) -> ScoringTypes.SelectedCardFace:
 	return ScoringTypes.SelectedCardFace.new(
-		StringName(data.card_id), data.half_index, data.rank, data.suit
+		StringName(data.card_id), data.half_index, data.rank, data.suit, data.get("joker", false)
 	)
 
 
@@ -584,8 +589,9 @@ func _build_piles() -> Dictionary:
 	return result
 
 
-func _set_winner(player_id: StringName) -> void:
+func _set_winner(player_id: StringName, reason: String = "victory_target") -> void:
 	winner_id = player_id
+	end_reason = reason
 	match_complete = true
 	phase = GameTypes.Phase.COMPLETE
 
@@ -603,9 +609,12 @@ func _serialize_half(card: HalfCardState) -> Dictionary:
 		"effective_context": card.effective_context(), "effective_rank": card.effective_rank(),
 		"effective_suit": card.effective_suit(),
 	}
+	if card.joker_override:
+		data["joker_override"] = true
 	if card.is_joker() and card.joker_suit != HalfCardState.NO_SUIT:
 		data["joker_context"] = card.joker_context
 		data["joker_suit"] = card.joker_suit
+		data["joker_rank"] = card.joker_rank
 	return data
 
 
@@ -626,13 +635,15 @@ func _deserialize_half(data: Dictionary) -> HalfCardState:
 		StringName(data.copy_id), data.base_context, data.base_rank, data.base_suit,
 		data.get("kind", GameTypes.HalfKind.NORMAL)
 	)
-	if card.is_joker() and data.has("joker_context") and data.has("joker_suit"):
-		card.set_joker_choice(data.joker_context, data.joker_suit)
-	if (
+	if data.get("joker_override", false):
+		card.make_joker()
+	elif (
 		data.effective_context != data.base_context or data.effective_rank != data.base_rank
 		or data.effective_suit != data.base_suit
 	):
 		card.apply_overrides(data.effective_context, data.effective_rank, data.effective_suit)
+	if card.is_joker() and data.has("joker_context") and data.has("joker_suit"):
+		card.set_joker_choice(data.joker_context, data.joker_suit, data.get("joker_rank", 0))
 	return card
 
 

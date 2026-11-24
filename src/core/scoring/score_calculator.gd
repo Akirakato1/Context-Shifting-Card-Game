@@ -13,7 +13,8 @@ static func calculate(
 ) -> ScoringTypes.ScoreBreakdown:
 	var base_value := 0
 	for face in faces:
-		base_value += face.rank
+		if not face.is_joker:
+			base_value += face.rank
 
 	var card_components: Array[ScoringTypes.MultiplierComponent] = []
 	if normal != null: card_components.assign(normal.components)

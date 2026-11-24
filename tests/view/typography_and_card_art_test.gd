@@ -166,6 +166,44 @@ func test_card_context_art_meets_the_divider_and_follows_orientation() -> void:
 	await _unmount(widget)
 
 
+func test_half_target_clicks_follow_the_artwork_diagonal_in_both_orientations() -> void:
+	var widget: CardWidget = await _mount_card()
+	widget.position = Vector2(100, 80)
+	widget.size = Vector2(175, 279)
+	widget.scale = Vector2(1.2, 0.9)
+	var card := {"card_id": "diagonal", "first": _half(0, 10, 0), "second": _half(2, 4, 1)}
+	var targets: Array[int] = []
+	widget.half_target_requested.connect(func(_id: StringName, index: int): targets.append(index))
+
+	# These points are on opposite sides of the artwork's diagonal and the card's midpoint.
+	var top_point := Vector2(0.16, 0.53)
+	var bottom_point := Vector2(0.84, 0.47)
+	for flipped: bool in [false, true]:
+		targets.clear()
+		widget.render(card, 0, false, {
+			"orientation_flipped": flipped,
+			"targeting_kind": &"half_card",
+			"targeting_half_eligible": [true, false],
+			"targeting_half_selected": [true, false],
+		})
+		await Engine.get_main_loop().process_frame
+		_click_card_point(widget, top_point)
+		assert_eq(targets, [] if flipped else [0], "Click through the lower left of the top artwork.")
+		_click_card_point(widget, bottom_point)
+		assert_eq(targets, [0], "Only the eligible half should be targeted in either orientation.")
+	await _unmount(widget)
+
+
+func _click_card_point(widget: CardWidget, normalized_point: Vector2) -> void:
+	var click := InputEventMouseButton.new()
+	click.button_index = MOUSE_BUTTON_LEFT
+	click.position = widget.get_global_transform() * (normalized_point * widget.size)
+	click.pressed = true
+	widget.get_viewport().push_input(click, true)
+	click.pressed = false
+	widget.get_viewport().push_input(click, true)
+
+
 func _half(context: int, rank: int, suit: int) -> Dictionary:
 	return {"effective_context": context, "effective_rank": rank, "effective_suit": suit, "kind": 0}
 

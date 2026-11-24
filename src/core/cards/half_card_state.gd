@@ -13,6 +13,8 @@ var base_suit: int
 var kind: int
 var joker_context := NO_OVERRIDE
 var joker_suit := NO_SUIT
+var joker_rank := 0
+var joker_override := false
 
 var _context_override := NO_OVERRIDE
 var _rank_override := NO_OVERRIDE
@@ -54,25 +56,38 @@ static func is_valid_base(
 
 
 func is_joker() -> bool:
-	return kind == GameTypes.HalfKind.JOKER
+	return kind == GameTypes.HalfKind.JOKER or joker_override
 
 
-static func joker_choice_error(context: Variant, suit: Variant) -> StringName:
+func effective_kind() -> int:
+	return GameTypes.HalfKind.JOKER if is_joker() else kind
+
+
+func make_joker() -> void:
+	if not is_joker():
+		reset_effective()
+		joker_override = true
+
+
+static func joker_choice_error(context: Variant, suit: Variant, rank: Variant = 0) -> StringName:
 	if not context is int or context < GameTypes.Context.RISE or context > GameTypes.Context.FALL:
 		return &"invalid_joker_context"
 	if not suit is int or suit < GameTypes.Suit.MOUNTAIN or suit > GameTypes.Suit.SEA:
 		return &"invalid_joker_suit"
+	if not rank is int or rank < 0 or rank > 10:
+		return &"invalid_joker_rank"
 	return &""
 
 
-func set_joker_choice(context: int, suit: int) -> void:
-	assert(is_joker() and joker_choice_error(context, suit).is_empty(), "invalid Joker choice")
+func set_joker_choice(context: int, suit: int, rank: int = 0) -> void:
+	assert(is_joker() and joker_choice_error(context, suit, rank).is_empty(), "invalid Joker choice")
 	joker_context = context
 	joker_suit = suit
+	joker_rank = rank
 
 
 func apply_overrides(context: int, rank: int, suit: int) -> void:
-	assert(not is_joker(), "Jokers use their own context and suit choices")
+	assert(not is_joker(), "Jokers use their own face choices")
 	assert(is_valid_base(context, rank, suit), "invalid half-card effective values")
 	_context_override = context
 	_rank_override = rank
@@ -83,8 +98,10 @@ func reset_effective() -> void:
 	_context_override = NO_OVERRIDE
 	_rank_override = NO_OVERRIDE
 	_suit_override = NO_OVERRIDE
+	joker_override = false
 	joker_context = NO_OVERRIDE
 	joker_suit = NO_SUIT
+	joker_rank = 0
 
 
 func effective_context() -> int:
@@ -92,8 +109,12 @@ func effective_context() -> int:
 
 
 func effective_rank() -> int:
+	if joker_override:
+		return 0
 	return base_rank if _rank_override == NO_OVERRIDE else _rank_override
 
 
 func effective_suit() -> int:
+	if joker_override:
+		return NO_SUIT
 	return base_suit if _suit_override == NO_OVERRIDE else _suit_override

@@ -7,6 +7,7 @@ const OPERATIONS := [
 	&"exchange_contexts", &"randomize_suit", &"randomize_rank",
 	&"randomize_context", &"nudge_rank", &"nudge_context",
 	&"swap_halves", &"lock_card",
+	&"randomize_all_ranks", &"disable_abilities", &"convert_to_jokers",
 ]
 
 
@@ -15,6 +16,8 @@ static func validate(definition, player) -> StringName:
 	var operation := StringName(str(effect.get("operation", "")))
 	if operation not in OPERATIONS:
 		return &"unknown_sabotage_operation"
+	if operation == &"disable_abilities":
+		return &"abilities_already_disabled" if player.abilities_disabled else &""
 	if player.hand.is_empty():
 		return &"invalid_target"
 	if operation in [&"exchange_contexts", &"swap_halves"] and player.hand.size() < 2:
@@ -43,6 +46,13 @@ static func apply(
 			return _swap_halves(player, rng)
 		&"lock_card":
 			return _lock_card(player, rng)
+		&"randomize_all_ranks":
+			return _randomize_all_ranks(player, rng)
+		&"disable_abilities":
+			player.abilities_disabled = true
+			return {"changed": true}
+		&"convert_to_jokers":
+			return _convert_to_jokers(player, int(effect.card_count), rng)
 	return {"changed": false}
 
 
@@ -132,6 +142,36 @@ static func _lock_card(player, rng) -> Dictionary:
 	if changed:
 		player.submission_locked_card_ids.append(card.card_id)
 	return {"changed": changed, "card_ids": [str(card.card_id)], "locked": true}
+
+
+static func _randomize_all_ranks(player, rng) -> Dictionary:
+	var changed_cards: Array[String] = []
+	for card in player.hand:
+		var changed := false
+		for half in [card.first, card.second]:
+			if half.is_joker() and half.joker_rank == 0:
+				continue
+			var rank: int = rng.pick_index(10) + 1
+			if half.is_joker():
+				changed = changed or rank != half.joker_rank
+				half.set_joker_choice(half.joker_context, half.joker_suit, rank)
+			else:
+				changed = changed or rank != half.effective_rank()
+				half.apply_overrides(half.effective_context(), rank, half.effective_suit())
+		if changed:
+			changed_cards.append(str(card.card_id))
+	return {"changed": not changed_cards.is_empty(), "card_ids": changed_cards}
+
+
+static func _convert_to_jokers(player, count: int, rng) -> Dictionary:
+	var eligible: Array = player.hand.filter(func(card):
+		return not (card.first.is_joker() and card.second.is_joker())
+	)
+	var cards := _pick_distinct_cards(eligible, mini(count, eligible.size()), rng)
+	for card in cards:
+		card.first.make_joker()
+		card.second.make_joker()
+	return {"changed": not cards.is_empty(), "card_ids": cards.map(func(card): return str(card.card_id))}
 
 
 static func _pick_distinct_cards(hand: Array, count: int, rng) -> Array:

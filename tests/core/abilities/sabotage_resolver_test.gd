@@ -91,6 +91,20 @@ func test_loose_pairing_moves_complete_halves_and_lock_is_idempotent() -> void:
 	assert_false(repeated.changed)
 
 
+func test_rank_blackout_rerolls_both_halves_of_every_card() -> void:
+	var player := _player()
+	var result := SabotageResolver.apply(
+		_definition(&"rank_blackout"), player, FakeRng.new([9, 8, 7, 6]), 1
+	)
+	assert_true(result.changed)
+	assert_eq(result.card_ids, ["card-a", "card-b"])
+	assert_eq(player.hand[0].first.effective_rank(), 10)
+	assert_eq(player.hand[0].second.effective_rank(), 9)
+	assert_eq(player.hand[1].first.effective_rank(), 8)
+	assert_eq(player.hand[1].second.effective_rank(), 7)
+	assert_eq(player.hand[1].first.effective_suit(), GameTypes.Suit.SEA)
+
+
 func _definition(id: StringName):
 	for definition in AbilityCatalog.sabotage_designs():
 		if definition.id == id: return definition

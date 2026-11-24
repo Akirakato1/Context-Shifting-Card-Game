@@ -27,14 +27,14 @@ func bind_session(session: Variant) -> void:
 		_session.command_result_received.connect(handle_command_result)
 
 
-func send(kind: StringName, payload: Dictionary = {}) -> String:
+func send(kind: StringName, payload: Dictionary = {}, allow_overlap: bool = false) -> String:
 	if _input_locked:
 		command_blocked.emit(kind, &"input_locked")
 		return ""
 	if _session == null or not _session.has_method("submit_command"):
 		command_blocked.emit(kind, &"session_unavailable")
 		return ""
-	if _in_flight_by_kind.has(kind):
+	if _in_flight_by_kind.has(kind) and not allow_overlap:
 		command_blocked.emit(kind, &"duplicate_in_flight")
 		return ""
 	var message_id := "ui-message-%d" % _next_id
@@ -49,7 +49,8 @@ func send(kind: StringName, payload: Dictionary = {}) -> String:
 	_kind_by_request[message_id] = kind
 	var result: Error = _session.submit_command(message_id, command)
 	if result != OK:
-		_in_flight_by_kind.erase(kind)
+		if _in_flight_by_kind.get(kind) == message_id:
+			_in_flight_by_kind.erase(kind)
 		_kind_by_request.erase(message_id)
 		command_blocked.emit(kind, &"send_failed")
 		return ""
@@ -62,7 +63,8 @@ func handle_command_result(request_message_id: String, result: Dictionary) -> vo
 		return
 	var kind: StringName = _kind_by_request[request_message_id]
 	_kind_by_request.erase(request_message_id)
-	_in_flight_by_kind.erase(kind)
+	if _in_flight_by_kind.get(kind) == request_message_id:
+		_in_flight_by_kind.erase(kind)
 	command_completed.emit(kind, request_message_id, result.duplicate(true))
 
 

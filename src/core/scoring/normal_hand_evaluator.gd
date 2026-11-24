@@ -154,11 +154,11 @@ static func _tie_break(
 
 
 static func _rank_counts(
-	faces: Array[ScoringTypes.SelectedCardFace], exclude_jokers: bool = false
+	faces: Array[ScoringTypes.SelectedCardFace], exclude_unranked: bool = false
 ) -> Dictionary:
 	var counts := {}
 	for face in faces:
-		if exclude_jokers and face.rank == 0:
+		if exclude_unranked and face.rank == 0:
 			continue
 		counts[face.rank] = counts.get(face.rank, 0) + 1
 	return counts

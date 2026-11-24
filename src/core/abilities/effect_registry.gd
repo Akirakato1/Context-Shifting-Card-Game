@@ -186,7 +186,7 @@ class SabotageCardsHandler extends RefCounted:
 			var id := str(card.card_id)
 			var index := affected.find(id)
 			if index >= 0:
-				changes.append({"before": before[id], "after": card.face_snapshot(),
+				changes.append({"card_id": id, "before": before[id], "after": card.face_snapshot(),
 					"half_index": int(half_indexes[index]) if index < half_indexes.size() else -1})
 		target_payload["card_changes"] = changes
 		return [

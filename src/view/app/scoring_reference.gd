@@ -6,7 +6,8 @@ const NormalHandDefinition = preload("res://src/core/scoring/normal_hand_definit
 const NormalHandCatalog = preload("res://src/core/scoring/normal_hand_catalog.gd")
 const ContextHandDefinition = preload("res://src/core/scoring/context_hand_definition.gd")
 const ContextHandCatalog = preload("res://src/core/scoring/context_hand_catalog.gd")
-const KIND_NAMES := {
+const NORMAL_HAND_NAMES := {
+	"two_pair": "Two-Pair", "three_pair": "Three-Pair",
 	"three_kind": "Three of a Kind", "four_kind": "Four of a Kind",
 	"five_kind": "Five of a Kind", "six_kind": "Six of a Kind",
 }
@@ -40,28 +41,41 @@ static func default_catalog() -> Dictionary:
 	return catalog_from_config(config.to_dict())
 
 
+static func normal_display_name(id: String, rule := "", length := 0) -> String:
+	if rule.is_empty():
+		var parts := id.split("_", true, 1)
+		if parts.size() == 2 and parts[1].is_valid_int():
+			rule = parts[0]
+			length = int(parts[1])
+	if rule in ["straight", "flush"]:
+		return "%s-card %s" % [_number_word(length), rule.capitalize()]
+	return NORMAL_HAND_NAMES.get(id, id.capitalize())
+
+
+static func _number_word(value: int) -> String:
+	return TIER_NAMES[value] if value > 0 and value < TIER_NAMES.size() else str(value)
+
+
 static func catalog_from_config(config: Dictionary) -> Dictionary:
 	var normal: Array = []
 	for definition: Dictionary in config.get("normal_definitions", []):
 		var id := str(definition.id)
 		var length := int(definition.subset_size)
-		var label := id.capitalize()
+		var rule := str(definition.rule_id)
+		var label := normal_display_name(id, rule, length)
 		var description := ""
-		match str(definition.rule_id):
+		match rule:
 			"high_card":
 				description = "Use the highest-ranked selected face."
 			"straight":
-				label = "%d-card Straight" % length
-				description = "Use %d faces with consecutive ranks." % length
+				description = "Use %s faces with consecutive ranks." % _number_word(length).to_lower()
 			"grouped_ranks":
-				label = KIND_NAMES.get(id, label)
 				var group_sizes: Array = definition.get("rule_parameters", {}).get("group_sizes", [])
 				var groups := PackedStringArray()
 				for size in group_sizes:
-					groups.append("%d of a kind" % int(size))
+					groups.append("%s of a kind" % _number_word(int(size)).to_lower())
 				description = "Use %s." % " and ".join(groups)
 			"flush":
-				label = "%d-card Flush" % length
 				description = "All selected faces share a suit."
 		normal.append(_entry(definition, label, description))
 	var context: Array = []

@@ -14,6 +14,7 @@ var connected := true
 var ready := false
 var hand: Array[FullCardState] = []
 var ability_hand: Array[AbilityState] = []
+var abilities_disabled := false
 var match_score := 0
 var round_wins := 0
 var replenishment_needed := 0

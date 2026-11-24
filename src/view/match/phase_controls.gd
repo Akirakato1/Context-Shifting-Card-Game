@@ -5,14 +5,18 @@ signal intent_requested(kind: StringName, payload: Dictionary)
 signal card_target_requested(card_id: StringName)
 signal half_target_requested(card_id: StringName, half_index: int)
 signal hand_reordered_manually
+signal hand_card_flipped(card_id: StringName, top_half: int)
 signal interaction_sound(cue: StringName)
 
 const CARD_SCENE := preload("res://src/view/match/card_widget.tscn")
 const ScorePreview := preload("res://src/view/match/score_preview.gd")
+const ScoringReference := preload("res://src/view/app/scoring_reference.gd")
 const GameTypes := preload("res://src/core/common/game_types.gd")
 const CardFactory := preload("res://src/core/cards/card_factory.gd")
 const AbilityDeckState := preload("res://src/core/abilities/ability_deck_state.gd")
 const Rational := preload("res://src/core/common/rational.gd")
+const GameIcons := preload("res://src/view/common/game_icons.gd")
+const MatchButtonArt := preload("res://src/view/match/match_button_art.gd")
 const SCORE_COLORS := {
 	"Base": Color("#ffffff"), "Hand": Color("#8ac7ff"), "Context": Color("#ff9393"),
 	"Field": Color("#99dfaa"), "Total": Color("#ffffff"),
@@ -23,8 +27,9 @@ const PHASE_HAND_PLAY := 3
 const PHASE_MAIN_2 := 4
 const PHASE_END := 5
 const HAND_SLIDE_SECONDS := 0.16
-const HAND_SLOT_HEIGHT := 326.0
+const HAND_SLOT_HEIGHT := 312.0
 const STAGED_CARD_LIFT := 20.0
+const SABOTAGE_HIGHLIGHT_SECONDS := 4.5
 
 class ScoreValue extends Label:
 	var rows: Array = []
@@ -38,16 +43,15 @@ class ScoreValue extends Label:
 		table.add_theme_constant_override("v_separation", 3)
 		panel.add_child(table)
 		for row: Array in rows:
-			var term := Label.new()
-			term.text = row[0]
+			var term := GameIcons.label(get_theme_font("font"), 18, get_theme_color("font_color"), false)
+			GameIcons.write(term, str(row[0]))
 			var value := Label.new()
 			value.text = row[1]
 			value.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 			table.add_child(term)
 			table.add_child(value)
-			for label in [term, value]:
-				label.add_theme_font_override("font", get_theme_font("font"))
-				label.add_theme_font_size_override("font_size", 18)
+			value.add_theme_font_override("font", get_theme_font("font"))
+			value.add_theme_font_size_override("font_size", 18)
 		return panel
 
 var _model: Dictionary = {}
@@ -56,12 +60,17 @@ var _required_halves := 0
 var _pending: Dictionary = {}
 var _after_stage_action: StringName = &""
 var _hand_lock_acknowledged := false
+var _hand_order_before_lock: Array[StringName] = []
+var _draw_timeout_round := -1
+var _draw_timeout_notice := ""
 var _hand_cards: Dictionary = {}
 var _hand_order: Array[StringName] = []
 var _staged_order: Array[StringName] = []
 var _staged: Dictionary = {}
 var _orientations: Dictionary = {}
+var _tutorial_flip_card: StringName = &""
 var _card_widgets: Dictionary = {}
+var _sabotage_highlights: Dictionary[StringName, Tween] = {}
 var _pending_draws: Dictionary[StringName, bool] = {}
 var _ability_discards: Array[StringName] = []
 var _discard_acknowledged := false
@@ -122,6 +131,10 @@ func _ready() -> void:
 	_build_start_keypads()
 	set_process_input(table_cockpit)
 	if table_cockpit:
+		for button: Button in [
+			$StartControls/ReadyButton, $MainControls/ReadyButton, $HandPlayControls/ActionRow/SubmitButton,
+		]:
+			MatchButtonArt.skin(button, MatchButtonArt.ACTION)
 		$HandPlayControls/SubmissionShelf.hide()
 		$HandPlayControls/Preview/Heading.hide()
 		$HandPlayControls/Preview/Authority.hide()
@@ -131,7 +144,7 @@ func _ready() -> void:
 		$HandPlayControls/Hand/Heading.hide()
 		_hand_play.custom_minimum_size.y = 410
 		_hand_cards_node.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		_hand_cards_node.add_theme_constant_override("separation", 8)
+		_hand_cards_node.add_theme_constant_override("separation", 10)
 		_forward_hand_drop(_hand_cards_node)
 		_layout_cockpit()
 	_position_phase_content()
@@ -147,10 +160,13 @@ func _build_start_keypads() -> void:
 		keypad.add_theme_constant_override("separation", 4)
 		_start_grid.add_child(keypad)
 		_start_keypads.append(keypad)
-		var heading := Label.new()
+		var heading := TextureRect.new()
 		heading.name = "Heading"
-		heading.text = context_name
-		heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		heading.texture = GameIcons.context(context)
+		heading.tooltip_text = context_name
+		heading.custom_minimum_size.y = 24
+		heading.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		heading.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 		keypad.add_child(heading)
 
 		var keys: Array[Button] = []
@@ -167,6 +183,8 @@ func _build_start_keypads() -> void:
 				button.tooltip_text = "Draw %d from %s" % [amount, context_name]
 				button.custom_minimum_size = Vector2(34, 32)
 				button.theme_type_variation = &"DrawPileKey"
+				if table_cockpit:
+					MatchButtonArt.skin(button, MatchButtonArt.ROUND)
 				button.add_theme_font_override("font", score_font)
 				button.toggle_mode = true
 				button.pressed.connect(_on_start_number_pressed.bind(context, amount))
@@ -259,9 +277,9 @@ func _layout_cockpit() -> void:
 	reason.offset_right = -10
 	reason.offset_bottom = 73
 	var hand_ui: Control = $HandPlayControls/Hand
-	hand_ui.offset_left = 5
-	hand_ui.offset_right = -5
-	hand_ui.offset_top = 74
+	hand_ui.offset_left = 26
+	hand_ui.offset_right = -26
+	hand_ui.offset_top = 77
 	hand_ui.offset_bottom = hand_ui.offset_top + HAND_SLOT_HEIGHT
 	var actions: Control = $HandPlayControls/ActionRow
 	actions.anchor_left = 0.0
@@ -279,6 +297,7 @@ func render(model: Dictionary) -> void:
 		_pending.clear()
 		_after_stage_action = &""
 		_hand_lock_acknowledged = false
+		_hand_order_before_lock.clear()
 		_status.text = ""
 		_ability_discards.clear()
 		_discard_acknowledged = false
@@ -286,11 +305,19 @@ func render(model: Dictionary) -> void:
 		_staged_order.clear()
 		_authoritative_staging_signature = ""
 		if next_phase == PHASE_START:
-			_last_start_request.clear()
-			_confirmed_start_request.clear()
 			_start_ready_requested = false
 			for context in _start_counts:
 				_start_counts[context] = 0
+			_last_start_request = _start_counts.duplicate()
+			_confirmed_start_request = _start_counts.duplicate()
+	if next_phase == PHASE_HAND_PLAY:
+		var was_locked := _host_hand_is_locked()
+		var is_locked := bool(model.get("private_staging", {}).get("hand_locked", false))
+		if is_locked and not was_locked:
+			_hand_order_before_lock.assign(_hand_order)
+		elif was_locked and not is_locked:
+			_hand_lock_acknowledged = false
+			_pending.erase(&"unlock_hand")
 	_phase = next_phase
 	_model = model.duplicate(true)
 	var local_id := str(_model.get("private_player_id", ""))
@@ -311,6 +338,8 @@ func render(model: Dictionary) -> void:
 		_hand_cards_node.modulate = Color("919bb0") if _phase == PHASE_MAIN_1 else Color.WHITE
 	_end.visible = _phase == PHASE_END and (not table_cockpit or _required_ability_discards() == 0)
 	_timeout_notice.text = str(_model.get("timeout_notice", ""))
+	if next_phase == PHASE_MAIN_1 and int(_model.get("round_number", 0)) == _draw_timeout_round:
+		_timeout_notice.text = _draw_timeout_notice
 	_timeout_notice.visible = not _timeout_notice.text.is_empty()
 	if _start.visible:
 		_render_start()
@@ -327,6 +356,13 @@ func render(model: Dictionary) -> void:
 	if _end.visible:
 		_render_end()
 	_position_phase_content()
+
+
+func note_draw_timeout(round_number: int, automatic_halves: int) -> void:
+	_draw_timeout_round = round_number
+	_draw_timeout_notice = "Draw timer expired. The game filled %d unselected %s." % [
+		automatic_halves, "half-card" if automatic_halves == 1 else "half-cards",
+	]
 
 
 func click_card(card_id: StringName) -> void:
@@ -388,16 +424,19 @@ func choose_half(card_id: StringName, half_index: int) -> void:
 	_render_hand_play()
 
 
-func set_joker_choice(card_id: StringName, half_index: int, context: int, suit: int) -> void:
+func set_joker_choice(card_id: StringName, half_index: int, context: int, suit: int, rank: int = -1) -> void:
 	if (
 		not _can_configure_jokers() or _hand_command_pending()
 		or not _hand_cards.has(card_id) or half_index not in [0, 1]
 		or int(_card_half(_hand_cards[card_id], half_index).get("kind", 0)) != GameTypes.HalfKind.JOKER
 	):
 		return
-	_emit_intent(&"configure_joker", {
+	var choice := {
 		"card_id": str(card_id), "half_index": half_index, "context": context, "suit": suit,
-	})
+	}
+	if rank >= 0:
+		choice["rank"] = rank
+	_emit_intent(&"configure_joker", choice)
 	_render_hand_play()
 
 
@@ -426,6 +465,7 @@ func right_click_card(card_id: StringName) -> void:
 	_orientations[card_id] = not bool(_orientations.get(card_id, false))
 	interaction_sound.emit(&"flip")
 	_render_hand_play()
+	hand_card_flipped.emit(card_id, _top_half(card_id))
 
 
 func sort_hand(context: int = -1) -> bool:
@@ -469,6 +509,8 @@ func _apply_hand_sort() -> void:
 
 
 func _orient_for_context_sort(card_id: StringName) -> bool:
+	if card_id == _tutorial_flip_card:
+		return true
 	var card: Dictionary = _hand_cards[card_id]
 	var top := _top_half(card_id)
 	var other := 1 - top
@@ -521,7 +563,7 @@ func _sort_hand_order() -> void:
 func _sort_priority(card: Dictionary) -> Vector2i:
 	var face := _card_half(card, _top_half(StringName(card.get("card_id", ""))))
 	var context_group := 1 if _sort_key >= 0 and not _half_matches_sort_context(face) else 0
-	var rank := int(face.get("effective_rank", face.get("base_rank", 0)))
+	var rank := int(face.get("joker_rank", face.get("effective_rank", face.get("base_rank", 0))))
 	return Vector2i(context_group, rank if _rank_sort_ascending else -rank)
 
 
@@ -530,11 +572,18 @@ func _top_half(card_id: StringName) -> int:
 
 
 func _hand_command_pending() -> bool:
-	return _pending.has(&"stage_hand") or _pending.has(&"lock_hand") or _pending.has(&"configure_joker")
+	return (
+		_pending.has(&"stage_hand") or _pending.has(&"lock_hand")
+		or _pending.has(&"unlock_hand") or _pending.has(&"configure_joker")
+	)
+
+
+func _host_hand_is_locked() -> bool:
+	return bool(_model.get("private_staging", {}).get("hand_locked", false))
 
 
 func _hand_is_locked() -> bool:
-	return _hand_lock_acknowledged or bool(_model.get("private_staging", {}).get("hand_locked", false))
+	return _hand_lock_acknowledged or _host_hand_is_locked()
 
 
 func _show_hand_feedback(message: String) -> void:
@@ -692,6 +741,27 @@ func staged_selection(card_id: StringName) -> Dictionary:
 	return _staged.get(card_id, {}).duplicate(true)
 
 
+func mark_sabotaged_cards(card_ids: Array) -> void:
+	for raw_id in card_ids:
+		var card_id := StringName(raw_id)
+		if _sabotage_highlights.has(card_id):
+			_sabotage_highlights[card_id].kill()
+		var highlight := create_tween()
+		_sabotage_highlights[card_id] = highlight
+		highlight.tween_interval(SABOTAGE_HIGHLIGHT_SECONDS)
+		highlight.tween_callback(_expire_sabotage_highlight.bind(card_id))
+		var widget: CardWidget = _card_widgets.get(card_id)
+		if widget != null:
+			widget.set_sabotage_highlight(true)
+
+
+func _expire_sabotage_highlight(card_id: StringName) -> void:
+	_sabotage_highlights.erase(card_id)
+	var widget: CardWidget = _card_widgets.get(card_id)
+	if widget != null:
+		widget.set_sabotage_highlight(false)
+
+
 func card_widget(card_id: StringName) -> Variant:
 	return _card_widgets.get(card_id)
 
@@ -801,6 +871,9 @@ func handle_command_result(
 ) -> void:
 	if not _pending.has(kind):
 		return
+	if kind == &"unlock_hand" and accepted and authoritative_phase == _phase and _host_hand_is_locked():
+		# The next snapshot restores the reserved cards before editing resumes.
+		return
 	_pending.erase(kind)
 	if authoritative_phase != _phase:
 		_after_stage_action = &""
@@ -868,8 +941,22 @@ func _render_hand_play() -> void:
 			selection["joker_choices"] = _default_joker_choices(
 				_hand_cards[card_id], selection.get("joker_choices", [])
 			)
+	var flip_card := StringName(_model.get("tutorial", {}).get("flip_card_id", ""))
+	if flip_card != _tutorial_flip_card:
+		_tutorial_flip_card = flip_card
+		if _hand_cards.has(flip_card):
+			_orientations[flip_card] = false
+			_staged.erase(flip_card)
+			_staged_order.erase(flip_card)
 	if table_cockpit and hand_changed:
 		_sort_hand_order()
+	if not _hand_is_locked() and not _hand_order_before_lock.is_empty():
+		var restored := _hand_order_before_lock.filter(func(id: StringName): return _hand_cards.has(id))
+		for id in _hand_order:
+			if id not in restored:
+				restored.append(id)
+		_hand_order.assign(restored)
+		_hand_order_before_lock.clear()
 	_clear_card_nodes()
 	var active_context := int(_model.get("active_context", 0))
 	var locked := _hand_is_locked()
@@ -943,7 +1030,7 @@ func _load_private_hand() -> bool:
 
 func _load_authoritative_staging_if_needed() -> void:
 	var authoritative: Array = _model.get("private_staging", {}).get("staged_submission", [])
-	var signature := JSON.stringify(authoritative)
+	var signature := JSON.stringify([_host_hand_is_locked(), authoritative])
 	if signature == _authoritative_staging_signature:
 		return
 	_authoritative_staging_signature = signature
@@ -1006,9 +1093,11 @@ func _make_card_widget(
 		"reorder_enabled": not table_cockpit and not _targeting and not locked,
 		"drag_hand": _hand_cards_node if table_cockpit and _can_sort_hand() else null,
 		"select_in_place": table_cockpit,
+		"table_shadow": table_cockpit,
 		"hover_enabled": table_cockpit and not _input_locked,
 	})
 	widget.primary_clicked.connect(click_card)
+	widget.set_sabotage_highlight(_sabotage_highlights.has(card_id))
 	widget.orientation_requested.connect(right_click_card)
 	widget.half_choice_requested.connect(choose_half)
 	widget.half_target_requested.connect(_on_half_target_requested)
@@ -1044,12 +1133,15 @@ func _render_preview() -> void:
 	_preview_heading.text = "SCORE PREVIEW"
 	_preview_authority.text = "Local estimate · host validates on lock"
 	if preview.is_empty():
-		var base_sum := 0
+		var base_value := 0
 		for card_id in _staged_order:
 			var selection: Dictionary = _staged[card_id]
 			var half := _card_half(_hand_cards[card_id], int(selection.half_index))
-			base_sum += int(half.get("effective_rank", half.get("rank", 0)))
-		_preview_details.text = "Base %d  ·  hand/context multipliers appear after host evaluation" % base_sum
+			if int(half.get("kind", 0)) == GameTypes.HalfKind.JOKER:
+				continue
+			var rank := int(half.get("effective_rank", half.get("rank", 0)))
+			base_value += rank
+		_preview_details.text = "Base %d  ·  hand/context multipliers appear after host evaluation" % base_value
 		_invalid_reason.text = "" if not _staged_order.is_empty() else "Stage one or more cards, or choose PASS."
 		return
 	if preview.has("score_breakdown"):
@@ -1120,8 +1212,11 @@ func _base_score_rows(score: Dictionary) -> Array:
 	var rows := [["Selected face", "Points"]]
 	for face: Dictionary in score.get("base_components", []):
 		var rank := str(face.get("rank", 0))
-		var name := "Joker" if bool(face.get("joker", false)) else "Rank " + rank
-		rows.append(["%s · %s" % [name, GameTypes.suit_name(int(face.get("suit", -1)))], rank])
+		var joker := bool(face.get("joker", false))
+		var name := "Joker" if joker else "Rank " + rank
+		if joker and rank != "0":
+			name += " · Rank " + rank
+		rows.append(["%s · %s" % [name, GameTypes.suit_name(int(face.get("suit", -1)))], "0" if joker else rank])
 	rows.append(["Base", str(score.get("base_value", 0))])
 	return rows
 
@@ -1176,14 +1271,15 @@ func _ability_score_name(source_id: String) -> String:
 
 
 func _hand_score_name(source_id: String, group: String, compact := false) -> String:
+	var fallback := ScoringReference.normal_display_name(source_id) if group == "normal" else source_id.capitalize()
 	for definition: Dictionary in _model.get("scoring_catalog", {}).get(group, []):
 		if str(definition.get("id", "")) == source_id:
-			var full_name := str(definition.get("display_name", source_id.capitalize()))
+			var full_name := str(definition.get("display_name", fallback))
 			if compact:
 				return str(definition.get("short_display_name", full_name))
 			var requirements := str(definition.get("requirements_text", ""))
 			return full_name if requirements.is_empty() else "%s (%s)" % [full_name, requirements]
-	return source_id.capitalize()
+	return fallback
 
 
 func _total_score_rows(score: Dictionary, hand_name: String, context_name: String) -> Array:
@@ -1329,13 +1425,15 @@ func _required_ability_discards() -> int:
 
 func _refresh_buttons() -> void:
 	if _phase == PHASE_HAND_PLAY:
-		_submit_button.text = "PASS" if _staged_order.is_empty() else "SUBMIT HAND"
+		var locked := _hand_is_locked()
+		_submit_button.text = "UNDO SUBMIT" if locked else ("PASS" if _staged_order.is_empty() else "SUBMIT HAND")
+		_submit_button.tooltip_text = "Edit your hand before everyone submits." if locked else ""
 		var invalid_top: bool = table_cockpit and _staged_order.any(func(id: StringName) -> bool:
 			return not _half_index_is_eligible(_hand_cards[id], _top_half(id))
 		)
 		_submit_button.disabled = (
-			_input_locked or _hand_is_locked() or _hand_command_pending() or _ability_focus_held or _targeting
-			or invalid_top
+			_input_locked or _hand_command_pending() or _ability_focus_held or _targeting
+			or (not _host_hand_is_locked() if locked else invalid_top)
 		)
 	elif _phase == PHASE_START:
 		_update_start_total()
@@ -1372,12 +1470,14 @@ func _advance_start_request() -> void:
 	# Keep one save in flight and use its acknowledgement to process the latest split.
 	if _input_locked or _ready_on_host or _pending.has(&"set_replenishment_request"):
 		return
-	if _start_selected_count() != _required_halves:
-		return
 	if _required_halves > 0 and _start_counts != _confirmed_start_request:
 		_last_start_request = _start_counts.duplicate()
-		_emit_intent(&"set_replenishment_request", {"request": _last_start_request})
-	elif _start_ready_requested:
+		var request := {}
+		for context in _last_start_request:
+			if int(_last_start_request[context]) > 0:
+				request[context] = _last_start_request[context]
+		_emit_intent(&"set_replenishment_request", {"request": request})
+	elif _start_ready_requested and _start_selected_count() == _required_halves:
 		_emit_intent(&"set_ready", {"ready": true})
 
 
@@ -1402,6 +1502,9 @@ func _request_ready() -> bool:
 
 func _on_submit_pressed() -> void:
 	if _phase != PHASE_HAND_PLAY or _submit_button.disabled:
+		return
+	if _hand_is_locked():
+		_emit_intent(&"unlock_hand", {})
 		return
 	_after_stage_action = &"lock"
 	_emit_intent(&"stage_hand", {"cards": _canonical_staging()})
@@ -1485,5 +1588,7 @@ func _default_joker_choices(card: Dictionary, previous_choices: Array = []) -> A
 				break
 		if half.has("joker_suit"):
 			choice = {"half_index": half_index, "context": half.joker_context, "suit": half.joker_suit}
+			if int(half.get("joker_rank", 0)) > 0:
+				choice["rank"] = half.joker_rank
 		choices.append(choice)
 	return choices

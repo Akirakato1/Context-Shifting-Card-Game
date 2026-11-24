@@ -79,6 +79,7 @@ static func for_recipient(
 		"active_score_modifiers": active_score_modifiers,
 		"pile_counts": pile_counts, "ability_pile_count": ability_pile_count,
 		"match_complete": state.match_complete, "winner_id": str(state.winner_id),
+		"end_reason": state.end_reason,
 		"last_round_winner_id": str(state.last_round_winner_id),
 		"phase_started_msec": state.phase_started_msec,
 		"phase_deadline_msec": state.phase_deadline_msec,
@@ -112,7 +113,8 @@ static func for_recipient(
 		var available_abilities: Array = recipient.ability_hand.filter(
 			func(ability): return ability.copy_id not in recipient.end_discard_copy_ids
 		)
-		snapshot["private_abilities"] = _private_abilities(available_abilities, state.phase)
+		snapshot["private_abilities_disabled"] = recipient.abilities_disabled
+		snapshot["private_abilities"] = _private_abilities(available_abilities, state.phase, recipient.abilities_disabled)
 		var modifiers: Array = []
 		for modifier in recipient.factor_modifiers:
 			modifiers.append(_project_modifier(modifier))
@@ -188,14 +190,14 @@ static func _spectator_half(half) -> Dictionary:
 		"effective_context": half.effective_context(),
 		"effective_rank": half.effective_rank(),
 		"effective_suit": half.effective_suit(),
-		"kind": half.kind,
+		"kind": half.effective_kind(),
 	}
 
 
 static func score_breakdown(value, selected_faces: Array = []) -> Dictionary:
 	var base_components: Array = []
 	for face in selected_faces:
-		base_components.append({"rank": face.rank, "suit": face.suit, "joker": face.rank == 0})
+		base_components.append({"rank": face.rank, "suit": face.suit, "joker": face.is_joker})
 	var card_components: Array = []
 	for component in value.card_hand_components: card_components.append(_public_component(component))
 	var context_components: Array = []
@@ -206,7 +208,8 @@ static func score_breakdown(value, selected_faces: Array = []) -> Dictionary:
 	for modifier in value.applied_modifiers:
 		modifiers.append(_project_modifier(modifier))
 	return {
-		"base_value": value.base_value, "base_components": base_components,
+		"base_value": value.base_value,
+		"base_components": base_components,
 		"card_hand_components": card_components, "context_hand_components": context_components,
 		"field_components": field_components, "applied_modifiers": modifiers,
 		"card_hand_unclamped": _public_rational(value.card_hand_unclamped),
@@ -254,21 +257,22 @@ static func _private_hand(
 static func _private_half(half) -> Dictionary:
 	var face := {
 		"copy_id": str(half.copy_id), "base_context": half.base_context,
-		"base_rank": half.base_rank, "base_suit": half.base_suit, "kind": half.kind,
+		"base_rank": half.base_rank, "base_suit": half.base_suit, "kind": half.effective_kind(),
 		"effective_context": half.effective_context(), "effective_rank": half.effective_rank(),
 		"effective_suit": half.effective_suit(),
 	}
 	if half.is_joker() and half.joker_suit >= 0:
 		face["joker_context"] = half.joker_context
 		face["joker_suit"] = half.joker_suit
+		face["joker_rank"] = half.joker_rank
 	return face
 
 
-static func _private_abilities(abilities: Array, phase: int) -> Array:
+static func _private_abilities(abilities: Array, phase: int, disabled: bool) -> Array:
 	var result: Array = []
 	for ability in abilities:
 		result.append({
 			"copy_id": str(ability.copy_id), "ability_id": str(ability.definition.id),
-			"legal": ability.definition.allows_phase(phase),
+			"legal": not disabled and ability.definition.allows_phase(phase),
 		})
 	return result

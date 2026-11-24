@@ -1,11 +1,11 @@
 # Artwork
 
-Place static visual assets and texture sources here, including:
+Place visual assets and their editable sources here, including:
 
 - UI panels, buttons, card trays, and other interface elements;
 - card frames, card faces, table and tray textures;
 - icons and context motifs;
-- static visual-effect artwork;
+- visual-effect artwork, rendered animation frames, and sprite sheets;
 - editable source files and export notes.
 
 The context art-direction concepts are:
@@ -16,4 +16,4 @@ The context art-direction concepts are:
 
 Use the English names as code and resource identifiers. The traditional Chinese characters are visual and thematic references for the artwork.
 
-If an animation uses rendered frames or a sprite sheet, keep those image assets here and keep the Godot playback or timing resource in `res://assets/animations/`.
+Keep Godot playback and timing with the scene or view script that uses the artwork. See the [asset guide](../README.md) for where shared timelines belong.

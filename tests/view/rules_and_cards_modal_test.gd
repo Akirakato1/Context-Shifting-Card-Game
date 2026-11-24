@@ -105,6 +105,72 @@ func test_help_lists_named_context_tiers_alongside_the_required_counts() -> void
 	modal.free()
 
 
+func test_hand_tabs_sort_by_exact_multiplier_and_group_independently() -> void:
+	var modal := _create_modal()
+	var entries := [
+		{"id": "weak", "display_name": "Weak", "priority": 50,
+			"broad_category_id": "family", "multiplier": {"numerator": 1, "denominator": 1}},
+		{"id": "medium", "display_name": "Medium", "priority": 30,
+			"broad_category_id": "family", "multiplier": {"numerator": 9, "denominator": 8}},
+		{"id": "strong", "display_name": "Strong", "priority": 10,
+			"broad_category_id": "flush", "multiplier": {"numerator": 3, "denominator": 2}},
+	]
+	modal.render({"scoring_catalog": {"normal": entries, "context": entries}})
+	modal.open()
+	var tabs := modal.find_child("RulesTabs", true, false) as TabContainer
+	var normal := tabs.get_tab_control(1)
+	var context := tabs.get_tab_control(2)
+	var normal_rows := normal.find_child("HandRows", true, false)
+	var context_rows := context.find_child("HandRows", true, false)
+	assert_true("Weak" in _label_text(normal_rows.get_child(0)))
+	var sort := normal.find_child("HandSort", true, false) as OptionButton
+	sort.select(1)
+	sort.item_selected.emit(1)
+	assert_true("Strong" in _label_text(normal_rows.get_child(0)))
+	assert_true("Medium" in _label_text(normal_rows.get_child(1)))
+	assert_true("Weak" in _label_text(context_rows.get_child(0)))
+	var group := normal.find_child("GroupHandTypes", true, false) as CheckButton
+	group.set_pressed(true)
+	assert_eq(normal_rows.get_child(0).text, "Flush")
+	assert_eq(normal_rows.get_child(2).text, "Family")
+	assert_true("Medium" in _label_text(normal_rows.get_child(3)))
+	assert_true("Weak" in _label_text(normal_rows.get_child(4)))
+	assert_eq(context_rows.get_child_count(), 3)
+	sort.select(2)
+	sort.item_selected.emit(2)
+	assert_eq(normal_rows.get_child(0).text, "Family")
+	assert_true("Weak" in _label_text(normal_rows.get_child(1)))
+	modal.free()
+
+
+func test_ability_search_updates_across_categories_with_name_and_rules_terms() -> void:
+	var modal := _create_modal()
+	modal.render({"ability_catalog": {
+		"suit_imprint": {
+			"display_name": "Suit Imprint", "rules_text": "Choose mountain.", "timing": 0, "copies": 4,
+		},
+		"mountain_favor": {
+			"display_name": "Mountain Favor", "rules_text": "Boost the field.", "timing": 1, "copies": 1,
+		},
+	}})
+	modal.open()
+	var search := modal.find_child("AbilitySearch", true, false) as LineEdit
+	var tabs := modal.find_child("AbilityTabs", true, false) as TabContainer
+	var results := modal.find_child("AbilitySearchResults", true, false) as ScrollContainer
+	search.text_changed.emit("MOUNTAIN")
+	assert_false(tabs.visible)
+	assert_true(results.visible)
+	assert_true("Suit Imprint" in _label_text(results) and "Mountain Favor" in _label_text(results))
+	search.text_changed.emit("imprint mountain")
+	assert_true("Suit Imprint" in _label_text(results) and not "Mountain Favor" in _label_text(results))
+	search.text_changed.emit("unmatched")
+	assert_true("No abilities match" in _label_text(results))
+	search.text_changed.emit("")
+	assert_true(tabs.visible)
+	assert_false(results.visible)
+	modal.free()
+
+
 func _create_modal() -> Control:
 	if not ResourceLoader.exists(MODAL_PATH):
 		assert_true(false, "The in-match help modal scene is missing")
@@ -122,4 +188,6 @@ func _label_text(node: Node) -> String:
 	var result: Array[String] = []
 	for label in node.find_children("*", "Label", true, false):
 		result.append(label.text)
+	for label: RichTextLabel in node.find_children("*", "RichTextLabel", true, false):
+		result.append(label.tooltip_text if not label.tooltip_text.is_empty() else label.get_parsed_text())
 	return "\n".join(result)

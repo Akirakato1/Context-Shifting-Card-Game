@@ -300,10 +300,11 @@ func _update_hand_name() -> void:
 
 
 func _pattern_name(group: String, id: String) -> String:
+	var fallback := ScoringReference.normal_display_name(id) if group == "normal" else id.capitalize()
 	for entry: Dictionary in _scoring_catalog.get(group, []):
 		if str(entry.get("id", "")) == id:
-			return str(entry.get("display_name", id.capitalize()))
-	return id.capitalize()
+			return str(entry.get("display_name", fallback))
+	return fallback
 
 
 func _render_score() -> void:

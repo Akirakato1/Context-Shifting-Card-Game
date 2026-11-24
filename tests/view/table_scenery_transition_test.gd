@@ -42,7 +42,7 @@ func test_context_art_is_wired_and_crossfades_with_the_board_shade() -> void:
 	await Engine.get_main_loop().process_frame
 
 
-func test_context_clock_animates_art_and_backlights_only_extra_context_names() -> void:
+func test_context_clock_animates_art_and_distinguishes_primary_and_extra_contexts() -> void:
 	var scene := load("res://src/view/match/match_screen.tscn") as PackedScene
 	var table := scene.instantiate()
 	Engine.get_main_loop().root.add_child(table)
@@ -50,6 +50,8 @@ func test_context_clock_animates_art_and_backlights_only_extra_context_names() -
 	var clock := scenery.get_node_or_null("ContextClock") as Control
 	assert_true(clock != null, "The clock uses the authored dial and pointer")
 	if clock != null:
+		var cues: Array[StringName] = []
+		clock.transition_sound.connect(func(cue: StringName): cues.append(cue))
 		scenery.show_placeholder_guides = false
 		scenery.render(0, 1, [0])
 		var pointer := clock.get_node("Pointer") as TextureRect
@@ -61,12 +63,14 @@ func test_context_clock_animates_art_and_backlights_only_extra_context_names() -
 		assert_eq(forward.texture.resource_path.get_file(), "clock_directionarrow_1.png")
 		assert_eq(reverse.texture.resource_path.get_file(), "clock_directionarrow_2.png")
 		assert_eq(reverse.self_modulate.a, 0.0)
+		assert_true(is_equal_approx(names.material.get_shader_parameter("backlight").x, 0.42))
+		assert_true(cues.is_empty())
 		var initial_angle := pointer.rotation
 		scenery.render(0, -1, [0, 2])
 		var fade: Tween = clock.get("_light_tween")
 		fade.pause()
 		fade.custom_step(1.0)
-		assert_eq(names.material.get_shader_parameter("backlight"), Vector3(0, 0, 1))
+		assert_true(names.material.get_shader_parameter("backlight").is_equal_approx(Vector3(0.42, 0, 1)))
 		assert_eq(pointer.rotation, initial_angle)
 		var flip: Tween = clock.get("_direction_tween")
 		flip.pause()
@@ -85,6 +89,7 @@ func test_context_clock_animates_art_and_backlights_only_extra_context_names() -
 		fade = clock.get("_light_tween")
 		fade.pause()
 		fade.custom_step(1.0)
-		assert_eq(names.material.get_shader_parameter("backlight"), Vector3.ZERO)
+		assert_true(names.material.get_shader_parameter("backlight").is_equal_approx(Vector3(0, 0, 0.42)))
+		assert_eq(cues, [&"clock_reverse", &"clock_tick"])
 	table.queue_free()
 	await Engine.get_main_loop().process_frame

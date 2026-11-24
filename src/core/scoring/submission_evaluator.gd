@@ -86,7 +86,7 @@ static func evaluate(
 			if half.is_joker():
 				var choice: Dictionary = choices_by_half[resolved_half_index]
 				resolved_context = choice["context"]
-				resolved_rank = 0
+				resolved_rank = choice["rank"]
 				resolved_suit = choice["suit"]
 			else:
 				resolved_context = half.effective_context()
@@ -105,7 +105,8 @@ static func evaluate(
 			card.card_id,
 			half_index,
 			selected_resolved["rank"],
-			selected_resolved["suit"]
+			selected_resolved["suit"],
+			selected_resolved["joker"]
 		))
 		submitted_cards.append(card)
 		resolved_cards.append({
@@ -161,12 +162,14 @@ static func _validate_joker_choices(card: FullCardState, choices: Array) -> Dict
 			return _choice_error(&"joker_choice_for_normal_half")
 		var context_value: Variant = choice["context"]
 		var suit_value: Variant = choice["suit"]
-		var error := HalfCardState.joker_choice_error(context_value, suit_value)
+		var rank_value: Variant = choice.get("rank", card.half_at(half_index).joker_rank)
+		var error := HalfCardState.joker_choice_error(context_value, suit_value, rank_value)
 		if not error.is_empty():
 			return _choice_error(error)
 		choices_by_half[half_index] = {
 			"context": context_value,
 			"suit": suit_value,
+			"rank": rank_value,
 		}
 
 	for half_index in range(2):

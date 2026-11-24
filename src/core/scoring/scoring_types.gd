@@ -10,12 +10,16 @@ class SelectedCardFace extends RefCounted:
 	var half_index: int
 	var rank: int
 	var suit: int
+	var is_joker: bool
 
-	func _init(id: StringName, selected_half_index: int, face_rank: int, face_suit: int) -> void:
+	func _init(
+		id: StringName, selected_half_index: int, face_rank: int, face_suit: int, joker: bool = false
+	) -> void:
 		card_id = id
 		half_index = selected_half_index
 		rank = face_rank
 		suit = face_suit
+		is_joker = joker or rank == 0
 
 
 class MultiplierComponent extends RefCounted:

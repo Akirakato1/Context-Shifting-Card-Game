@@ -122,6 +122,16 @@ func test_no_context_fallback_is_neutral_and_has_no_buffable_category() -> void:
 	assert_eq(result.component, null)
 
 
+func test_base_score_adds_all_ordinary_ranks_and_skips_ranked_jokers() -> void:
+	var faces := _score_faces([4, 9, 6])
+	faces.append(ScoringTypes.SelectedCardFace.new(&"joker", 0, 10, 0, true))
+	var sum := ScoreCalculator.calculate(faces, null, null, [])
+	assert_eq(sum.base_value, 19)
+	assert_eq(sum.final_score, 19)
+	var pass_score := ScoreCalculator.calculate([], null, null, [])
+	assert_eq(pass_score.final_score, 0)
+
+
 func test_score_adds_components_and_matching_modifiers_inside_each_factor() -> void:
 	var faces := _score_faces([4, 6])
 	var result := ScoreCalculator.calculate(

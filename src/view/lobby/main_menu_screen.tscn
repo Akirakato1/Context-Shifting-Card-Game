@@ -1,13 +1,18 @@
-[gd_scene load_steps=8 format=3]
+[gd_scene load_steps=9 format=3]
 
 [ext_resource type="Script" path="res://src/view/lobby/main_menu_screen.gd" id="1_script"]
 [ext_resource type="Theme" path="res://themes/placeholder_theme.tres" id="2_theme"]
 [ext_resource type="StyleBox" path="res://themes/shift_panel.tres" id="3_panel"]
 [ext_resource type="Texture2D" path="res://assets/artwork/board/board.png" id="4_board"]
-[ext_resource type="Texture2D" path="res://assets/artwork/context_emblems/context_emblem_flourish.png" id="5_emblem"]
+[ext_resource type="Texture2D" path="res://assets/artwork/logo.png" id="5_logo"]
 [ext_resource type="StyleBox" path="res://themes/shift_primary_action.tres" id="6_primary"]
 
 [sub_resource type="StyleBoxEmpty" id="StyleBoxEmpty_join"]
+
+[sub_resource type="AtlasTexture" id="Atlas_logo"]
+atlas = ExtResource("5_logo")
+region = Rect2(90, 150, 1776, 1320)
+filter_clip = true
 
 [node name="MainMenuScreen" type="Control"]
 layout_mode = 3
@@ -73,27 +78,20 @@ grow_vertical = 2
 theme_override_constants/separation = 13
 alignment = 1
 
-[node name="Emblem" type="TextureRect" parent="Content"]
-custom_minimum_size = Vector2(72, 72)
+[node name="Logo" type="TextureRect" parent="Content"]
+custom_minimum_size = Vector2(350, 248)
 layout_mode = 2
 size_flags_horizontal = 4
 mouse_filter = 2
-texture = ExtResource("5_emblem")
+texture = SubResource("Atlas_logo")
 expand_mode = 1
 stretch_mode = 5
 
 [node name="Title" type="Label" parent="Content"]
+visible = false
 layout_mode = 2
 theme_override_colors/font_color = Color(1, 0.84, 0.54, 1)
 theme_override_font_sizes/font_size = 64
-text = "ZEITKLUS"
-horizontal_alignment = 1
-
-[node name="Subtitle" type="Label" parent="Content"]
-layout_mode = 2
-theme_override_colors/font_color = Color(0.86, 0.77, 0.63, 1)
-theme_override_font_sizes/font_size = 24
-text = "The Cycle of Ages"
 horizontal_alignment = 1
 
 [node name="CreateLobbyButton" type="Button" parent="Content"]
@@ -116,6 +114,13 @@ layout_mode = 2
 theme_override_font_sizes/font_size = 24
 tooltip_text = "Play an untimed match against three bots"
 text = "Practice"
+
+[node name="TutorialButton" type="Button" parent="Content"]
+custom_minimum_size = Vector2(0, 56)
+layout_mode = 2
+theme_override_font_sizes/font_size = 24
+tooltip_text = "Learn the controls and rules in a guided match against Mika"
+text = "Tutorial"
 
 [node name="SettingsButton" type="Button" parent="Content"]
 custom_minimum_size = Vector2(0, 56)

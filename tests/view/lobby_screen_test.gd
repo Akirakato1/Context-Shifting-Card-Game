@@ -24,6 +24,14 @@ func test_main_menu_normalizes_join_code_and_blocks_duplicate_confirmation() -> 
 	var menu = await _mount(MAIN_MENU_PATH)
 	if menu == null:
 		return
+	var logo := menu.get_node_or_null("Content/Logo") as TextureRect
+	assert_true(logo != null and logo.is_visible_in_tree())
+	if logo != null:
+		assert_eq((logo.texture as AtlasTexture).atlas.resource_path, "res://assets/artwork/logo.png")
+		assert_false(menu.get_node("Content/Title").visible)
+		menu.set_page(&"join_lobby")
+		assert_false(logo.visible)
+		assert_true(menu.get_node("Content/Title").visible)
 	var joins: Array[Dictionary] = []
 	menu.join_requested.connect(func(name: String, code: String, role: String):
 		joins.append({"name": name, "code": code, "role": role})
@@ -37,6 +45,34 @@ func test_main_menu_normalizes_join_code_and_blocks_duplicate_confirmation() -> 
 	assert_true(menu.get_node("Content/HostButton").disabled)
 	assert_true(menu.get_node("Content/JoinPanel/JoinFields/JoinButton").disabled)
 	await _unmount(menu)
+
+
+func test_no_time_limit_disables_phase_deadlines_and_shows_the_victory_target() -> void:
+	var lobby = await _mount(LOBBY_PATH)
+	var model := _lobby_model(true, false, 2, 0)
+	model.settings.no_time_limit = true
+	model.settings.victory_target = 1_000
+	lobby.render(model)
+	var settings: Control = lobby.get_node("Layout/Body/Settings")
+	var toggle := settings.get_node_or_null("NoTimeLimit") as CheckButton
+	assert_true(toggle != null)
+	assert_eq(settings.get_node("VictoryTarget").value, 1_000.0)
+	assert_false(settings.get_node("StartTimer").editable)
+	assert_false(settings.get_node("HandTimer").editable)
+	assert_false(settings.get_node("HardLimitTimer").editable)
+	assert_true(settings.get_node("ReconnectTimer").editable)
+	if toggle != null:
+		assert_true(toggle.button_pressed)
+		var changes: Array = []
+		lobby.setting_change_requested.connect(func(key: StringName, value: Variant):
+			changes.append([key, value])
+		)
+		toggle.set_pressed(false)
+		assert_eq(changes, [[&"no_time_limit", false]])
+		model.is_host = false
+		lobby.render(model)
+		assert_true(toggle.disabled)
+	await _unmount(lobby)
 
 
 func test_host_lobby_shows_code_counts_and_editable_settings_until_start() -> void:
@@ -55,6 +91,7 @@ func test_host_lobby_shows_code_counts_and_editable_settings_until_start() -> vo
 
 	lobby.get_node("Layout/Body/Settings/VictoryTarget").value = 25
 	assert_eq(changes[-1], {"key": &"victory_target", "value": 25})
+	assert_false(lobby.has_node("Layout/Body/Settings/BaseScoreMode"))
 	lobby.get_node("Layout/Body/Settings/ReactionTimer").value = 3.5
 	assert_eq(changes[-1], {"key": &"reaction_window_msec", "value": 3500})
 	lobby.get_node("Layout/Body/Settings/HardLimitTimer").value = 45
@@ -68,7 +105,7 @@ func test_host_lobby_shows_code_counts_and_editable_settings_until_start() -> vo
 	await _unmount(lobby)
 
 
-func test_non_host_cannot_edit_or_start_and_host_needs_two_players() -> void:
+func test_only_the_host_can_start_and_must_wait_for_guests_to_ready_up() -> void:
 	var lobby = await _mount(LOBBY_PATH)
 	if lobby == null:
 		return
@@ -80,6 +117,14 @@ func test_non_host_cannot_edit_or_start_and_host_needs_two_players() -> void:
 
 	lobby.render(_lobby_model(true, false, 1, 0))
 	assert_true(lobby.get_node("Layout/Footer/StartButton").disabled)
+	lobby.get_node("Layout/Footer/StartButton").pressed.emit()
+	assert_eq(starts.size(), 0)
+	var waiting := _lobby_model(true, false, 2, 1)
+	waiting.lobby_unready_guests = 1
+	waiting.players[1].ready = false
+	lobby.render(waiting)
+	assert_true(lobby.get_node("Layout/Footer/StartButton").disabled)
+	assert_true(lobby.get_node("Layout/StatusPanel/Status").text.contains("ready up"))
 	lobby.get_node("Layout/Footer/StartButton").pressed.emit()
 	assert_eq(starts.size(), 0)
 	lobby.render(_lobby_model(true, false, 2, 0))
@@ -174,6 +219,7 @@ func _lobby_model(
 		"room_code": "ABC234",
 		"match_started": match_started,
 		"active_player_count": active_count,
+		"lobby_unready_guests": 0,
 		"spectator_count": spectator_count,
 		"players": [
 			{"name": "Host", "role": "active", "ready": true},

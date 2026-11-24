@@ -71,4 +71,7 @@ func _half(data: Dictionary, fallback: String) -> HalfCard:
 	if kind == 1:
 		rank = 0
 		suit = HalfCard.NO_SUIT
-	return HalfCard.new(StringName(data.get("copy_id", fallback)), context, rank, suit, kind)
+	var half := HalfCard.new(StringName(data.get("copy_id", fallback)), context, rank, suit, kind)
+	if half.is_joker() and data.has("joker_suit"):
+		half.set_joker_choice(data.joker_context, data.joker_suit, data.get("joker_rank", 0))
+	return half

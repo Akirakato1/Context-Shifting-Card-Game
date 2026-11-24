@@ -174,15 +174,14 @@ func poll() -> void:
 		var record: Dictionary = _peers[peer_id]
 		var peer: WebRTCPeerConnection = record["connection"]
 		if peer.poll() != OK:
-			_drop_peer(peer_id, "direct_connection_failed")
+			_drop_peer(peer_id, "connection_lost" if record["connected"] else "direct_connection_failed")
 			continue
 		var connection_state := peer.get_connection_state()
-		if connection_state in [
-			WebRTCPeerConnection.STATE_DISCONNECTED,
-			WebRTCPeerConnection.STATE_FAILED,
-		]:
-			_drop_peer(peer_id, "direct_connection_failed")
+		if connection_state == WebRTCPeerConnection.STATE_FAILED:
+			_drop_peer(peer_id, "connection_lost" if record["connected"] else "direct_connection_failed")
 			continue
+		# An established route can recover from STATE_DISCONNECTED. The game
+		# heartbeat still detects a connection that stops carrying messages.
 		if connection_state == WebRTCPeerConnection.STATE_CLOSED:
 			_drop_peer(peer_id, "connection_closed")
 			continue

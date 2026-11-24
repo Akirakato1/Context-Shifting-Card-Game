@@ -21,6 +21,9 @@ static func record(window: Window, mode: int, event: String, new_session := fals
 
 static func _snapshot(window: Window, mode: int, event: String) -> Dictionary:
 	var screen := window.current_screen
+	var logical_size := window.get_visible_rect().size
+	# The Window's ViewportTexture size includes the stretch a second time.
+	var render_target := (logical_size * window.get_stretch_transform().get_scale()).round()
 	return {
 		"event": event,
 		"utc": Time.get_datetime_string_from_system(true) + "Z",
@@ -36,8 +39,8 @@ static func _snapshot(window: Window, mode: int, event: String) -> Dictionary:
 		"actual_window_mode": ["windowed", "minimized", "maximized", "fullscreen", "exclusive fullscreen"][window.mode],
 		"native_window_px": _dimensions(DisplayServer.window_get_size(window.get_window_id())),
 		"godot_window_px": _dimensions(window.size),
-		"viewport_texture_px": _dimensions(window.get_texture().get_size()),
-		"logical_viewport_size": _dimensions(Vector2i(window.get_visible_rect().size)),
+		"render_target_px": _dimensions(Vector2i(render_target)),
+		"logical_viewport_size": _dimensions(Vector2i(logical_size)),
 		"design_size": _dimensions(window.content_scale_size),
 		"content_scale_mode": ["disabled", "canvas items", "viewport"][window.content_scale_mode],
 		"content_scale_factor": window.content_scale_factor,

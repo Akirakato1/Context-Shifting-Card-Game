@@ -6,6 +6,9 @@ signal join_requested(player_name: String, room_code: String, role: String)
 signal screen_requested(screen_id: StringName)
 signal settings_requested
 signal practice_requested
+signal tutorial_requested
+
+const MatchButtonArt := preload("res://src/view/match/match_button_art.gd")
 
 var _busy := false
 
@@ -22,12 +25,15 @@ var _busy := false
 
 
 func _ready() -> void:
+	for button: Button in $Content.find_children("*", "Button", true, false):
+		MatchButtonArt.skin(button, MatchButtonArt.ACTION)
 	if _role_input.item_count == 0:
 		_role_input.add_item("Active player", 0)
 		_role_input.add_item("Spectator", 1)
 	$Content/CreateLobbyButton.pressed.connect(func(): screen_requested.emit(&"create_lobby"))
 	$Content/JoinLobbyButton.pressed.connect(func(): screen_requested.emit(&"join_lobby"))
 	$Content/PracticeButton.pressed.connect(func(): practice_requested.emit())
+	$Content/TutorialButton.pressed.connect(func(): tutorial_requested.emit())
 	$Content/SettingsButton.pressed.connect(func(): settings_requested.emit())
 	$Content/QuitButton.pressed.connect(func(): get_tree().quit())
 	_back.pressed.connect(func(): screen_requested.emit(&"menu"))
@@ -43,15 +49,15 @@ func _ready() -> void:
 
 func set_page(page: StringName, name_prefill: String = "") -> void:
 	var main := page == &"menu"
-	_title.text = "ZEITKLUS"
-	$Content/Subtitle.visible = main
+	$Content/Logo.visible = main
+	_title.visible = not main
 	if page == &"create_lobby":
 		_title.text = "Create Lobby"
 	elif page == &"join_lobby":
 		_title.text = "Join Lobby"
 	for button in [
 		$Content/CreateLobbyButton, $Content/JoinLobbyButton, $Content/PracticeButton,
-		$Content/SettingsButton, $Content/QuitButton,
+		$Content/TutorialButton, $Content/SettingsButton, $Content/QuitButton,
 	]:
 		button.visible = main
 	_name_label.visible = not main

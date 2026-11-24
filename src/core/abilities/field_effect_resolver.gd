@@ -76,7 +76,7 @@ static func score_components(
 						matches += 1
 			PER_SELECTED_RANK_SET:
 				for face in faces:
-					if face.rank > 0 and face.rank in parameters.ranks:
+					if not face.is_joker and face.rank in parameters.ranks:
 						matches += 1
 			STRICT_CONTEXT_MAJORITY, LEADING_CONTEXT:
 				if _context_leads(int(parameters.context), context_counts, rule == LEADING_CONTEXT):

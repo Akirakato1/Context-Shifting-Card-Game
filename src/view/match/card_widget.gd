@@ -5,17 +5,19 @@ signal primary_clicked(card_id: StringName)
 signal orientation_requested(card_id: StringName)
 signal half_choice_requested(card_id: StringName, half_index: int)
 signal half_target_requested(card_id: StringName, half_index: int)
-signal joker_choice_changed(card_id: StringName, half_index: int, context: int, suit: int)
+signal joker_choice_changed(card_id: StringName, half_index: int, context: int, suit: int, rank: int)
 signal reorder_requested(card_id: StringName, delta: int)
 signal card_hovered
 signal interaction_rejected
 
 const GameTypes = preload("res://src/core/common/game_types.gd")
+const GameIcons = preload("res://src/view/common/game_icons.gd")
 const RANK_INK := preload("res://src/view/match/rank_ink.tres")
 const JOKER_RANK_INK := preload("res://src/view/match/joker_rank_ink.tres")
 const HOVER_AURA := preload("res://src/view/match/hover_card_aura.tres")
 const PRIMED_AURA := preload("res://src/view/match/primed_card_aura.tres")
 const JOKER_MIMIC := preload("res://src/view/match/joker_mimic.tres")
+const HalfHit := preload("res://src/view/match/card_half_hit.gd")
 const CARD_ART_REGION := Rect2(130, 130, 1740, 2610)
 const DIVIDER_ART := preload("res://assets/artwork/card/card_divider.png")
 const BACK_ART := preload("res://assets/artwork/card/card_back.png")
@@ -31,6 +33,11 @@ const JOKER_CONTEXT_ART := {
 	GameTypes.Context.FALL: preload("res://assets/artwork/card/card_joker_red.png"),
 }
 
+static var _resting_shadow := _card_shadow(5, 4.0, 0.64)
+static var _staged_shadow := _card_shadow(7, 12.0, 0.48)
+static var _top_half_outline := PackedVector2Array()
+static var _bottom_half_outline := PackedVector2Array()
+
 ## Optional transparent 2:3 frame over the front of the card.
 @export var frame_art: Texture2D
 ## Optional replacement frame while the card is staged for submission.
@@ -41,6 +48,7 @@ const JOKER_CONTEXT_ART := {
 var card_id := ""
 var active_half_index := -1
 var face_down := false
+var _sabotage_highlight := false
 var interaction_disabled := false
 var orientation_flipped := false
 var targeting_eligible := false
@@ -59,12 +67,15 @@ var _hover_enabled := false
 var _hovered := false
 
 @onready var _artwork: Control = $Artwork
+@onready var _shadow: Panel = $Shadow
 @onready var _top_art: TextureRect = $Artwork/TopHalf
 @onready var _bottom_art: TextureRect = $Artwork/BottomHalf
 @onready var _art_divider: TextureRect = $Artwork/Divider
 @onready var _back: TextureRect = $Back
 @onready var _frame: TextureRect = $Frame
 @onready var _face: Control = $Face
+@onready var _first_hit: HalfHit = $Face/FirstHit
+@onready var _second_hit: HalfHit = $Face/SecondHit
 @onready var _first: TextureRect = $Face/First
 @onready var _first_rank_art: HBoxContainer = $Face/FirstRankArt
 @onready var _second: TextureRect = $Face/Second
@@ -72,9 +83,11 @@ var _hovered := false
 @onready var _first_choices: HBoxContainer = $Face/FirstChoices
 @onready var _first_context: OptionButton = $Face/FirstChoices/Context
 @onready var _first_suit: OptionButton = $Face/FirstChoices/Suit
+@onready var _first_rank: OptionButton = $Face/FirstChoices/Rank
 @onready var _second_choices: HBoxContainer = $Face/SecondChoices
 @onready var _second_context: OptionButton = $Face/SecondChoices/Context
 @onready var _second_suit: OptionButton = $Face/SecondChoices/Suit
+@onready var _second_rank: OptionButton = $Face/SecondChoices/Rank
 @onready var _order_controls: HBoxContainer = $Face/OrderControls
 @onready var _move_left: Button = $Face/OrderControls/MoveLeft
 @onready var _move_right: Button = $Face/OrderControls/MoveRight
@@ -87,11 +100,15 @@ func _ready() -> void:
 		GameTypes.context_name(GameTypes.Context.FLOURISH),
 		GameTypes.context_name(GameTypes.Context.FALL),
 	]
-	_populate_choices(_first_context, context_names)
-	_populate_choices(_second_context, context_names)
+	_populate_choices(_first_context, context_names, GameIcons.context)
+	_populate_choices(_second_context, context_names, GameIcons.context)
 	var suit_names := _suit_names()
-	_populate_choices(_first_suit, suit_names)
-	_populate_choices(_second_suit, suit_names)
+	_populate_choices(_first_suit, suit_names, GameIcons.suit)
+	_populate_choices(_second_suit, suit_names, GameIcons.suit)
+	for button: OptionButton in [_first_rank, _second_rank]:
+		button.add_item("No rank")
+		for rank in range(1, 11):
+			button.add_item(str(rank))
 	_art_divider.texture = _artwork_region(DIVIDER_ART)
 	_back.texture = _artwork_region(BACK_ART)
 	mouse_entered.connect(_on_mouse_entered)
@@ -116,6 +133,9 @@ func render(
 	interaction_disabled = bool(view_state.get("interaction_disabled", hidden))
 	orientation_flipped = bool(view_state.get("orientation_flipped", false))
 	_staged = bool(view_state.get("staged", false))
+	_shadow.visible = bool(view_state.get("table_shadow", false))
+	if _shadow.visible:
+		_shadow.add_theme_stylebox_override("panel", _staged_shadow if _staged else _resting_shadow)
 	_select_in_place = bool(view_state.get("select_in_place", false))
 	_drag_hand = view_state.get("drag_hand") as Control
 	_left_click_pending = false
@@ -142,7 +162,7 @@ func render(
 	_artwork.visible = not hidden
 	var submission_locked := not hidden and bool(card.get("submission_locked", false))
 	$Face/SubmissionLock.visible = submission_locked
-	tooltip_text = "Locked for submission this round" if submission_locked else ""
+	_update_status_tooltip()
 	var staged_in_place := _select_in_place and _staged
 	_frame.texture = selected_frame_art if staged_in_place and selected_frame_art != null else frame_art
 	_frame.visible = not hidden and _frame.texture != null
@@ -186,8 +206,8 @@ func render(
 	var edit_jokers := bool(view_state.get("joker_editable", _staged and not interaction_disabled))
 	var wait_for_host := bool(view_state.get("joker_edit_pending", false))
 	if edit_jokers:
-		_render_joker_selectors(first, _first_choices, _first_context, _first_suit, wait_for_host)
-		_render_joker_selectors(second, _second_choices, _second_context, _second_suit, wait_for_host)
+		_render_joker_selectors(first, _first_choices, _first_context, _first_suit, _first_rank, wait_for_host)
+		_render_joker_selectors(second, _second_choices, _second_context, _second_suit, _second_rank, wait_for_host)
 	_render_suit(_first, first)
 	_render_suit(_second, second)
 	_apply_orientation(first, second)
@@ -207,7 +227,7 @@ func _update_cursor(display_only: bool) -> void:
 			pointer = Control.CURSOR_FORBIDDEN
 	mouse_default_cursor_shape = pointer
 	for half_index in 2:
-		var area: Control = get_node("Face/FirstHit" if half_index == 0 else "Face/SecondHit")
+		var area := _first_hit if half_index == 0 else _second_hit
 		area.mouse_default_cursor_shape = pointer
 		if targeting_kind == &"half_card" and not targeting_half_eligible[half_index]:
 			area.mouse_default_cursor_shape = Control.CURSOR_FORBIDDEN
@@ -261,17 +281,55 @@ func _on_mouse_exited() -> void:
 		_aura.queue_redraw()
 
 
+func set_sabotage_highlight(enabled: bool) -> void:
+	if _sabotage_highlight == enabled:
+		return
+	_sabotage_highlight = enabled
+	_update_status_tooltip()
+	_aura.queue_redraw()
+
+
+func _update_status_tooltip() -> void:
+	tooltip_text = ""
+	if not face_down:
+		if bool(_card.get("submission_locked", false)):
+			tooltip_text = "Locked for submission this round"
+		elif _sabotage_highlight:
+			tooltip_text = "Recently sabotaged"
+
+
 func _draw_aura() -> void:
 	if _hovered:
 		_aura.draw_style_box(HOVER_AURA, Rect2(Vector2.ZERO, size))
 	if targeting_selected or (_select_in_place and _staged and not face_down and selected_frame_art == null):
 		_aura.draw_style_box(PRIMED_AURA, Rect2(Vector2.ZERO, size))
-	if targeting_kind == &"half_card":
-		var half_height := size.y * 0.5
+	if targeting_kind == &"half_card" and not face_down:
 		for index in range(2):
 			if targeting_half_selected[index]:
-				var is_top := (index == 0) != orientation_flipped
-				_aura.draw_style_box(PRIMED_AURA, Rect2(0, 0 if is_top else half_height, size.x, half_height))
+				var area := _first_hit if index == 0 else _second_hit
+				_draw_half_aura(area.hit_polygon)
+	if _sabotage_highlight and not face_down:
+		var accent := Color("ff9a87")
+		_aura.draw_rect(Rect2(Vector2(2, 2), size - Vector2(4, 4)), accent, false, 3.0, true)
+		var font := ThemeDB.fallback_font
+		var text := "SABOTAGED"
+		var width := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x
+		var baseline := Vector2((size.x - width) * 0.5, size.y * 0.62)
+		_aura.draw_string_outline(font, baseline, text, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, 6, Color("261416"))
+		_aura.draw_string(font, baseline, text, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, accent)
+
+
+func _draw_half_aura(outline: PackedVector2Array) -> void:
+	var points := PackedVector2Array()
+	for point in outline:
+		points.append(point * size)
+	points.append(points[0])
+	var width: float = PRIMED_AURA.border_width_top
+	var glow: Color = PRIMED_AURA.shadow_color
+	glow.a /= PRIMED_AURA.shadow_size
+	for spread in range(PRIMED_AURA.shadow_size, 0, -1):
+		_aura.draw_polyline(points, glow, width + 2.0 * spread, true)
+	_aura.draw_polyline(points, PRIMED_AURA.border_color, width, true)
 
 
 func _get_drag_data(at_position: Vector2) -> Variant:
@@ -293,6 +351,16 @@ func first_face_text() -> String:
 	return _first_debug_text
 
 
+static func _card_shadow(blur: int, offset: float, opacity: float) -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.draw_center = false
+	style.set_corner_radius_all(20)
+	style.shadow_size = blur
+	style.shadow_offset = Vector2(0.0, offset)
+	style.shadow_color = Color(0.10, 0.055, 0.04, opacity)
+	return style
+
+
 func second_face_text() -> String:
 	return _second_debug_text
 
@@ -303,7 +371,7 @@ func joker_prompts_visible() -> bool:
 
 func _half_text(half: Dictionary) -> String:
 	if int(half.get("kind", 0)) == 1:
-		return "JOKER  0  ANY"
+		return "JOKER  %d  ANY" % _half_rank(half)
 	var context := int(half.get("effective_context", half.get("base_context", 0)))
 	var rank := int(half.get("effective_rank", half.get("rank", half.get("base_rank", 0))))
 	var suit := int(half.get("effective_suit", half.get("suit", half.get("base_suit", 0))))
@@ -337,7 +405,7 @@ func _suit_names() -> Array[String]:
 
 
 func _half_rank(half: Dictionary) -> int:
-	return 0 if int(half.get("kind", 0)) == 1 else int(half.get("effective_rank", half.get("rank", half.get("base_rank", 0))))
+	return int(half.get("joker_rank", half.get("effective_rank", half.get("rank", half.get("base_rank", 0)))))
 
 
 func _render_rank_art(container: HBoxContainer, rank: int) -> void:
@@ -433,35 +501,47 @@ func _apply_joker_choices(first: Dictionary, second: Dictionary, choices: Array)
 		if int(half.get("kind", 0)) == GameTypes.HalfKind.JOKER:
 			half["joker_context"] = int(raw_choice.get("context", 0))
 			half["joker_suit"] = int(raw_choice.get("suit", 0))
+			half["joker_rank"] = int(raw_choice.get("rank", half.get("joker_rank", 0)))
 
 
 func _render_joker_selectors(
-	half: Dictionary, choices: Control, context: OptionButton, suit: OptionButton, disabled: bool
+	half: Dictionary, choices: Control, context: OptionButton, suit: OptionButton,
+	rank: OptionButton, disabled: bool
 ) -> void:
 	if int(half.get("kind", 0)) != GameTypes.HalfKind.JOKER:
 		return
 	choices.show()
 	var chosen_suit := _shown_suit(half)
-	context.select(_shown_context(half) if chosen_suit >= 0 else -1)
+	var chosen_context := _shown_context(half)
+	context.select(chosen_context if chosen_suit >= 0 else -1)
 	suit.select(chosen_suit)
+	var chosen_rank := _half_rank(half)
+	rank.select(chosen_rank)
 	if chosen_suit < 0:
 		context.text = "Context"
 		suit.text = "Suit"
-	context.tooltip_text = "Joker context"
-	suit.tooltip_text = "Joker suit"
+	else:
+		context.text = ""
+		suit.text = ""
+	if chosen_rank == 0:
+		rank.text = "Rank"
+	context.tooltip_text = "Joker context" if chosen_suit < 0 else "Joker context · " + GameTypes.context_name(chosen_context)
+	suit.tooltip_text = "Joker suit" if chosen_suit < 0 else "Joker suit · " + GameTypes.suit_name(chosen_suit)
+	rank.tooltip_text = "Joker rank · counts toward hand shapes"
 	context.disabled = disabled
 	suit.disabled = disabled
+	rank.disabled = disabled
 
 
 func _apply_orientation(first: Dictionary, second: Dictionary) -> void:
-	_place_half(_first_rank_art, _first, _first_choices, $Face/FirstHit, not orientation_flipped,
+	_place_half(_first_rank_art, _first, _first_choices, _first_hit, not orientation_flipped,
 		int(first.get("kind", 0)) == GameTypes.HalfKind.JOKER)
-	_place_half(_second_rank_art, _second, _second_choices, $Face/SecondHit, orientation_flipped,
+	_place_half(_second_rank_art, _second, _second_choices, _second_hit, orientation_flipped,
 		int(second.get("kind", 0)) == GameTypes.HalfKind.JOKER)
 
 
 func _place_half(
-	rank_art: Control, suit: TextureRect, choices: Control, hit_area: Control, is_top: bool, is_joker: bool
+	rank_art: Control, suit: TextureRect, choices: Control, hit_area: HalfHit, is_top: bool, is_joker: bool
 ) -> void:
 	var rank_size := rank_art.get_combined_minimum_size()
 	var suit_size := suit.get_combined_minimum_size()
@@ -478,8 +558,34 @@ func _place_half(
 	var choice_edge := 0.34 if is_top else 0.61
 	choices.anchor_top = choice_edge
 	choices.anchor_bottom = choice_edge
-	hit_area.anchor_top = 0.0 if is_top else 0.5
-	hit_area.anchor_bottom = 0.5 if is_top else 1.0
+	if targeting_kind == &"half_card":
+		_load_half_outlines()
+		hit_area.anchor_top = 0.0
+		hit_area.anchor_bottom = 1.0
+		hit_area.hit_polygon = _top_half_outline if is_top else _bottom_half_outline
+		# BottomHalf is drawn over TopHalf where their art overlaps under the divider.
+		hit_area.foreground_polygon = _bottom_half_outline if is_top else PackedVector2Array()
+	else:
+		hit_area.anchor_top = 0.0 if is_top else 0.5
+		hit_area.anchor_bottom = 0.5 if is_top else 1.0
+		hit_area.hit_polygon = PackedVector2Array()
+		hit_area.foreground_polygon = PackedVector2Array()
+
+
+static func _load_half_outlines() -> void:
+	if not _top_half_outline.is_empty():
+		return
+	# All face textures share this cut. Trace the cropped alpha and mirror it as BottomHalf does.
+	var source: Texture2D = CONTEXT_ART[GameTypes.Context.RISE]
+	var crop := source.get_image().get_region(Rect2i(CARD_ART_REGION))
+	var mask := BitMap.new()
+	mask.create_from_image_alpha(crop, 0.5)
+	var contours := mask.opaque_to_polygons(Rect2i(Vector2i.ZERO, crop.get_size()))
+	var art_size := Vector2(crop.get_size())
+	for point in contours[0]:
+		var normalized := point / art_size
+		_top_half_outline.append(normalized)
+		_bottom_half_outline.append(Vector2.ONE - normalized)
 
 
 func _place_corner_mark(mark: Control, preset: int, rect: Rect2) -> void:
@@ -491,27 +597,38 @@ func _place_corner_mark(mark: Control, preset: int, rect: Rect2) -> void:
 	mark.offset_bottom = rect.end.y
 
 
-func _populate_choices(button: OptionButton, values: Array) -> void:
+func _populate_choices(button: OptionButton, values: Array, icon_for: Callable) -> void:
 	if button.item_count > 0:
 		return
-	for value in values:
-		button.add_item(str(value))
+	button.add_theme_constant_override("icon_max_width", 22)
+	var menu := button.get_popup()
+	for index in values.size():
+		button.add_icon_item(icon_for.call(index), str(values[index]))
+		menu.set_item_icon_max_width(index, 22)
 
 
 func _on_first_context_selected(index: int) -> void:
-	joker_choice_changed.emit(StringName(card_id), 0, index, maxi(0, _first_suit.selected))
+	joker_choice_changed.emit(StringName(card_id), 0, index, maxi(0, _first_suit.selected), _first_rank.selected)
 
 
 func _on_first_suit_selected(index: int) -> void:
-	joker_choice_changed.emit(StringName(card_id), 0, maxi(0, _first_context.selected), index)
+	joker_choice_changed.emit(StringName(card_id), 0, maxi(0, _first_context.selected), index, _first_rank.selected)
+
+
+func _on_first_rank_selected(index: int) -> void:
+	joker_choice_changed.emit(StringName(card_id), 0, maxi(0, _first_context.selected), maxi(0, _first_suit.selected), index)
 
 
 func _on_second_context_selected(index: int) -> void:
-	joker_choice_changed.emit(StringName(card_id), 1, index, maxi(0, _second_suit.selected))
+	joker_choice_changed.emit(StringName(card_id), 1, index, maxi(0, _second_suit.selected), _second_rank.selected)
 
 
 func _on_second_suit_selected(index: int) -> void:
-	joker_choice_changed.emit(StringName(card_id), 1, maxi(0, _second_context.selected), index)
+	joker_choice_changed.emit(StringName(card_id), 1, maxi(0, _second_context.selected), index, _second_rank.selected)
+
+
+func _on_second_rank_selected(index: int) -> void:
+	joker_choice_changed.emit(StringName(card_id), 1, maxi(0, _second_context.selected), maxi(0, _second_suit.selected), index)
 
 
 func _on_move_left_pressed() -> void:

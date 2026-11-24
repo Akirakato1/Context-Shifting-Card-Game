@@ -128,28 +128,30 @@ func test_deterministic_operations_skip_jokers_and_valid_noop_still_resolves() -
 	assert_eq(normal.effective_context(), GameTypes.Context.FALL)
 
 
-func test_context_roulette_rolls_each_selected_ordinary_half_independently() -> void:
+func test_context_roulette_rolls_both_halves_of_each_selected_card_independently() -> void:
 	var selected := _card(&"selected")
+	var also_selected := _card(&"also-selected")
 	var untouched := _card(&"untouched")
-	var choices := {"halves": [
-		{"card_id": str(selected.card_id), "half_index": 0},
-		{"card_id": str(selected.card_id), "half_index": 1},
-	]}
+	var definition := _definition(&"context_roulette")
+	var hand := [selected, also_selected, untouched]
+	var choices := {"cards": [str(selected.card_id), str(also_selected.card_id)]}
+	var validation := ManipulationResolver.validate(definition, hand, choices)
+	assert_eq(validation, &"")
+	if not validation.is_empty():
+		return
 	var expected_rng := RandomSource.new(301)
-	var expected_first := expected_rng.pick_index(3)
-	var expected_second := expected_rng.pick_index(3)
-	var untouched_context := untouched.first.effective_context()
+	var untouched_faces := untouched.face_snapshot()
 
 	ManipulationResolver.apply(
-		_definition(&"context_roulette"), [selected, untouched], choices,
-		RandomSource.new(301), GameTypes.ContextDirection.FORWARD
+		definition, hand, choices, RandomSource.new(301), GameTypes.ContextDirection.FORWARD
 	)
 
-	assert_eq(selected.first.effective_context(), expected_first)
-	assert_eq(selected.second.effective_context(), expected_second)
-	assert_eq(untouched.first.effective_context(), untouched_context)
-	assert_eq(selected.first.effective_rank(), 2)
-	assert_eq(selected.second.effective_suit(), GameTypes.Suit.CLOUD)
+	for card in [selected, also_selected]:
+		assert_eq(card.first.effective_context(), expected_rng.pick_index(3))
+		assert_eq(card.second.effective_context(), expected_rng.pick_index(3))
+		assert_eq(card.first.effective_rank(), 2)
+		assert_eq(card.second.effective_suit(), GameTypes.Suit.CLOUD)
+	assert_eq(untouched.face_snapshot(), untouched_faces)
 
 
 func test_rank_rolls_use_exact_low_high_even_and_odd_sets() -> void:
@@ -197,10 +199,18 @@ func test_ride_and_against_cycle_follow_normal_and_reversed_direction() -> void:
 			{"id": &"against_the_cycle", "delta": -1},
 		]:
 			var card := _card(StringName("cycle-%s-%d" % [fixture.id, direction]))
+			var hand := [card, _card(&"second"), _card(&"third")]
+			var definition := _definition(fixture.id)
+			assert_eq(ManipulationResolver.validate(definition, hand, {
+				"cards": [str(card.card_id), "second"],
+			}), &"")
+			assert_eq(ManipulationResolver.validate(definition, hand, {
+				"cards": [str(card.card_id), "second", "third"],
+			}), &"manipulation_choice_count")
 			var first_before := card.first.effective_context()
 			var second_before := card.second.effective_context()
 			ManipulationResolver.apply(
-				_definition(fixture.id), [card], {"cards": [str(card.card_id)]},
+				definition, [card], {"cards": [str(card.card_id)]},
 				RandomSource.new(330), direction
 			)
 			assert_eq(

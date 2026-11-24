@@ -35,8 +35,10 @@ func test_match_can_hide_the_sketch_guides_without_disabling_controls() -> void:
 	Engine.get_main_loop().root.add_child(table)
 	assert_false(table.get_node("Backdrop").visible)
 	assert_false(table.get_node("TableScenery").show_placeholder_guides)
-	assert_true(table.get_node("MatchScore").get_theme_stylebox("panel") is StyleBoxEmpty)
-	assert_eq(table.get_node("SortControls/Rise").get_child_count(), 0)
+	var score_style := table.get_node("MatchScore").get_theme_stylebox("panel") as StyleBoxTexture
+	assert_eq(score_style.texture.resource_path.get_file(), "button_2.png")
+	var context_style := table.get_node("SortControls/Rise").get_theme_stylebox("normal") as StyleBoxTexture
+	assert_eq(context_style.texture.resource_path.get_file(), "button_3.png")
 	assert_false(table.get_node("SortControls/Rise").disabled)
 	table.queue_free()
 	await Engine.get_main_loop().process_frame
@@ -65,6 +67,30 @@ func test_table_art_covers_the_hotbar_seam_and_uses_context_shades() -> void:
 	assert_eq(shades.map(func(texture: Texture2D): return texture.resource_path.get_file()), [
 		"board_shade_blue.png", "board_shade_green.png", "board_shade_red.png",
 	])
+	var surfaces := {"lower_bar_art": "card_area_bg.png", "hand_tray_art": "card_area.png"}
+	for surface: String in surfaces:
+		var artwork := scenery.get(surface) as Texture2D
+		assert_true(artwork != null and artwork.resource_path.get_file() == surfaces[surface])
+	var drawer := table.get_node("AbilityPanel/Drawer") as PanelContainer
+	var drawer_art := drawer.get_theme_stylebox("panel") as StyleBoxTexture
+	assert_true(drawer_art != null and drawer_art.texture != null and drawer_art.texture.resource_path.get_file() == "ability_card_bg.png")
+	var tray := scenery.get_node("HandTrayArt") as TextureRect
+	assert_eq(tray.texture, scenery.get("hand_tray_art"))
+	assert_eq(tray.material, drawer.material)
+	var button_assets := {
+		"MenuButton": "button_4.png",
+		"MatchMenu/Options/Settings": "button_4.png",
+		"AbilityHistory/Toggle": "button_2.png",
+		"HelpButton": "button_3.png",
+		"PhaseControls/MainControls/ReadyButton": "button_4.png",
+	}
+	for button_path: String in button_assets:
+		var button := table.get_node(button_path) as Button
+		for state in ["normal", "hover", "pressed", "disabled"]:
+			var style := button.get_theme_stylebox(state) as StyleBoxTexture
+			assert_true(style != null and style.texture.resource_path.get_file() == button_assets[button_path])
+	var menu := table.get_node("MatchMenu") as PanelContainer
+	assert_eq(menu.get_theme_stylebox("panel").texture.resource_path.get_file(), "button_5.png")
 	table.queue_free()
 	await Engine.get_main_loop().process_frame
 

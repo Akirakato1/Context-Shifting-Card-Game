@@ -12,6 +12,46 @@ const EventKinds = preload("res://src/core/events/event_kinds.gd")
 const MatchConfig = preload("res://src/core/match/match_config.gd")
 const MatchState = preload("res://src/core/match/match_state.gd")
 const MatchController = preload("res://src/core/match/match_controller.gd")
+const SnapshotProjector = preload("res://src/core/match/snapshot_projector.gd")
+
+
+func test_submission_can_be_reopened_and_replaced_before_the_final_lock() -> void:
+	var state := _hand_play_state(62)
+	var controller := MatchController.new(state)
+	var player: PlayerState = state.players[&"one"]
+	var card = _card_with_context(player.hand, state.active_context)
+	var picks := [{"card_id": card.card_id, "half_index": card.eligible_half_indexes(state.active_context)[0]}]
+	assert_true(controller.submit(_stage(&"stage-one", &"one", picks), 1).accepted)
+	assert_true(controller.submit(_lock(&"lock-one", &"one"), 2).accepted)
+	assert_true(player.hand_locked)
+	assert_true(player.ready)
+	assert_eq(player.submitted_cards, [card])
+	var locked := SnapshotProjector.for_recipient(state, &"one", GameTypes.RecipientRole.ACTIVE_PLAYER)
+	assert_eq(locked.private_hand.size(), player.hand.size() - 1)
+
+	var unlock := GameCommand.new(&"undo-one", &"one", &"unlock_hand")
+	var reopened := controller.submit(unlock, 3)
+	assert_true(reopened.accepted)
+	assert_true(reopened.events.is_empty())
+	assert_false(player.hand_locked)
+	assert_false(player.ready)
+	assert_true(player.submitted_cards.is_empty())
+	assert_true(player.submitted_faces.is_empty())
+	assert_true(player.submitted_card_views.is_empty())
+	assert_eq(player.provisional_score, null)
+	var editing := SnapshotProjector.for_recipient(state, &"one", GameTypes.RecipientRole.ACTIVE_PLAYER)
+	assert_eq(editing.private_hand.size(), player.hand.size())
+	assert_eq(editing.private_staging.staged_submission[0].card_id, card.card_id)
+	assert_false(editing.private_staging.has("submitted_score"))
+
+	assert_true(controller.submit(_lock(&"lock-two", &"two"), 4).accepted)
+	assert_eq(state.phase, GameTypes.Phase.HAND_PLAY)
+	assert_true(controller.submit(_stage(&"replace-one", &"one", []), 5).accepted)
+	assert_true(controller.submit(_lock(&"lock-one-again", &"one"), 6).accepted)
+	assert_eq(state.phase, GameTypes.Phase.MAIN_2)
+	assert_true(player.submitted_cards.is_empty())
+	var too_late := GameCommand.new(&"undo-late", &"one", &"unlock_hand")
+	assert_eq(controller.submit(too_late, 7).error_code, &"command_not_allowed_in_phase")
 
 
 func test_incomplete_manipulation_cancels_but_completed_choice_is_irreversible() -> void:

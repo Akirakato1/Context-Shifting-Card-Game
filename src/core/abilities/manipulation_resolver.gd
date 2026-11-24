@@ -116,6 +116,14 @@ static func apply(
 					half.apply_overrides(
 						rng.pick_index(3), half.effective_rank(), half.effective_suit()
 					)
+		&"random_card_contexts":
+			for card_id in choices.cards:
+				var card := _selected_card(cards_by_id, card_id)
+				for half in [card.first, card.second]:
+					if not half.is_joker():
+						half.apply_overrides(
+							rng.pick_index(3), half.effective_rank(), half.effective_suit()
+						)
 		&"random_rank":
 			var ranks: Array = definition.effect_parameters.ranks
 			for card_id in choices.cards:

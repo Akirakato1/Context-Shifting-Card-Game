@@ -26,6 +26,7 @@ func test_joker_staging_lock_and_reveal_use_sanitized_resolved_faces() -> void:
 		"half_index": 0,
 		"context": GameTypes.Context.FALL,
 		"suit": GameTypes.Suit.SEA,
+		"rank": 9,
 	}]
 
 	var staged := controller.submit(_stage(
@@ -41,12 +42,13 @@ func test_joker_staging_lock_and_reveal_use_sanitized_resolved_faces() -> void:
 	var resolved := controller.submit(_lock(&"lock-two", &"two"), 3)
 
 	var player = state.players[&"one"]
-	assert_eq(player.submitted_faces[0].rank, 0)
+	assert_eq(player.submitted_faces[0].rank, 9)
 	assert_eq(player.submitted_faces[0].suit, GameTypes.Suit.SEA)
+	assert_eq(player.provisional_score.base_value, 0)
 	assert_eq(player.submitted_card_views.size(), 1)
 	var resolved_joker: Dictionary = player.submitted_card_views[0]["halves"][0]
 	assert_eq(resolved_joker["context"], GameTypes.Context.FALL)
-	assert_eq(resolved_joker["rank"], 0)
+	assert_eq(resolved_joker["rank"], 9)
 	assert_eq(resolved_joker["suit"], GameTypes.Suit.SEA)
 	assert_eq(resolved_joker["joker"], true)
 	assert_eq(joker.first.base_context, GameTypes.Context.FLOURISH)
@@ -59,6 +61,8 @@ func test_joker_staging_lock_and_reveal_use_sanitized_resolved_faces() -> void:
 	assert_eq(reveal_text.find("copy_id"), -1)
 	assert_eq(reveal_text.find("base_context"), -1)
 	assert_eq(reveal_text.find("joker_choices"), -1)
+	var restored := MatchState.from_dict(state.to_dict())
+	assert_true(restored.players[&"one"].submitted_faces[0].is_joker)
 
 
 func test_invalid_joker_replacement_preserves_previous_draft_and_missing_default_rejects() -> void:
@@ -152,7 +156,7 @@ func test_unstaged_joker_configuration_is_private_and_survives_round_trip() -> v
 	var joker := _joker_card(&"flexible-joker", state.active_context)
 	state.players[&"one"].hand[0] = joker
 	var controller := MatchController.new(state)
-	var payload := {"card_id": joker.card_id, "half_index": 0, "context": 2, "suit": 1}
+	var payload := {"card_id": joker.card_id, "half_index": 0, "context": 2, "suit": 1, "rank": 6}
 	var kind := &"configure_joker"
 	assert_false(controller.submit(GameCommand.new(&"foreign", &"two", kind, payload), 1).accepted)
 	assert_true(controller.submit(GameCommand.new(&"configure", &"one", kind, payload), 2).accepted)
@@ -164,7 +168,9 @@ func test_unstaged_joker_configuration_is_private_and_survives_round_trip() -> v
 	var spectator := SnapshotProjector.for_recipient(restored, &"", GameTypes.RecipientRole.SPECTATOR)
 	assert_eq(owner.private_hand[0].first.get("joker_context", -1), GameTypes.Context.FALL)
 	assert_eq(owner.private_hand[0].first.get("joker_suit", -1), GameTypes.Suit.SEA)
+	assert_eq(owner.private_hand[0].first.get("joker_rank", -1), 6)
 	assert_false(JSON.stringify(spectator).contains("joker_suit"))
+	assert_false(JSON.stringify(spectator).contains("joker_rank"))
 	joker.leave_hand()
 	owner = SnapshotProjector.for_recipient(state, &"one", GameTypes.RecipientRole.ACTIVE_PLAYER)
 	assert_false(owner.private_hand[0].first.has("joker_suit"))

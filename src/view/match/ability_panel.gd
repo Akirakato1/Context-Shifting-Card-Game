@@ -9,6 +9,8 @@ signal discards_confirmed(copy_ids: Array[String])
 
 const AbilityCard = preload("res://src/view/match/ability_card.gd")
 const AbilityCardScene = preload("res://src/view/match/ability_inventory_card.tscn")
+const GameTypes := preload("res://src/core/common/game_types.gd")
+const MatchButtonArt := preload("res://src/view/match/match_button_art.gd")
 const DETAILS_EYE := preload("res://assets/artwork/svg/ability_details_eye.svg")
 const DETAILS_EYE_HIDDEN := preload("res://assets/artwork/svg/ability_details_eye_hidden.svg")
 const CARD_SEPARATION := 7.0
@@ -49,6 +51,11 @@ var _expanded_before_discard := false
 
 
 func _ready() -> void:
+	_drawer.add_theme_stylebox_override("panel", _drawer.get_theme_stylebox("panel").duplicate())
+	MatchButtonArt.skin(_toggle, MatchButtonArt.PILL)
+	MatchButtonArt.skin(_details_mode, MatchButtonArt.ROUND)
+	MatchButtonArt.skin(_confirm_keep, MatchButtonArt.ACTION)
+	_details_mode.add_theme_constant_override("icon_max_width", 24)
 	_cards.resized.connect(_layout_cards)
 	visibility_changed.connect(_on_visibility_changed)
 	_confirm_keep.pressed.connect(_on_confirm_keep_pressed)
@@ -61,6 +68,11 @@ func _exit_tree() -> void:
 
 
 func set_drawer_bounds(bounds: Rect2) -> void:
+	var frame := _drawer.get_theme_stylebox("panel")
+	frame.content_margin_left = bounds.size.x * 0.068
+	frame.content_margin_right = bounds.size.x * 0.068
+	frame.content_margin_top = bounds.size.y * 0.070
+	frame.content_margin_bottom = bounds.size.y * 0.024
 	_drawer.position = bounds.position
 	_drawer.size = bounds.size
 
@@ -122,13 +134,23 @@ func render(abilities: Array, phase: int, catalog: Dictionary, input_locked: boo
 			_add_detail_button(card, copy_id)
 		var card := _cards_by_id[copy_id]
 		var model: Dictionary = _abilities[copy_id]
-		card.render(model, str(model.get("ability_id", "")), false, _discarding or _can_play(copy_id))
+		var playable := _can_play(copy_id)
+		card.render(model, str(model.get("ability_id", "")), false, _discarding or playable)
+		card.set_inventory_playable_highlight(playable and phase == GameTypes.Phase.MAIN_1)
 		_update_card_details(copy_id)
 		_update_draw_presentation(copy_id)
 	_drawer.visible = _expanded
 	_update_toggle()
 	_update_discard_controls()
 	_layout_cards()
+
+
+func open_drawer() -> void:
+	if _expanded or _abilities.is_empty():
+		return
+	_expanded = true
+	_drawer.show()
+	_update_toggle()
 
 
 func legal_ability_ids() -> Array[StringName]:
@@ -164,10 +186,10 @@ func _add_detail_button(card: AbilityCard, copy_id: StringName) -> void:
 	var button := Button.new()
 	button.name = "DetailsButton"
 	button.toggle_mode = true
-	button.flat = true
+	MatchButtonArt.skin(button, MatchButtonArt.ROUND)
 	button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	button.add_theme_constant_override("icon_max_width", 23)
+	button.add_theme_constant_override("icon_max_width", 19)
 	card.get_node("Face").add_child(button)
 	button.anchor_left = 1.0
 	button.anchor_right = 1.0
@@ -258,6 +280,10 @@ func discard_focus_rect() -> Rect2:
 	return _drawer.get_global_rect() if _discarding and not _input_locked and is_visible_in_tree() else Rect2()
 
 
+func discard_keep_limit() -> int:
+	return _keep_limit
+
+
 func discard_rejected(reason: StringName) -> void:
 	if not _discard_pending:
 		return
@@ -293,7 +319,7 @@ func _update_discard_controls() -> void:
 	_confirm_keep.visible = _discarding
 	if not _discarding:
 		return
-	_discard_prompt.text = "Discard down to %d\nSelect cards to keep · %d / %d" % [_keep_limit, _kept_ids.size(), _keep_limit]
+	_discard_prompt.text = "Select %d cards to keep · %d / %d" % [_keep_limit, _kept_ids.size(), _keep_limit]
 	_confirm_keep.disabled = _input_locked or _discard_pending or _kept_ids.size() != _keep_limit
 	_confirm_keep.text = "CONFIRM KEEP %d" % _keep_limit
 	if _discard_pending:

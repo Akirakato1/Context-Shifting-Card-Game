@@ -47,15 +47,14 @@ func test_commit_requires_exact_schema_unique_owned_targets_and_valid_options() 
 
 	var roulette := _definition(&"context_roulette")
 	assert_eq(ManipulationResolver.validate(roulette, hand, {"halves": [{
-		"card_id": card_id, "half_index": 2,
-	}]}), &"invalid_half_index")
-	assert_eq(ManipulationResolver.validate(roulette, hand, {"halves": [
-		{"card_id": card_id, "half_index": 0},
-		{"card_id": card_id, "half_index": 0},
-	]}), &"duplicate_manipulation_target")
-	assert_eq(ManipulationResolver.validate(roulette, hand, {"halves": [{
-		"card_id": "missing-card", "half_index": 0,
-	}]}), &"card_not_in_hand")
+		"card_id": card_id, "half_index": 0,
+	}]}), &"manipulation_choice_keys_mismatch")
+	assert_eq(ManipulationResolver.validate(roulette, hand, {
+		"cards": [card_id, card_id],
+	}), &"duplicate_manipulation_target")
+	assert_eq(ManipulationResolver.validate(roulette, hand, {
+		"cards": ["missing-card"],
+	}), &"card_not_in_hand")
 
 
 func test_rejected_manipulation_preserves_cards_ability_pending_state_and_rng() -> void:

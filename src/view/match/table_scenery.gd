@@ -3,6 +3,7 @@ extends Control
 const Edge := preload("res://assets/artwork/board/figma/table_edge_left.svg")
 const FarEdge := preload("res://assets/artwork/board/figma/table_edge_top.svg")
 const ContextBlend := preload("res://src/view/match/context_art_blend.gdshader")
+const CornerAlpha := preload("res://src/view/match/art_corner_alpha.tres")
 const CONTEXT_KEYS: Array[String] = ["rise", "flourish", "fall"]
 const BACKGROUND := [Color("2c2330"), Color("142f31"), Color("202c48")]
 const BASE := Vector2(1920, 1080)
@@ -39,6 +40,7 @@ var _show_score_bar := false
 var _background_layer: ColorRect
 var _board_layer: TextureRect
 var _shade_layer: ColorRect
+var _hand_tray_layer: TextureRect
 @onready var _clock: ContextClock = $ContextClock
 
 
@@ -63,6 +65,13 @@ func _ready() -> void:
 	_shade_layer = _add_blend_layer("ContextShade", TABLE_SHADE_OPACITY)
 	_shade_layer.visible = table_art != null
 	_configure_blend_layer(_shade_layer, table_shading, false)
+	_hand_tray_layer = TextureRect.new()
+	_hand_tray_layer.name = "HandTrayArt"
+	_hand_tray_layer.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_hand_tray_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hand_tray_layer.texture = hand_tray_art
+	_hand_tray_layer.material = CornerAlpha
+	add_child(_hand_tray_layer)
 	resized.connect(_layout_layers)
 	_layout_layers()
 
@@ -119,6 +128,8 @@ func _layout_layers() -> void:
 	for layer in [_board_layer, _shade_layer]:
 		layer.position = TABLE_RECT.position * size / BASE
 		layer.size = TABLE_RECT.size * size / BASE
+	_hand_tray_layer.position = HAND_TRAY_RECT.position * size / BASE
+	_hand_tray_layer.size = HAND_TRAY_RECT.size * size / BASE
 	var clock_bounds := clock_rect()
 	_clock.position = clock_bounds.position
 	_clock.size = clock_bounds.size
@@ -174,7 +185,8 @@ func _draw() -> void:
 		_draw_edge(Edge, b, c, scale_to_view)
 		draw_set_transform(Vector2.ZERO, 0.0, scale_to_view)
 	_draw_surface(lower_bar_art, Rect2(0, HOTBAR_TOP, 1920, 370), Color("202a35"))
-	_draw_surface(hand_tray_art, HAND_TRAY_RECT, Color("151d26"))
+	if hand_tray_art == null:
+		_draw_surface(null, HAND_TRAY_RECT, Color("151d26"))
 	if _show_score_bar:
 		_draw_surface(score_bar_art, Rect2(HAND_TRAY_RECT.position.x, SCORE_BAR_TOP,
 			HAND_TRAY_RECT.size.x, HOTBAR_TOP - SCORE_BAR_TOP), Color("202a35"))

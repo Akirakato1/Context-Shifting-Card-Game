@@ -5,6 +5,7 @@ signal back_requested
 const DisplayPreferences = preload("res://src/view/app/display_preferences.gd")
 const DisplayDiagnostics = preload("res://src/view/app/display_diagnostics.gd")
 const GameplayPreferences = preload("res://src/view/app/gameplay_preferences.gd")
+const MatchButtonArt := preload("res://src/view/match/match_button_art.gd")
 
 var preferences: GameplayPreferences
 var _binding_action: StringName
@@ -34,6 +35,8 @@ func _ready() -> void:
 	_bind_volume($Content/Ambient, GameplayPreferences.AMBIENT)
 	_bind_volume($Content/Music, GameplayPreferences.MUSIC)
 	_build_hotkeys()
+	for button: Button in $Content.find_children("*", "Button", true, false):
+		MatchButtonArt.skin(button, MatchButtonArt.ACTION)
 	var back: Button = $Content/BackButton
 	back.pressed.connect(func(): back_requested.emit())
 	var focus_order: Array[Control] = [

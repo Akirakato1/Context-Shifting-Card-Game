@@ -14,6 +14,7 @@ class FakeSession extends RefCounted:
 
 	var submissions: Array[Dictionary] = []
 	var start_calls := 0
+	var retry_result := OK
 
 	func submit_command(message_id: String, command: Dictionary) -> Error:
 		submissions.append({"message_id": message_id, "command": command.duplicate(true)})
@@ -25,6 +26,9 @@ class FakeSession extends RefCounted:
 	func start_match() -> Error:
 		start_calls += 1
 		return OK
+
+	func retry_connection() -> Error:
+		return retry_result
 
 
 func test_menu_opens_separate_create_and_join_forms_and_returns() -> void:
@@ -54,11 +58,17 @@ func test_general_settings_opens_and_closes_without_replacing_the_menu() -> void
 	var button := menu.get_node_or_null("Content/SettingsButton") as Button
 	assert_true(button != null, "The main menu must expose Settings")
 	if button != null:
+		var menu_art := button.get_theme_stylebox("normal") as StyleBoxTexture
+		assert_true(menu_art != null and menu_art.texture.resource_path.get_file() == "button_4.png")
 		button.pressed.emit()
 		assert_eq(host.get_child(0), menu)
 		var settings := host.get_node_or_null("GeneralSettingsScreen")
 		assert_true(settings != null)
 		if settings != null:
+			for path in ["Content/Modes", "Content/Hotkeys/Heading/Reset", "Content/BackButton"]:
+				var control := settings.get_node(path) as Button
+				var art := control.get_theme_stylebox("normal") as StyleBoxTexture
+				assert_true(art != null and art.texture.resource_path.get_file() == "button_4.png")
 			settings.get_node("Content/BackButton").pressed.emit()
 			assert_eq(host.get_child_count(), 1)
 	await _unmount(app)
@@ -153,6 +163,30 @@ func test_practice_button_starts_a_match_and_can_open_settings_or_return() -> vo
 	await _unmount(app)
 
 
+func test_tutorial_button_opens_lessons_and_leaving_resets_progress() -> void:
+	var app = await _mount_app()
+	var host: Control = app.get_node("SafeArea/ScreenHost")
+	host.get_child(0).get_node("Content/TutorialButton").pressed.emit()
+	assert_eq(app.current_screen_id(), &"match")
+	if app.current_screen_id() == &"match":
+		var match_screen := host.get_child(0)
+		var content := match_screen.get_node("Tutorial/Margin/Content")
+		assert_true(match_screen.get_node("Tutorial").visible)
+		assert_eq(content.get_node("Title").text, "Welcome to Zeitklus")
+		content.get_node("Next").pressed.emit()
+		assert_eq(content.get_node("Title").text, "Find your controls")
+		content.get_node("Next").pressed.emit()
+		content.get_node("Next").pressed.emit()
+		assert_eq(content.get_node("Title").text, "Play a field ability")
+		assert_false(content.get_node("Next").visible)
+		match_screen.leave_requested.emit()
+		assert_eq(app.current_screen_id(), &"menu")
+		host.get_child(0).get_node("Content/TutorialButton").pressed.emit()
+		assert_eq(host.get_child(0).get_node("Tutorial/Margin/Content/Title").text, "Welcome to Zeitklus")
+		host.get_child(0).leave_requested.emit()
+	await _unmount(app)
+
+
 func test_live_sabotage_projects_a_different_animation_for_each_audience() -> void:
 	var app = await _mount_app()
 	var session := FakeSession.new()
@@ -180,10 +214,10 @@ func test_live_sabotage_projects_a_different_animation_for_each_audience() -> vo
 		session.events_applied.emit(events, sequence)
 		session.snapshot_applied.emit(model, sequence)
 		var title: Label = effects.get_node("EffectTitle")
-		var detail: Label = effects.get_node("EffectDetail")
+		var detail: RichTextLabel = effects.get_node("EffectDetail")
 		var cards: Array = effects.get("_cards")
 		assert_eq(title.text, "Sabotage" if local_id.is_empty() else "Rank Scramble")
-		assert_true(detail.text.contains("Mira → North"))
+		assert_true(detail.get_parsed_text().contains("Mira → North"))
 		assert_eq(cards.size(), 0 if local_id.is_empty() else 1)
 		assert_eq(effects.get("_pending").size(), 0)
 		var timeline: Tween = effects.get("_timeline")
@@ -194,6 +228,9 @@ func test_live_sabotage_projects_a_different_animation_for_each_audience() -> vo
 				if local_id == "p2":
 					assert_true(cards[0].first_face_text().contains("4"))
 					timeline.custom_step(1.4)
+					assert_true(cards[0].first_face_text().contains("8"))
+					timeline.custom_step(1.2)
+					assert_true(title.visible, "The victim can inspect the resolved face after the motion")
 					assert_true(cards[0].first_face_text().contains("8"))
 			timeline.custom_step(3.0)
 		assert_false(title.visible)
@@ -355,6 +392,33 @@ func test_connection_banner_uses_player_friendly_failure_text() -> void:
 	await _unmount(app)
 
 
+func test_failed_reconnect_keeps_the_failure_visible_in_the_match() -> void:
+	var app = await _mount_app()
+	if app == null:
+		return
+	var session := FakeSession.new()
+	app.bind_session(session)
+	var model := _match_model()
+	model["screen_id"] = "match"
+	app.present_state(model)
+	var screen = app.get_node("SafeArea/ScreenHost").get_child(0)
+	var message: Label = screen.get_node("ConnectionOverlay/Panel/Layout/Message")
+	var action: Button = screen.get_node("ConnectionOverlay/Panel/Layout/ActionButton")
+	session.session_failed.emit("host_lost")
+	session.retry_result = ERR_CANT_CONNECT
+	action.pressed.emit()
+	assert_eq(app.current_screen_id(), &"match")
+	assert_eq(app.connection_state().reason, "signaling_connect_failed")
+	assert_eq(action.text, "TRY AGAIN")
+	session.retry_result = ERR_DOES_NOT_EXIST
+	action.pressed.emit()
+	assert_eq(app.current_screen_id(), &"match")
+	assert_eq(app.connection_state().reason, "reconnect_unavailable")
+	assert_true(message.text.contains("seat"))
+	assert_eq(action.text, "RETURN TO MENU")
+	await _unmount(app)
+
+
 func test_app_routes_stage_ack_back_to_match_and_sends_followup_lock() -> void:
 	var app = await _mount_app()
 	if app == null:
@@ -401,8 +465,8 @@ func test_startup_smoke_writes_marker_only_after_native_webrtc_initializes() -> 
 func _lobby_model() -> Dictionary:
 	return {
 		"is_host": true, "room_code": "ABC234", "match_started": false,
-		"active_player_count": 2, "spectator_count": 0,
-		"players": [{"name": "Mira", "role": "active", "ready": true}, {"name": "North", "role": "active", "ready": false}],
+		"active_player_count": 2, "spectator_count": 0, "lobby_unready_guests": 0,
+		"players": [{"name": "Mira", "role": "active", "ready": true}, {"name": "North", "role": "active", "ready": true}],
 		"settings": {
 			"victory_mode": 0, "victory_target": 20, "information_visibility": 0,
 			"start_timer_msec": 5000, "main_timer_msec": 10000,

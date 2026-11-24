@@ -39,6 +39,218 @@ class RuntimeTransport extends FakePeerTransport:
 		return OK
 
 
+func test_guest_ready_toggle_updates_both_lobbies_with_latest_choice() -> void:
+	var host_transport := RuntimeTransport.new()
+	var guest_transport := RuntimeTransport.new()
+	var host := RuntimeGameSession.new(host_transport, Callable(self, "_now"))
+	var store := ReconnectStore.new("user://runtime-ready-test-%d.json" % Time.get_ticks_usec())
+	var guest := RuntimeGameSession.new(guest_transport, Callable(self, "_now"), store)
+	var app_scene := preload("res://src/view/app/app_root.tscn")
+	var host_app := app_scene.instantiate()
+	var guest_app := app_scene.instantiate()
+	Engine.get_main_loop().root.add_child(host_app)
+	Engine.get_main_loop().root.add_child(guest_app)
+	host_app.bind_session(host)
+	guest_app.bind_session(guest)
+	assert_eq(host.start_host("ws://127.0.0.1:8080", "Mira"), OK)
+	host_transport.lobby_created.emit("ABC234")
+	assert_eq(guest.start_join("ws://127.0.0.1:8080", "ABC234", "active", "Noah"), OK)
+	var assignment := {"peer_id": "peer-one", "role": "active", "display_name": "Noah"}
+	guest_transport.join_status.emit("approved", assignment)
+	guest_transport.peer_connected.emit("host")
+	host_transport.join_status.emit("approved", assignment)
+	host_transport.peer_connected.emit("peer-one")
+	_deliver(host_transport, guest_transport, "peer-one", "host")
+	assert_eq(guest_app.current_screen_id(), &"lobby")
+	assert_eq(host_app.presentation_state.private_state().get("lobby_unready_guests", -1), 1)
+	assert_eq(host.start_match(), ERR_BUSY)
+	assert_eq(host_app.current_screen_id(), &"lobby")
+	var ready: CheckButton = guest_app.get_node_or_null("SafeArea/ScreenHost/LobbyScreen/Layout/Footer/ReadyButton")
+	assert_true(ready != null)
+	if ready != null:
+		ready.button_pressed = true
+		_deliver(guest_transport, host_transport, "host", "peer-one")
+		_deliver(host_transport, guest_transport, "peer-one", "host")
+		assert_true(host_app.presentation_state.private_state().players[1].ready)
+		assert_true(guest_app.presentation_state.private_state().players[1].ready)
+		assert_true(ready.button_pressed)
+
+		ready.button_pressed = false
+		ready.button_pressed = true
+		for _pass in range(2):
+			_deliver(guest_transport, host_transport, "host", "peer-one")
+			_deliver(host_transport, guest_transport, "peer-one", "host")
+		assert_true(host_app.presentation_state.private_state().players[1].ready)
+		assert_true(guest_app.presentation_state.private_state().players[1].ready)
+		assert_true(ready.button_pressed)
+
+		ready.button_pressed = false
+		_deliver(guest_transport, host_transport, "host", "peer-one")
+		_deliver(host_transport, guest_transport, "peer-one", "host")
+		assert_false(host_app.presentation_state.private_state().players[1].ready)
+		assert_false(guest_app.presentation_state.private_state().players[1].ready)
+		assert_false(ready.button_pressed)
+		assert_eq(host.start_match(), ERR_BUSY)
+		ready.button_pressed = true
+		_deliver(guest_transport, host_transport, "host", "peer-one")
+		_deliver(host_transport, guest_transport, "peer-one", "host")
+		assert_eq(host_app.presentation_state.private_state().get("lobby_unready_guests", -1), 0)
+		assert_eq(host.start_match(), OK)
+		_deliver(guest_transport, host_transport, "host", "peer-one")
+		_deliver(host_transport, guest_transport, "peer-one", "host")
+		assert_false(host_app.presentation_state.private_state().players[1].ready)
+		assert_false(guest_app.presentation_state.private_state().players[1].ready)
+
+	host.close()
+	guest.close()
+	store.clear()
+	host_app.queue_free()
+	guest_app.queue_free()
+	await Engine.get_main_loop().process_frame
+
+
+func test_guest_disconnect_before_start_frees_seat_without_finishing_match() -> void:
+	var transport := RuntimeTransport.new()
+	var runtime := RuntimeGameSession.new(transport, Callable(self, "_now"))
+	var snapshots: Array[Dictionary] = []
+	runtime.snapshot_applied.connect(func(snapshot: Dictionary, _sequence: int): snapshots.append(snapshot))
+	assert_eq(runtime.start_host("ws://127.0.0.1:8080", "Mira"), OK)
+	transport.lobby_created.emit("ABC234")
+	_connect_peer(transport, "peer-one", "active")
+	transport.close_with_reason("peer-one", "connection_closed")
+	assert_eq(snapshots[-1].screen_id, "lobby")
+	assert_eq(snapshots[-1].active_player_count, 1)
+	assert_eq(snapshots[-1].players.size(), 1)
+	assert_false(snapshots[-1].frozen)
+	assert_false(snapshots[-1].match_complete)
+	assert_eq(runtime.start_match(), ERR_UNAVAILABLE)
+	_connect_peer(transport, "peer-two", "active")
+	_ready_lobby_guests(runtime)
+	assert_eq(runtime.start_match(), OK)
+	assert_eq(snapshots[-1].phase, GameTypes.Phase.MAIN_1)
+	runtime.close()
+
+
+func test_last_guest_grace_expiry_awards_host_victory_with_spectator_and_pending_player() -> void:
+	var time := [1000]
+	var transport := RuntimeTransport.new()
+	var runtime := RuntimeGameSession.new(transport, func(): return time[0])
+	var snapshots: Array[Dictionary] = []
+	var events: Array = []
+	runtime.snapshot_applied.connect(func(snapshot: Dictionary, _sequence: int): snapshots.append(snapshot))
+	runtime.events_applied.connect(func(batch: Array, _sequence: int): events.append_array(batch))
+	assert_eq(runtime.start_host("ws://127.0.0.1:8080", "Mira"), OK)
+	transport.lobby_created.emit("ABC234")
+	assert_eq(runtime.update_lobby_setting(&"reconnect_grace_msec", 200), &"")
+	_connect_peer(transport, "peer-one", "active")
+	_ready_lobby_guests(runtime)
+	assert_eq(runtime.start_match(), OK)
+	_connect_peer(transport, "peer-pending", "active")
+	_connect_peer(transport, "peer-watch", "spectator")
+	transport.close_with_reason("peer-one", "connection_closed")
+	time[0] = 1199
+	runtime.poll()
+	assert_true(snapshots[-1].frozen)
+	assert_false(snapshots[-1].match_complete)
+
+	time[0] = 1200
+	runtime.poll()
+	var result := snapshots[-1]
+	assert_eq(result.phase, GameTypes.Phase.COMPLETE)
+	assert_true(result.match_complete)
+	assert_false(result.frozen)
+	assert_eq(result.winner_id, "host")
+	assert_eq(result.get("end_reason", ""), "last_player_standing")
+	assert_eq(events.filter(func(event): return event.kind == "match_ended").size(), 1)
+	var spectator := _last_snapshot(transport, "peer-watch")
+	assert_eq(spectator.winner_id, "host")
+	assert_eq(spectator.get("end_reason", ""), "last_player_standing")
+	assert_false(spectator.has("private_hand"))
+	assert_eq(runtime.reset_for_rematch(), OK)
+	assert_eq(snapshots[-1].screen_id, "lobby")
+	assert_eq(snapshots[-1].active_player_count, 2)
+	runtime.close()
+
+
+func test_confirmed_guest_leave_forfeits_immediately_and_host_can_reopen_lobby() -> void:
+	var host_transport := RuntimeTransport.new()
+	var guest_transport := RuntimeTransport.new()
+	var host := RuntimeGameSession.new(host_transport, Callable(self, "_now"))
+	var store := ReconnectStore.new("user://runtime-leave-test-%d.json" % Time.get_ticks_usec())
+	var guest := RuntimeGameSession.new(guest_transport, Callable(self, "_now"), store)
+	var guest_app := preload("res://src/view/app/app_root.tscn").instantiate()
+	Engine.get_main_loop().root.add_child(guest_app)
+	guest_app.bind_session(guest)
+	var host_snapshots: Array[Dictionary] = []
+	host.snapshot_applied.connect(func(snapshot: Dictionary, _sequence: int): host_snapshots.append(snapshot))
+	assert_eq(host.start_host("ws://127.0.0.1:8080", "Mira"), OK)
+	host_transport.lobby_created.emit("ABC234")
+	assert_eq(guest.start_join("ws://127.0.0.1:8080", "ABC234", "active", "Noah"), OK)
+	guest_transport.join_status.emit("approved", {"peer_id": "peer-one", "role": "active"})
+	guest_transport.peer_connected.emit("host")
+	_connect_peer(host_transport, "peer-one", "active")
+	_ready_lobby_guests(host)
+	assert_eq(host.start_match(), OK)
+	_deliver(host_transport, guest_transport, "peer-one", "host")
+	assert_eq(guest_app.current_screen_id(), &"match")
+	assert_false(store.load_record(_now()).is_empty())
+	guest_app.get_node("SafeArea/ScreenHost").get_child(0).get_node("ConfirmLeave").confirmed.emit()
+	assert_eq(guest_app.current_screen_id(), &"match")
+	assert_false(host_snapshots[-1].match_complete)
+	_deliver(guest_transport, host_transport, "host", "peer-one")
+	_deliver(host_transport, guest_transport, "peer-one", "host")
+	await Engine.get_main_loop().process_frame
+	assert_eq(guest_app.current_screen_id(), &"menu")
+	assert_true(store.load_record(_now()).is_empty())
+	assert_eq(host_snapshots[-1].winner_id, "host")
+	assert_eq(host_snapshots[-1].get("end_reason", ""), "last_player_standing")
+	assert_false(host_snapshots[-1].frozen)
+	assert_eq(host.start_rematch(), ERR_UNAVAILABLE)
+	assert_eq(host.reset_for_rematch(), OK)
+	assert_eq(host_snapshots[-1].screen_id, "lobby")
+	assert_eq(host_snapshots[-1].active_player_count, 1)
+	_connect_peer(host_transport, "peer-two", "active")
+	_ready_lobby_guests(host)
+	assert_eq(host.start_match(), OK)
+	host.close()
+	guest.close()
+	store.clear()
+	guest_app.queue_free()
+	await Engine.get_main_loop().process_frame
+
+
+func _ready_lobby_guests(runtime: RuntimeGameSession) -> void:
+	var controller := runtime._controller as MatchController
+	for player_id: StringName in controller.state.seat_order:
+		if player_id != &"host":
+			assert_true(controller.submit(GameCommand.new(
+				&"ready-for-start", player_id, &"set_lobby_ready", {"ready": true}
+			), _now()).accepted)
+
+
+func _deliver(from: RuntimeTransport, to: RuntimeTransport, recipient: String, sender: String) -> void:
+	var packets := from.sent.duplicate()
+	from.clear_sent()
+	for packet in packets:
+		if packet.peer_id == recipient:
+			to.inject_message(sender, packet.bytes)
+
+
+func _connect_peer(transport: RuntimeTransport, id: String, role: String) -> void:
+	transport.join_status.emit("approved", {"peer_id": id, "role": role, "display_name": id})
+	transport.peer_connected.emit(id)
+
+
+func _last_snapshot(transport: RuntimeTransport, peer_id: String) -> Dictionary:
+	for index in range(transport.sent.size() - 1, -1, -1):
+		var packet := transport.sent[index]
+		if packet.peer_id == peer_id:
+			var decoded := GameProtocol.decode(packet.bytes)
+			if decoded.ok and decoded.envelope.kind == "snapshot":
+				return decoded.envelope.payload.state
+	return {}
+
+
 func test_host_runtime_builds_authority_after_first_active_peer_and_projects_names() -> void:
 	var transport := RuntimeTransport.new()
 	var runtime = RuntimeGameSession.new(transport, Callable(self, "_now"))
@@ -111,6 +323,7 @@ func test_host_runtime_builds_authority_after_first_active_peer_and_projects_nam
 
 	var opening_abilities: Array = snapshots[-1].private_abilities.map(func(ability): return ability.copy_id)
 	transport.clear_sent()
+	_ready_lobby_guests(runtime)
 	assert_eq(runtime.start_match(), OK)
 	assert_eq(snapshots[-1].phase, GameTypes.Phase.MAIN_1)
 	assert_eq(snapshots[-1].private_abilities.map(func(ability): return ability.copy_id), opening_abilities)
@@ -147,6 +360,60 @@ func test_host_runtime_builds_authority_after_first_active_peer_and_projects_nam
 	runtime.close()
 
 
+func test_host_switches_victory_defaults_and_starts_an_untimed_match() -> void:
+	var transport := RuntimeTransport.new()
+	var runtime = RuntimeGameSession.new(transport, Callable(self, "_now"))
+	var snapshots: Array[Dictionary] = []
+	runtime.snapshot_applied.connect(func(snapshot: Dictionary, _sequence: int):
+		snapshots.append(snapshot)
+	)
+	assert_eq(runtime.start_host("ws://127.0.0.1:8080", "Mira"), OK)
+	transport.lobby_created.emit("ABC234")
+	assert_eq(snapshots[-1].settings.victory_target, 1_000)
+	assert_false(snapshots[-1].settings.has("base_score_mode"))
+	assert_eq(runtime.update_lobby_setting(&"base_score_mode", 1), &"invalid_setting")
+	assert_eq(runtime.update_lobby_setting(&"victory_mode", GameTypes.VictoryMode.ROUND_WIN_RACE), &"")
+	assert_eq(snapshots[-1].settings.victory_target, 10)
+	assert_eq(runtime.update_lobby_setting(&"victory_target", 7), &"")
+	assert_eq(runtime.update_lobby_setting(&"victory_mode", GameTypes.VictoryMode.ROUND_WIN_RACE), &"")
+	assert_eq(snapshots[-1].settings.victory_target, 7)
+	assert_eq(runtime.update_lobby_setting(&"no_time_limit", true), &"")
+
+	transport.join_status.emit("approved", {
+		"peer_id": "peer-one", "role": "active", "display_name": "Noah",
+	})
+	transport.peer_connected.emit("peer-one")
+	assert_eq(runtime.update_lobby_setting(&"victory_mode", GameTypes.VictoryMode.SCORE_RACE), &"")
+	assert_eq(snapshots[-1].settings.victory_target, 1_000)
+	assert_eq(runtime.update_lobby_setting(&"no_time_limit", false), &"")
+	assert_eq(runtime.update_lobby_setting(&"hand_timer_msec", 65_000), &"")
+	assert_eq(runtime.update_lobby_setting(&"no_time_limit", true), &"")
+	assert_true(snapshots[-1].settings.get("no_time_limit", false))
+	assert_eq(snapshots[-1].settings.hand_timer_msec, 65_000)
+	var guest_snapshot: Dictionary = GameProtocol.decode(transport.sent[-1].bytes).envelope.payload.state
+	assert_true(guest_snapshot.settings.get("no_time_limit", false))
+	assert_eq(guest_snapshot.settings.victory_target, 1_000)
+	assert_false(guest_snapshot.settings.has("base_score_mode"))
+	_ready_lobby_guests(runtime)
+	assert_eq(runtime.start_match(), OK)
+	var state: MatchState = runtime._controller.state
+	var saved_config := state.config.to_dict()
+	assert_true(MatchConfig.from_dict(saved_config).no_time_limit)
+	saved_config.erase("no_time_limit")
+	assert_false(MatchConfig.from_dict(saved_config).no_time_limit)
+	assert_eq(state.phase_deadline_msec, -1)
+	var late := _now() + 500_000
+	runtime._controller.tick(late)
+	assert_eq(state.phase, GameTypes.Phase.MAIN_1)
+	for player_id in state.seat_order:
+		var ready := GameCommand.new(&"ready-untimed", player_id, &"set_ready", {"ready": true})
+		assert_true(runtime._controller.submit(ready, late).accepted)
+	assert_eq(state.phase, GameTypes.Phase.HAND_PLAY)
+	assert_eq(state.phase_deadline_msec, -1)
+	assert_eq(runtime.update_lobby_setting(&"no_time_limit", false), &"config_locked")
+	runtime.close()
+
+
 func test_runtime_config_uses_recipe_with_all_four_ability_categories() -> void:
 	var transport := RuntimeTransport.new()
 	var runtime = RuntimeGameSession.new(transport, Callable(self, "_now"))
@@ -163,12 +430,12 @@ func test_runtime_config_uses_recipe_with_all_four_ability_categories() -> void:
 	for definition in definitions:
 		counts[definition.id] = int(counts.get(definition.id, 0)) + 1
 		timing_counts[definition.timing] = int(timing_counts.get(definition.timing, 0)) + 1
-	assert_eq(definitions.size(), 100)
-	assert_eq(counts.size(), 51)
-	assert_eq(timing_counts[AbilityDefinition.Timing.HAND_MANIPULATION], 65)
-	assert_eq(timing_counts[AbilityDefinition.Timing.HAND_SHAPE], 12)
-	assert_eq(timing_counts[AbilityDefinition.Timing.SABOTAGE], 10)
-	assert_eq(timing_counts[AbilityDefinition.Timing.FIELD], 13)
+	assert_eq(definitions.size(), 98)
+	assert_eq(counts.size(), 50)
+	assert_eq(timing_counts[AbilityDefinition.Timing.HAND_MANIPULATION], 60)
+	assert_eq(timing_counts[AbilityDefinition.Timing.HAND_SHAPE], 8)
+	assert_eq(timing_counts[AbilityDefinition.Timing.SABOTAGE], 13)
+	assert_eq(timing_counts[AbilityDefinition.Timing.FIELD], 17)
 	assert_false(definitions.any(func(definition):
 		return str(definition.id).begins_with("placeholder_ability_")
 	))
@@ -199,8 +466,8 @@ func test_runtime_config_uses_recipe_with_all_four_ability_categories() -> void:
 	assert_eq(normals_by_id.pair.multiplier.denominator, 4)
 	assert_eq(normals_by_id.four_house.rule_parameters.group_sizes, [4, 2])
 	assert_eq(normals_by_id.six_kind.priority, 190)
-	assert_eq(normals_by_id.six_kind.multiplier.numerator, 19)
-	assert_eq(normals_by_id.six_kind.multiplier.denominator, 4)
+	assert_eq(normals_by_id.six_kind.multiplier.numerator, 6)
+	assert_eq(normals_by_id.six_kind.multiplier.denominator, 1)
 	assert_false(normals.all(func(definition):
 		return definition.multiplier.numerator == 1 and definition.multiplier.denominator == 1
 	))
@@ -224,6 +491,7 @@ func test_runtime_end_discard_uses_owner_choices_and_rejects_wrong_count() -> vo
 		"peer_id": "peer-one", "role": "active", "display_name": "Noah",
 	})
 	transport.peer_connected.emit("peer-one")
+	_ready_lobby_guests(runtime)
 	assert_eq(runtime.start_match(), OK)
 
 	var state = runtime._controller.state
@@ -280,7 +548,7 @@ func test_host_recipe_updates_existing_deck_and_public_catalog_before_start() ->
 	)
 	assert_eq(runtime.start_host("ws://127.0.0.1:8080", "Mira"), OK)
 	transport.lobby_created.emit("ABC234")
-	assert_eq(snapshots[-1].get("ability_catalog", {}).size(), 57)
+	assert_eq(snapshots[-1].get("ability_catalog", {}).size(), 60)
 	var recipe := AbilityCatalog.provisional_deck_recipe()
 	recipe[&"context_exchange"] = 1
 	assert_eq(runtime.update_lobby_setting(&"ability_deck_recipe", recipe), &"")
@@ -311,7 +579,7 @@ func test_host_recipe_updates_existing_deck_and_public_catalog_before_start() ->
 	assert_eq(latest.private_hand, previous_hand)
 	assert_eq(latest.get("private_connection", {}), previous_connection)
 	var deck_cards: Array = runtime._controller.state.ability_deck.to_dict().cards
-	assert_eq(deck_cards.size(), 98)
+	assert_eq(deck_cards.size(), 96)
 	assert_eq(deck_cards.filter(func(card): return card.definition.id == "context_exchange").size(), 0)
 	assert_eq(deck_cards.filter(func(card): return card.definition.id == "mirror_rank").size(), 5)
 	var guest_received_recipe := false
@@ -328,6 +596,7 @@ func test_host_recipe_updates_existing_deck_and_public_catalog_before_start() ->
 	assert_eq(runtime.update_lobby_setting(&"ability_deck_recipe", {"unrecognized": 2}), &"invalid_ability_deck_recipe")
 	assert_eq(runtime.update_lobby_setting(&"ability_deck_recipe", {"mirror_rank": 2}), &"insufficient_ability_cards")
 	assert_eq(runtime._controller.state.ability_deck.to_dict().cards, deck_cards)
+	_ready_lobby_guests(runtime)
 	assert_eq(runtime.start_match(), OK)
 	assert_eq(runtime.update_lobby_setting(&"ability_deck_recipe", recipe), &"config_locked")
 
@@ -338,6 +607,7 @@ func test_host_recipe_updates_existing_deck_and_public_catalog_before_start() ->
 	assert_eq(snapshots[-1].screen_id, "lobby")
 	assert_eq(snapshots[-1].get("ability_catalog", {}).get("mirror_rank", {}).get("copies"), 5)
 	assert_eq(runtime._controller.state.players[&"peer-one"].reconnect_token, guest_token)
+	_ready_lobby_guests(runtime)
 	assert_eq(runtime.start_match(), OK)
 	assert_eq(snapshots[-1].phase, GameTypes.Phase.MAIN_1)
 	assert_eq(snapshots[-1].private_abilities.size(), 3)
@@ -357,6 +627,7 @@ func test_results_rematch_starts_fresh_round_in_the_same_room() -> void:
 	})
 	transport.peer_connected.emit("peer-one")
 	assert_eq(runtime.update_lobby_setting(&"victory_target", 25), &"")
+	_ready_lobby_guests(runtime)
 	assert_eq(runtime.start_match(), OK)
 	transport.join_status.emit("approved", {
 		"peer_id": "peer-late", "role": "active", "display_name": "Ren",
@@ -468,7 +739,7 @@ func test_join_runtime_uses_assigned_peer_id_for_authoritative_commands() -> voi
 	transport.peer_connected.emit("host")
 	assert_eq(runtime.submit_command("ready-guest", {
 		"command_id": "ready-guest-command",
-		"kind": "set_ready",
+		"kind": "set_lobby_ready",
 		"payload": {"ready": true},
 	}), OK)
 	var outbound = transport.sent[-1]
@@ -540,8 +811,9 @@ func test_retry_uses_saved_player_identity_and_reconnect_token() -> void:
 	first.inject_message(
 		"host", preload("res://src/network/game_protocol.gd").encode(snapshot_envelope)
 	)
-	first.peer_disconnected.emit("host", "network_lost")
+	first.peer_disconnected.emit("host", "connection_lost")
 	assert_eq(runtime.retry_connection(), OK)
+	assert_eq(runtime.retry_connection(), ERR_BUSY)
 	assert_eq(second.joined.reconnect_player_id, "old-player")
 	second.join_status.emit("approved", {
 		"peer_id": "new-route", "role": "active", "display_name": "Noah",

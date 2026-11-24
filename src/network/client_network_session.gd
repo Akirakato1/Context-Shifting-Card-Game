@@ -11,6 +11,7 @@ const GameProtocol = preload("res://src/network/game_protocol.gd")
 const PeerTransport = preload("res://src/network/peer_transport.gd")
 const ReconnectStore = preload("res://src/network/reconnect_store.gd")
 const CommandKinds = preload("res://src/core/commands/command_kinds.gd")
+const NetworkDiagnostics = preload("res://src/network/network_diagnostics.gd")
 
 const MAX_BUFFERED_BATCHES := 8
 const MAX_SEQUENCE_GAP := 8
@@ -97,6 +98,7 @@ func submit_command(message_id: String, command: Dictionary) -> Error:
 func poll() -> void:
 	_transport.poll()
 	if not _failed and _now_msec() - _last_host_message_msec > _heartbeat_timeout_msec:
+		NetworkDiagnostics.log_event("client", "heartbeat_timeout")
 		_fail("host_lost")
 
 
@@ -234,13 +236,15 @@ func _on_transport_failed(reason: String) -> void:
 func _persist_reconnect_record(snapshot: Dictionary) -> void:
 	if _reconnect_store == null or _room_code.is_empty():
 		return
-	if snapshot.get("match_complete", false):
+	var lobby_settings: Variant = snapshot.get("lobby_settings")
+	if snapshot.get("match_complete", false) or (
+		lobby_settings is Dictionary and not lobby_settings.get("match_started", true)
+	):
 		_reconnect_token = ""
 		_reconnect_grace_msec = 0
 		_reconnect_store.clear()
 		return
 	var private_connection: Variant = snapshot.get("private_connection")
-	var lobby_settings: Variant = snapshot.get("lobby_settings")
 	if not private_connection is Dictionary or not lobby_settings is Dictionary:
 		return
 	var token: Variant = private_connection.get("reconnect_token")

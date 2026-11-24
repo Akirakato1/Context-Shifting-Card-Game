@@ -38,13 +38,31 @@ func test_full_table_stays_inside_supported_landscape_sizes() -> void:
 		var ability_button: Control = table.get_node("AbilityPanel/ToggleButton")
 		assert_false(submit_button.get_global_rect().intersects(ability_button.get_global_rect()), "ability tab overlaps hand action at %s" % viewport_size)
 		var hand := table.get_node("PhaseControls/HandPlayControls/Hand/Cards") as HBoxContainer
+		var scale: Vector2 = viewport_size / Vector2(1920, 1080)
+		var frame_interior := Rect2(Vector2(365, 736) * scale, Vector2(1238, 332) * scale).grow(1.0)
 		assert_eq(hand.get_child_count(), 6)
+		var previous_right := 0.0
 		for slot: Control in hand.get_children():
 			var card := slot.get_child(0) as Control
 			_assert_inside(card, Rect2(Vector2.ZERO, viewport_size), "hand card at %s" % viewport_size)
-			assert_true(card.size.x >= 200.0 and card.size.y >= 300.0, "hand card should be larger at %s" % viewport_size)
+			_assert_inside(card, frame_interior, "hand card inside the wooden frame at %s" % viewport_size)
+			var center_offset := absf(card.get_global_rect().get_center().y - frame_interior.get_center().y)
+			assert_true(center_offset <= 5.0 * scale.y, "the resting card is vertically centered in the frame at %s" % viewport_size)
+			assert_true(frame_interior.encloses(_shadow_bounds(card)), "resting shadow stays inside the frame")
+			assert_true(card.get_global_rect().position.x - previous_right >= 9.0 * scale.x)
+			previous_right = card.get_global_rect().end.x
 			assert_false(card.get_global_rect().intersects(submit_button.get_global_rect()), "hand overlaps hand action at %s" % viewport_size)
 			assert_false(card.get_global_rect().intersects(ability_button.get_global_rect()), "hand overlaps abilities at %s" % viewport_size)
+		var controls = table.get_node("PhaseControls")
+		var resting := _shadow_bounds(controls.card_widget(&"c0"))
+		controls.click_card(&"c0")
+		await Engine.get_main_loop().process_frame
+		var staged: Control = controls.card_widget(&"c0")
+		var lifted := _shadow_bounds(staged)
+		_assert_inside(staged, frame_interior, "staged card inside the wooden frame at %s" % viewport_size)
+		assert_true(frame_interior.encloses(lifted), "staged shadow stays inside the frame")
+		assert_true(lifted.size.x > resting.size.x, "staged cards cast a broader shadow")
+		assert_true(lifted.position.y < resting.position.y, "the card and shadow lift when staged")
 		await _unmount(table)
 
 
@@ -63,7 +81,7 @@ func test_main_menu_lobby_and_results_root_layouts_fill_viewport() -> void:
 		await _unmount(screen)
 
 
-func test_end_shows_each_resolved_hand_at_its_seat_without_overlapping_discards() -> void:
+func test_end_shows_seat_scores_and_keeps_the_discard_tray_clear() -> void:
 	for viewport_size in [Vector2(1280, 720), Vector2(1920, 1080)]:
 		var table = await _mount_table(viewport_size)
 		var model := _crowded_model()
@@ -99,31 +117,36 @@ func test_end_shows_each_resolved_hand_at_its_seat_without_overlapping_discards(
 		assert_eq(choices.get_child_count(), 5)
 		for card: Control in choices.get_children():
 			assert_true(scroll.get_global_rect().grow(1.0).encloses(card.get_global_rect()), card.name)
-		var seats := {"BottomSeat": "p1", "TopSeat": "p2", "LeftSeat": "p3", "RightSeat": "p4"}
-		var shown_cards: Array[Control] = []
-		for position: String in seats:
+		for position in ["BottomSeat", "TopSeat", "LeftSeat", "RightSeat"]:
 			var seat = table.get_node("TableLayer/" + position)
 			assert_true(seat.is_visible_in_tree())
 			var hand: Control = seat.get_node("Hand")
-			assert_eq(hand.get_child_count(), 6)
-			for card: Control in hand.get_children():
-				assert_true(card.is_visible_in_tree())
-				assert_true(card.card_id.begins_with(seats[position]))
-				assert_false(card.face_down)
-				_assert_inside(card, Rect2(Vector2.ZERO, viewport_size), card.card_id)
-				for other in shown_cards:
-					assert_false(card.get_global_rect().intersects(other.get_global_rect()))
-				shown_cards.append(card)
+			assert_false(hand.is_visible_in_tree())
+			assert_eq(hand.get_child_count(), 0)
+			var score: Label = seat.get_node("Summary/ScoreSummary")
+			assert_true(score.is_visible_in_tree())
+			assert_eq(score.text, "20 points this round")
+			_assert_inside(score, Rect2(Vector2.ZERO, viewport_size), position)
 		model.erase("private_player_id")
 		model.erase("private_hand")
 		table.render(model)
-		assert_true(table.get_node("TableLayer/BottomSeat/Hand").is_visible_in_tree())
+		assert_false(table.get_node("TableLayer/BottomSeat/Hand").is_visible_in_tree())
 		await _unmount(table)
 
 
 func _assert_inside(control: Control, bounds: Rect2, label: String) -> void:
 	var rect := control.get_global_rect()
 	assert_true(bounds.encloses(rect), "%s escaped viewport: %s" % [label, rect])
+
+
+func _shadow_bounds(card: Control) -> Rect2:
+	var panel := card.get_node("Shadow") as Panel
+	assert_true(panel.visible)
+	var style := panel.get_theme_stylebox("panel") as StyleBoxFlat
+	var scale := card.get_global_transform().get_scale()
+	var bounds := panel.get_global_rect().grow(style.shadow_size * scale.x)
+	bounds.position += style.shadow_offset * scale
+	return bounds
 
 
 func _crowded_model() -> Dictionary:

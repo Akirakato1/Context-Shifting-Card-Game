@@ -5,6 +5,7 @@ signal ability_target_requested(player_id: String)
 
 const CARD_SCENE := preload("res://src/view/match/card_widget.tscn")
 const GameTypes := preload("res://src/core/common/game_types.gd")
+const ScoringReference := preload("res://src/view/app/scoring_reference.gd")
 const FACE_SIZE := Vector2(92, 96)
 const BACK_SIZE := Vector2(42, 58)
 const TARGET_AURA := preload("res://src/view/match/primed_card_aura.tres")
@@ -13,7 +14,6 @@ const TARGET_AURA := preload("res://src/view/match/primed_card_aura.tres")
 
 var show_placeholder_guides := true
 var seat_art: StyleBox
-var _shown_cards: Array = []
 var _shown_spectator_hand: Array = []
 var _shown_backs := 0
 var _context_catalog: Array = []
@@ -155,42 +155,32 @@ func render(
 	var revealed: Dictionary = {}
 	if is_end or phase == GameTypes.Phase.MAIN_2:
 		revealed = player.get("revealed_submission", {})
-	var cards: Array = revealed.get("cards", [])
 	var spectator_hand: Array = []
 	var backs := 0
 	if viewing_as_spectator and not is_end:
 		spectator_hand = player.get("spectator_hand", [])
 		backs = maxi(int(player.get("hand_count", 0)) - spectator_hand.size(), 0)
-	_render_hand(cards, spectator_hand, backs)
+	_render_spectator_hand(spectator_hand, backs)
 	_hand.modulate = Color("c2c8d2") if phase == GameTypes.Phase.MAIN_2 else Color.WHITE
 	_score.visible = not revealed.is_empty()
 	var score_key := "finalized_score" if is_end else "provisional_score"
 	var score := int(revealed.get(score_key, revealed.get("score_breakdown", {}).get("final_score", 0)))
-	if cards.is_empty():
+	if revealed.get("cards", []).is_empty():
 		_score.text = "Passed"
 	else:
 		_score.text = ("%d points this round" if is_end else "%d provisional points") % score
 	_score.tooltip_text = _score_text(revealed) if _score.visible else ""
 
 
-func card_at(index: int) -> Variant:
-	if index < 0 or index >= _hand.get_child_count():
-		return null
-	return _hand.get_child(index)
-
-
-func _render_hand(cards: Array, spectator_hand: Array, backs: int) -> void:
-	_hand.visible = not cards.is_empty() or not spectator_hand.is_empty() or backs > 0
-	if cards == _shown_cards and spectator_hand == _shown_spectator_hand and backs == _shown_backs:
+func _render_spectator_hand(spectator_hand: Array, backs: int) -> void:
+	_hand.visible = not spectator_hand.is_empty() or backs > 0
+	if spectator_hand == _shown_spectator_hand and backs == _shown_backs:
 		return
-	_shown_cards = cards
 	_shown_spectator_hand = spectator_hand
 	_shown_backs = backs
 	for child in _hand.get_children():
 		_hand.remove_child(child)
 		child.queue_free()
-	for card: Dictionary in cards:
-		_add_card(card, false)
 	for card: Dictionary in spectator_hand:
 		var display_card := card.duplicate()
 		display_card["card_id"] = "spectator-" + str(card.get("view_id", ""))
@@ -207,12 +197,7 @@ func _add_card(card: Dictionary, face_down: bool) -> void:
 	widget.render(card, -1, face_down, {"interaction_disabled": true, "display_only": true})
 	if face_down:
 		return
-	var faces := [widget.first_face_text(), widget.second_face_text()]
-	var scored_half := widget.active_half_index
-	widget.tooltip_text = (
-		"%s\n%s" % faces if scored_half < 0
-		else "Scored: %s\nOther half: %s" % [faces[scored_half], faces[1 - scored_half]]
-	)
+	widget.tooltip_text = "%s\n%s" % [widget.first_face_text(), widget.second_face_text()]
 
 
 func _request_text(request: Dictionary) -> String:
@@ -229,7 +214,7 @@ func _score_text(revealed: Dictionary) -> String:
 	if revealed.has("score_breakdown"):
 		return _factor_score_text(revealed.score_breakdown, "pts")
 	return "%s  ×  %s   ·   %d pts" % [
-		_category_name(str(revealed.get("normal_category", "high_card"))),
+		ScoringReference.normal_display_name(str(revealed.get("normal_category", "high_card"))),
 		_context_name(str(revealed.get("context_category", "no_context_pattern"))),
 		int(revealed.get("finalized_score", revealed.get("provisional_score", 0))),
 	]
@@ -271,16 +256,6 @@ func _rational_text(value: Dictionary) -> String:
 func _signed_rational_text(value: Dictionary) -> String:
 	var text := _rational_text(value)
 	return "+%s" % text if int(value.get("numerator", 0)) >= 0 else text
-
-
-func _category_name(id: String) -> String:
-	var names := {
-		"high_card": "High Card", "pair": "Pair", "two_pair": "Two Pair",
-		"three_kind": "Three of a Kind", "straight": "Straight", "flush": "Flush",
-		"full_house": "Full House", "four_kind": "Four of a Kind",
-		"straight_flush": "Straight Flush",
-	}
-	return names.get(id, id.replace("_", " ").capitalize())
 
 
 func _context_name(id: String) -> String:

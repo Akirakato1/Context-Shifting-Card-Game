@@ -1,4 +1,4 @@
-[gd_scene load_steps=25 format=3]
+[gd_scene load_steps=27 format=3]
 
 [ext_resource type="Script" path="res://src/view/match/match_screen.gd" id="1_script"]
 [ext_resource type="PackedScene" path="res://src/view/match/player_seat.tscn" id="2_seat"]
@@ -7,7 +7,6 @@
 [ext_resource type="PackedScene" path="res://src/view/match/ability_panel.tscn" id="5_ability"]
 [ext_resource type="PackedScene" path="res://src/view/match/targeting_overlay.tscn" id="6_targeting"]
 [ext_resource type="Script" path="res://src/view/match/table_scenery.gd" id="7_scenery"]
-[ext_resource type="Texture2D" path="res://assets/artwork/board/figma/sort_button.svg" id="8_sort"]
 [ext_resource type="Script" path="res://src/view/match/round_reveal.gd" id="9_reveal"]
 [ext_resource type="StyleBox" path="res://themes/shift_panel.tres" id="10_panel"]
 [ext_resource type="Texture2D" path="res://assets/artwork/board/board.png" id="11_table"]
@@ -23,8 +22,29 @@
 [ext_resource type="Script" path="res://src/view/match/active_effects.gd" id="21_effects"]
 [ext_resource type="Texture2D" path="res://assets/artwork/card/ability_card_back.png" id="22_ability_back"]
 [ext_resource type="Texture2D" path="res://assets/artwork/card/pile_edge.png" id="23_pile_edge"]
+[ext_resource type="Texture2D" path="res://assets/artwork/board/card_area_bg.png" id="24_lower_bar"]
+[ext_resource type="Texture2D" path="res://assets/artwork/board/card_area.png" id="25_hand_tray"]
 
 [sub_resource type="ButtonGroup" id="ButtonGroup_sort"]
+
+[sub_resource type="StyleBoxFlat" id="Style_discard_notice"]
+content_margin_left = 24.0
+content_margin_top = 12.0
+content_margin_right = 24.0
+content_margin_bottom = 12.0
+bg_color = Color(0.12, 0.10, 0.16, 1)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.87, 0.68, 0.37, 1)
+corner_radius_top_left = 14
+corner_radius_top_right = 14
+corner_radius_bottom_left = 14
+corner_radius_bottom_right = 14
+shadow_color = Color(0.035, 0.027, 0.04, 0.65)
+shadow_size = 12
+shadow_offset = Vector2(0, 5)
 
 [node name="MatchScreen" type="Control"]
 layout_mode = 3
@@ -56,6 +76,8 @@ script = ExtResource("7_scenery")
 table_art = ExtResource("11_table")
 table_source_region = Rect2(264, 265, 2560, 955)
 table_shading = Array[Texture2D]([ExtResource("12_rise_shade"), ExtResource("13_flourish_shade"), ExtResource("14_fall_shade")])
+lower_bar_art = ExtResource("24_lower_bar")
+hand_tray_art = ExtResource("25_hand_tray")
 
 [node name="ContextClock" type="Control" parent="TableScenery"]
 layout_mode = 0
@@ -233,6 +255,52 @@ horizontal_alignment = 1
 [node name="PhaseControls" parent="." instance=ExtResource("4_phase")]
 layout_mode = 0
 table_cockpit = true
+
+[node name="Tutorial" type="PanelContainer" parent="."]
+visible = false
+z_index = 4
+layout_mode = 0
+offset_left = 26.0
+offset_top = 176.0
+offset_right = 402.0
+mouse_filter = 2
+theme_override_styles/panel = ExtResource("10_panel")
+
+[node name="Margin" type="MarginContainer" parent="Tutorial"]
+layout_mode = 2
+mouse_filter = 2
+theme_override_constants/margin_left = 18
+theme_override_constants/margin_top = 14
+theme_override_constants/margin_right = 18
+theme_override_constants/margin_bottom = 14
+
+[node name="Content" type="VBoxContainer" parent="Tutorial/Margin"]
+layout_mode = 2
+mouse_filter = 2
+theme_override_constants/separation = 9
+
+[node name="Progress" type="Label" parent="Tutorial/Margin/Content"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.84, 0.54, 1)
+theme_override_font_sizes/font_size = 18
+
+[node name="Title" type="Label" parent="Tutorial/Margin/Content"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 26
+autowrap_mode = 3
+
+[node name="Body" type="RichTextLabel" parent="Tutorial/Margin/Content"]
+layout_mode = 2
+mouse_filter = 1
+theme_override_font_sizes/normal_font_size = 20
+fit_content = true
+scroll_active = false
+autowrap_mode = 3
+
+[node name="Next" type="Button" parent="Tutorial/Margin/Content"]
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+text = "Next"
 
 [node name="AbilityHistory" type="Control" parent="."]
 z_index = 5
@@ -480,6 +548,32 @@ offset_bottom = 205.0
 theme_override_colors/font_color = Color(0.94, 0.92, 1, 1)
 theme_override_font_sizes/font_size = 22
 autowrap_mode = 3
+
+[node name="DiscardNotice" type="PanelContainer" parent="."]
+visible = false
+z_index = 21
+layout_mode = 1
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -240.0
+offset_top = -39.0
+offset_right = 240.0
+offset_bottom = 39.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+theme_override_styles/panel = SubResource("Style_discard_notice")
+
+[node name="Title" type="Label" parent="DiscardNotice"]
+layout_mode = 2
+mouse_filter = 2
+theme_override_colors/font_color = Color(1, 0.88, 0.65, 1)
+theme_override_font_sizes/font_size = 38
+horizontal_alignment = 1
+vertical_alignment = 1
+text = "Select 2 cards to keep"
 
 [node name="MatchScore" type="PanelContainer" parent="."]
 layout_mode = 1

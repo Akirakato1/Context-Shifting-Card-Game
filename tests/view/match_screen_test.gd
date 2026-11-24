@@ -30,6 +30,49 @@ func test_active_player_sees_compact_opponent_summaries_and_their_own_hand() -> 
 	await _unmount(table)
 
 
+func test_sabotage_marks_only_private_affected_cards_through_snapshot_and_redraw() -> void:
+	var table = await _mount_match()
+	var model := _active_player_model()
+	model.phase = 2
+	table.render(model)
+	var controls = table.get_node("PhaseControls")
+	var changed := StringName(model.private_hand[0].card_id)
+	var untouched := StringName(model.private_hand[1].card_id)
+	var before: Dictionary = model.private_hand[0].duplicate(true)
+	var after := before.duplicate(true)
+	after.first.rank = 8
+	var event := {"kind": "sabotage_resolved", "payload": {
+		"source_player_id": "p2", "target_player_id": "p1", "card_changes": [
+			{"card_id": str(changed), "before": before, "after": after},
+			{"card_id": str(untouched), "before": {}, "after": {}},
+		],
+	}}
+	table.present_ability_events([event])
+	assert_eq(controls.card_widget(changed).tooltip_text, "Recently sabotaged")
+	assert_true(controls.card_widget(untouched).tooltip_text.is_empty())
+	var highlight: Tween = controls._sabotage_highlights[changed]
+	highlight.pause()
+	highlight.custom_step(3.0)
+	model.private_hand[0] = after
+	table.render(model)
+	assert_eq(controls.card_widget(changed).tooltip_text, "Recently sabotaged")
+	highlight.custom_step(2.0)
+	assert_true(controls.card_widget(changed).tooltip_text.is_empty())
+
+	var replacement := &"new-card"
+	event.payload["card_changes"] = [{"before": after, "after": before}]
+	event.payload["replacement_card_ids"] = [str(replacement)]
+	table.present_ability_events([event])
+	model.private_hand[0].card_id = str(replacement)
+	table.render(model)
+	assert_eq(controls.card_widget(replacement).tooltip_text, "Recently sabotaged")
+	event.payload["target_player_id"] = "p2"
+	event.payload["replacement_card_ids"] = [str(untouched)]
+	table.present_ability_events([event])
+	assert_true(controls.card_widget(untouched).tooltip_text.is_empty())
+	await _unmount(table)
+
+
 func test_main_two_submissions_stay_available_and_update_from_public_snapshots() -> void:
 	var table = await _mount_match()
 	if table == null:
@@ -63,8 +106,10 @@ func test_main_two_submissions_stay_available_and_update_from_public_snapshots()
 	assert_eq(tabs.get_child(0).text, "Mira (You)")
 	assert_eq(cards.get_child_count(), 1)
 	assert_eq(cards.get_child(0).card_id, "c1")
-	assert_eq(table.get_node("TableLayer/BottomSeat").card_at(0).card_id, "c1")
-	assert_eq(table.get_node("TableLayer/LeftSeat/Hand").get_child_count(), 6)
+	for seat in ["BottomSeat", "TopSeat", "LeftSeat", "RightSeat"]:
+		var seat_hand: Control = table.get_node("TableLayer/" + seat + "/Hand")
+		assert_false(seat_hand.visible)
+		assert_eq(seat_hand.get_child_count(), 0)
 	assert_eq(cards.get_child(0).active_half_index, 1)
 	assert_true(cards.get_child(0).interaction_disabled)
 	assert_eq(table.get_node("PhaseControls").card_widget(&"c1"), null)
@@ -130,6 +175,52 @@ func test_main_phase_surfaces_ready_status_and_ability_controls() -> void:
 	await _unmount(table)
 
 
+func test_main_phase_one_opens_the_tray_and_highlights_legal_abilities() -> void:
+	var table = await _mount_match()
+	if table == null:
+		return
+	var model := _active_player_model()
+	model.phase = 1
+	model["private_abilities"] = [
+		{"copy_id": "field", "ability_id": "reverse_cycle", "legal": false},
+		{"copy_id": "manipulation", "ability_id": "mirror_rank", "legal": false},
+		{"copy_id": "unavailable-field", "ability_id": "reverse_cycle", "legal": false},
+	]
+	model["ability_catalog"] = {
+		"reverse_cycle": {"timing": 1}, "mirror_rank": {"timing": 0},
+	}
+	var drawer: Control = table.get_node("AbilityPanel/Drawer")
+	var toggle: Button = table.get_node("AbilityPanel/ToggleButton")
+	table.render(model)
+	assert_false(drawer.visible)
+	model.phase = 2
+	model.private_abilities[0].legal = true
+	table.render(model)
+	assert_true(drawer.visible, "The local player's tray opens on entry to Main Phase 1")
+	var cards: Control = drawer.get_node("Layout/Scroll/Cards")
+	assert_eq(cards.get_child(0).get("_inventory_playable_highlight"), true)
+	assert_eq(cards.get_child(1).get("_inventory_playable_highlight"), false)
+	assert_eq(cards.get_child(2).get("_inventory_playable_highlight"), false)
+	assert_ne(table.get_node("PhaseControls/HandPlayControls/Hand/Cards").modulate, Color.WHITE)
+	toggle.pressed.emit()
+	table.render(model)
+	assert_false(drawer.visible, "Regular snapshot updates preserve a manual close")
+	model.round_number += 1
+	table.render(model)
+	assert_true(drawer.visible, "A new round opens the tray again")
+	model["frozen"] = true
+	table.render(model)
+	assert_eq(cards.get_child(0).get("_inventory_playable_highlight"), false)
+	model.frozen = false
+	model.phase = 3
+	model.private_abilities[0].legal = false
+	model.private_abilities[1].legal = true
+	table.render(model)
+	assert_eq(cards.get_child(0).get("_inventory_playable_highlight"), false)
+	assert_eq(cards.get_child(1).get("_inventory_playable_highlight"), false)
+	await _unmount(table)
+
+
 func test_locked_card_is_marked_and_cannot_enter_a_preview() -> void:
 	var table = await _mount_match()
 	if table == null:
@@ -175,6 +266,13 @@ func test_end_opens_and_focuses_tray_and_confirms_only_the_unkept_cards() -> voi
 	assert_true(drawer.visible)
 	assert_true(table.get_node("AbilityFocus").visible)
 	assert_false(table.get_node("PhaseControls/EndControls").visible)
+	var notice := table.get_node_or_null("DiscardNotice") as PanelContainer
+	assert_true(notice != null and notice.visible, "Required discards have a central notice")
+	if notice != null:
+		assert_eq(notice.get_node("Title").text, "Select 2 cards to keep")
+		assert_true(notice.get_theme_stylebox("panel") is StyleBoxFlat)
+		assert_eq(notice.get_global_rect().get_center(), table.get_global_rect().get_center())
+		assert_eq(notice.mouse_filter, Control.MOUSE_FILTER_IGNORE)
 	var cards: Control = drawer.get_node("Layout/Scroll/Cards")
 	var confirm := drawer.get_node_or_null("Layout/ConfirmKeep") as Button
 	assert_true(confirm != null)
@@ -217,6 +315,8 @@ func test_end_opens_and_focuses_tray_and_confirms_only_the_unkept_cards() -> voi
 	table.render(model)
 	assert_false(drawer.visible)
 	assert_false(table.get_node("AbilityFocus").visible)
+	if notice != null:
+		assert_false(notice.visible)
 	await _unmount(table)
 
 
@@ -243,11 +343,11 @@ func test_round_reveal_showcases_the_full_named_hand_for_each_player() -> void:
 	var title := reveal.get_node_or_null("Content/HandName") as Label
 	assert_true(title != null)
 	if title != null:
-		assert_eq(title.text, "Two Pair + 4-card Flush  ×  Four Renaissance")
+		assert_eq(title.text, "Two-Pair + Four-card Flush  ×  Four Renaissance")
 		var timeline: Tween = reveal._sequence
 		timeline.pause()
 		timeline.custom_step(1.2)
-		assert_eq(title.text, "Two Pair + 4-card Flush  ×  Four Renaissance")
+		assert_eq(title.text, "Two-Pair + Four-card Flush  ×  Four Renaissance")
 		assert_true(reveal._score_progress > 0.0 and reveal._score_progress < 1.0)
 		timeline.custom_step(2.0)
 		assert_eq(title.text, "Full House  ×  Two Full Cycle")
@@ -311,15 +411,21 @@ func test_local_and_revealed_cards_render_effective_faces_and_active_half() -> v
 	assert_eq(local_card.first_face_text(), "Rise  7  Mountain")
 	assert_eq(local_card.second_face_text(), "Flourish  4  Sea")
 	assert_eq(local_card.active_half_index, 1)
-	model.phase = 5
+	model.phase = 4
 	table.render(model)
-	var revealed = table.get_node("TableLayer/TopSeat").card_at(0)
+	var reveal_cards: Control = table.get_node("RoundReveal/Content/Cards")
+	var revealed = reveal_cards.get_child(0) if reveal_cards.get_child_count() > 0 else null
 	assert_true(revealed != null)
 	if revealed == null:
 		await _unmount(table)
 		return
 	assert_eq(revealed.first_face_text(), "Fall  9  Cloud")
 	assert_eq(revealed.second_face_text(), "Rise  4  Sea")
+	assert_eq(revealed.active_half_index, 1)
+	model.phase = 5
+	table.render(model)
+	assert_false(table.get_node("TableLayer/TopSeat/Hand").visible)
+	assert_eq(table.get_node("TableLayer/TopSeat/Hand").get_child_count(), 0)
 	assert_eq(table.get_node("TableLayer/TopSeat/Summary/ScoreSummary").text, "31 points this round")
 	await _unmount(table)
 
@@ -413,11 +519,12 @@ func test_public_information_shows_piles_requests_and_spectator_has_no_local_han
 	}
 	table.render(spectator_model)
 	var revealed_hand = table.get_node("TableLayer/TopSeat/Hand")
-	assert_eq(revealed_hand.get_child_count(), 6)
-	var public_cards = revealed_hand.get_children().filter(func(card): return not card.face_down)
-	assert_eq(public_cards.size(), 1)
-	if public_cards.size() == 1:
-		assert_eq(public_cards[0].card_id, "public")
+	assert_eq(revealed_hand.get_child_count(), 5)
+	assert_true(revealed_hand.get_children().all(func(card): return card.face_down))
+	var review: Control = table.get_node("RoundReveal/Content/Cards")
+	assert_eq(review.get_child_count(), 1)
+	if review.get_child_count() == 1:
+		assert_eq(review.get_child(0).card_id, "public")
 	assert_eq(table.get_node("Header/Spectators").text, "SPECTATORS  2 / 4")
 	await _unmount(table)
 
@@ -469,7 +576,7 @@ func test_context_score_progress_fields_and_nil_round_render_clearly() -> void:
 	if clock != null:
 		assert_eq(clock.get("_context"), 1)
 		assert_eq(clock.get("_direction"), -1)
-		assert_eq(clock.get("_light_target"), Vector3(0, 0, 1))
+		assert_true(clock.get("_light_target").is_equal_approx(Vector3(0, 0.42, 1)))
 	assert_false(table.get_node("TableLayer/BottomSeat").visible)
 	assert_eq(table.get_node("MatchScore/Progress").text, "SCORE RACE  ·  36 / 100")
 	var field_rows: Container = table.get_node("Center/Fields/FieldScroll/FieldRows")
@@ -485,7 +592,7 @@ func test_context_score_progress_fields_and_nil_round_render_clearly() -> void:
 	assert_true(field_info.tooltip_text.contains("Fall is also active this round."))
 	assert_true(field_info.tooltip_text.contains(model.players[1].name))
 	field_info.pressed.emit()
-	assert_true(table._field_details.dialog_text.contains("Fall is also active this round."))
+	assert_true(table._field_detail_text.tooltip_text.contains("Fall is also active this round."))
 	assert_eq(table.get_node("Center/RoundResult").text, "NIL ROUND  ·  no progress awarded")
 
 	model["victory_mode"] = 1

@@ -7,6 +7,8 @@ signal start_requested
 signal leave_requested
 signal retry_requested
 
+const MatchButtonArt := preload("res://src/view/match/match_button_art.gd")
+
 var _model: Dictionary = {}
 var _rendering := false
 var _action_pending := false
@@ -19,6 +21,7 @@ var _settings_open := false
 @onready var _victory_mode: OptionButton = $Layout/Body/Settings/VictoryMode
 @onready var _victory_target: SpinBox = $Layout/Body/Settings/VictoryTarget
 @onready var _visibility: OptionButton = $Layout/Body/Settings/Visibility
+@onready var _no_time_limit: CheckButton = $Layout/Body/Settings/NoTimeLimit
 @onready var _start_timer: SpinBox = $Layout/Body/Settings/StartTimer
 @onready var _main_timer: SpinBox = $Layout/Body/Settings/MainTimer
 @onready var _hand_timer: SpinBox = $Layout/Body/Settings/HandTimer
@@ -36,6 +39,11 @@ var _settings_open := false
 
 
 func _ready() -> void:
+	for button: Button in [
+		_copy_code, _victory_mode, _visibility, _no_time_limit, _retry,
+		$Layout/StatusPanel/DetailsButton, $Layout/Footer/LeaveButton, _settings_button, _start_button,
+	]:
+		MatchButtonArt.skin(button, MatchButtonArt.ACTION)
 	if _victory_mode.item_count == 0:
 		_victory_mode.add_item("Score race", 0)
 		_victory_mode.add_item("Round-win race", 1)
@@ -74,9 +82,15 @@ func render(model: Dictionary) -> void:
 	_counts.text = "%d / 4 players   •   %d / 4 spectators" % [active_count, spectator_count]
 	_render_players(_model.get("players", []))
 	var settings: Dictionary = _model.get("settings", {})
-	_victory_mode.select(int(settings.get("victory_mode", 0)))
-	_victory_target.value = int(settings.get("victory_target", 10))
+	var victory_mode := int(settings.get("victory_mode", GameTypes.VictoryMode.SCORE_RACE))
+	_victory_mode.select(victory_mode)
+	_victory_target.value = int(settings.get("victory_target", GameTypes.default_victory_target(victory_mode)))
+	$Layout/Body/Settings/VictoryTargetLabel.text = (
+		"Round wins needed" if victory_mode == GameTypes.VictoryMode.ROUND_WIN_RACE else "Points to win"
+	)
 	_visibility.select(int(settings.get("information_visibility", 0)))
+	var untimed := bool(settings.get("no_time_limit", false))
+	_no_time_limit.set_pressed_no_signal(untimed)
 	_start_timer.value = int(settings.get("start_timer_msec", 5000)) / 1000.0
 	_main_timer.value = int(settings.get("main_timer_msec", 5000)) / 1000.0
 	_hand_timer.value = int(settings.get("hand_timer_msec", 15000)) / 1000.0
@@ -88,12 +102,12 @@ func render(model: Dictionary) -> void:
 	_victory_mode.disabled = not editable
 	_victory_target.editable = editable
 	_visibility.disabled = not editable
-	for timer in [
-		_start_timer, _main_timer, _hand_timer, _end_timer,
-		_reaction_timer, _hard_limit_timer, _reconnect_timer,
-	]:
-		timer.editable = editable
-	_start_button.disabled = not editable or active_count < 2
+	_no_time_limit.disabled = not editable
+	for timer in [_start_timer, _main_timer, _hand_timer, _end_timer, _hard_limit_timer]:
+		timer.editable = editable and not untimed
+	_reaction_timer.editable = editable
+	_reconnect_timer.editable = editable
+	_start_button.disabled = not _can_start_match()
 	_ready_button.disabled = started or active_count < 2
 	_ability_editor.render(_model.get("ability_catalog", {}), editable)
 	var local_id := str(_model.get("private_player_id", ""))
@@ -104,6 +118,12 @@ func render(model: Dictionary) -> void:
 	var connection: Dictionary = _model.get("connection", _model.get("connection_state", {}))
 	if connection.get("status", "connected") == "connected":
 		_status.text = "Waiting for another player to join." if active_count < 2 else ""
+		if is_host and active_count >= 2 and not started:
+			var waiting := int(_model.get("lobby_unready_guests", active_count - 1))
+			if waiting > 0:
+				_status.text = "Waiting for %d %s to ready up." % [
+					waiting, "player" if waiting == 1 else "players",
+				]
 		_status.modulate = Color("a7d8c4")
 		_retry.visible = false
 	_update_page()
@@ -120,6 +140,8 @@ func show_error(reason: StringName) -> void:
 		&"signaling_timeout": "The room service did not respond. Try again.",
 		&"host_closed": "The host closed this room. Return to the menu.",
 		&"not_enough_players": "At least two connected players are required to start.",
+		&"players_not_ready": "Wait for all players to ready up before starting.",
+		&"ready_update_failed": "Your Ready status could not be updated. Try again.",
 		&"invalid_ability_deck_recipe": "That ability deck recipe could not be applied.",
 	}
 	_status.text = messages.get(reason, "The room could not continue. Try again.")
@@ -129,7 +151,7 @@ func show_error(reason: StringName) -> void:
 		&"signaling_timeout", &"room_not_found",
 	]
 	_action_pending = false
-	_start_button.disabled = not _can_edit_settings() or int(_model.get("active_player_count", 0)) < 2
+	_start_button.disabled = not _can_start_match() or reason == &"players_not_ready"
 
 
 func trigger_ready_shortcut() -> bool:
@@ -158,7 +180,11 @@ func _render_players(player_models: Array) -> void:
 		name_label.add_theme_font_size_override("font_size", 26)
 		var seat := Label.new()
 		var spectator := str(player.get("role", "active")) == "spectator"
-		seat.text = "Spectator" if spectator else ("Ready" if player.get("ready", false) else "Waiting")
+		seat.text = "Ready" if player.get("ready", false) else "Waiting"
+		if spectator:
+			seat.text = "Spectator"
+		elif player.get("is_host", false):
+			seat.text = "Host"
 		if not bool(player.get("connected", true)):
 			seat.text = "Connecting…"
 		seat.add_theme_font_size_override("font_size", 21)
@@ -175,6 +201,13 @@ func _render_players(player_models: Array) -> void:
 
 func _can_edit_settings() -> bool:
 	return bool(_model.get("is_host", false)) and not bool(_model.get("match_started", false))
+
+
+func _can_start_match() -> bool:
+	return (
+		_can_edit_settings() and int(_model.get("active_player_count", 0)) >= 2
+		and int(_model.get("lobby_unready_guests", 1)) == 0
+	)
 
 
 func _toggle_settings() -> void:
@@ -220,6 +253,11 @@ func _on_visibility_selected(index: int) -> void:
 	_on_setting_changed(index, &"information_visibility")
 
 
+func _on_no_time_limit_toggled(enabled: bool) -> void:
+	if not _rendering and _can_edit_settings():
+		setting_change_requested.emit(&"no_time_limit", enabled)
+
+
 func _on_start_timer_changed(value: float) -> void:
 	_on_setting_changed(value, &"start_timer_msec", true)
 
@@ -255,11 +293,7 @@ func _on_ready_toggled(ready: bool) -> void:
 
 
 func _on_start_pressed() -> void:
-	if (
-		_action_pending or not bool(_model.get("is_host", false))
-		or bool(_model.get("match_started", false))
-		or int(_model.get("active_player_count", 0)) < 2
-	):
+	if _action_pending or not _can_start_match() or _start_button.disabled:
 		return
 	_action_pending = true
 	_start_button.disabled = true

@@ -34,6 +34,9 @@ func test_cockpit_preview_matches_host_after_snapshot_decoration_and_network_rou
 			NormalHand.new(&"flush_three", 10, 3, &"flush", Rational.new(3)),
 		], ContextCatalog.definitions()
 	)
+	var old_config := config.to_dict()
+	old_config["base_score_mode"] = 1
+	config = MatchConfig.from_dict(old_config)
 	var state := MatchState.create(config, 123)
 	state.phase = GameTypes.Phase.HAND_PLAY
 	var player = state.players[&"one"]
@@ -79,16 +82,18 @@ func test_cockpit_preview_matches_host_after_snapshot_decoration_and_network_rou
 	assert_eq(controller._lock_player_hand(&"one", false), &"")
 	var expected := Projector.score_breakdown(player.provisional_score, player.submitted_faces)
 	assert_eq(expected.final_score, 113)
+	assert_eq(controller._calculate_player_score(player).final_score, 113)
 	for render_model in [model, packet.envelope.payload]:
 		var preview := Preview.new().evaluate(render_model, selections)
 		assert_eq(preview.get("score_breakdown", {}), expected)
 	var locked_model := Projector.for_recipient(state, &"one", GameTypes.RecipientRole.ACTIVE_PLAYER)
 	assert_true(locked_model.private_hand.is_empty())
 	assert_eq(Preview.new().evaluate(locked_model, []).get("score_breakdown", {}), expected)
-	assert_eq(expected.base_components, [
+	var components := [
 		{"rank": 5, "suit": 2, "joker": false}, {"rank": 5, "suit": 2, "joker": false},
 		{"rank": 0, "suit": 2, "joker": true},
-	])
+	]
+	assert_eq(expected.base_components, components)
 
 
 func test_cockpit_values_each_own_a_named_contribution_table() -> void:
@@ -126,15 +131,16 @@ func test_cockpit_values_each_own_a_named_contribution_table() -> void:
 		var table := tooltip.get_child(0) as GridContainer
 		assert_eq(table.columns, 2)
 		if key == "Base":
-			assert_eq(table.get_child(2).text, "Rank 5 · Sea")
+			assert_eq(table.get_child(2).tooltip_text, "Rank 5 · Sea")
+			assert_true(table.get_child(2).get_parsed_text().begins_with("Rank 5 · "))
 			assert_eq(table.get_child(3).text, "5")
 		if key == "Hand":
-			assert_eq(table.get_child(2).text, "High Card")
+			assert_eq(table.get_child(2).get_parsed_text(), "High Card")
 			assert_eq(table.get_child(3).text, "2")
 		if key == "Field":
-			assert_eq(table.get_child(4).text, "Heavy Fog")
+			assert_eq(table.get_child(4).get_parsed_text(), "Heavy Fog")
 			assert_eq(table.get_child(5).text, "-1/2")
-			assert_eq(table.get_child(6).text, "Minimum factor")
+			assert_eq(table.get_child(6).get_parsed_text(), "Minimum factor")
 			assert_eq(table.get_child(7).text, "+1/2")
 		tooltip.free()
 	controls.queue_free()
@@ -148,7 +154,7 @@ func test_cockpit_names_the_scored_hand_and_context_in_the_formula() -> void:
 	Engine.get_main_loop().root.add_child(controls)
 	var normal := [
 		{"id": "full_house", "display_name": "Full House"},
-		{"id": "flush_5", "display_name": "5-card Flush"},
+		{"id": "flush_5", "display_name": "Five-card Flush"},
 	]
 	var context := [{"id": "rise_flourish_4", "display_name": "Four Renaissance",
 		"requirements_text": "4 Rise / 4 Flourish"}]
@@ -166,7 +172,7 @@ func test_cockpit_names_the_scored_hand_and_context_in_the_formula() -> void:
 	var context_name := factors.get_node_or_null("ContextName") as Label
 	assert_true(hand_name != null and context_name != null)
 	if hand_name != null and context_name != null:
-		assert_eq(hand_name.text, "Full House + 5-card Flush")
+		assert_eq(hand_name.text, "Full House + Five-card Flush")
 		assert_eq(context_name.text, "Four Renaissance")
 		assert_eq(factors.get_node("ContextValue").rows[1][0], "Four Renaissance (4 Rise / 4 Flourish)")
 		assert_eq(factors.get_node("HandValue").text, "19/4")

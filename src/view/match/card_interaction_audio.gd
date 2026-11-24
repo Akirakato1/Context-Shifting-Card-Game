@@ -17,6 +17,8 @@ const CUES := {
 	&"score": [CARD_PACK + "score_tick_01.wav", -22.0, 1.0, 0.0],
 	&"score_milestone": [CARD_PACK + "dice_shake_01.wav", -17.0, 1.15, 0.0],
 	&"score_multiplier": [CARD_PACK + "mult_up_01.wav", -20.0, 1.0, 0.0],
+	&"clock_tick": [CARD_PACK + "deck_tap_01.wav", -18.0, 1.18, 0.0],
+	&"clock_reverse": [PACK + "Piece Move - 2.wav", -17.0, 0.92, 0.0],
 	&"round_win": [CARD_PACK + "hand_win_01.wav", -15.0, 1.0, 0.0],
 	&"round_loss": [CARD_PACK + "hand_lose_01.wav", -19.0, 1.0, 0.0],
 	&"prime": [PACK + "Deck Deal - 2.wav", -11.0, 1.36, 0.010],

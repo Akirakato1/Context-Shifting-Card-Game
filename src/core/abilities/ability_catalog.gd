@@ -25,11 +25,8 @@ static func manipulation_designs() -> Array[AbilityDefinition]:
 		),
 		_definition(
 			&"context_roulette", "Context Roulette",
-			"Select any number of half-cards in your hand. Randomize each selected context. The current context can be rolled again.",
-			&"random_context", {}, [{
-				"key": "halves", "kind": "half_card", "min_count": 1,
-				"max_count": 12, "prompt": "Select half-cards to randomize",
-			}]
+			"Select any number of full cards in your hand. Reroll each non-Joker half’s context independently. The current context can be rolled again.",
+			&"random_card_contexts", {}, [_variable_full_card_step()]
 		),
 		_definition(
 			&"suit_imprint", "Suit Imprint",
@@ -230,6 +227,21 @@ static func sabotage_designs() -> Array[AbilityDefinition]:
 			&"sabotage_cards", {"operation": &"lock_card", "card_count": 1,
 			"expires": &"round_end"}
 		),
+		_sabotage_definition(
+			&"rank_blackout", "Rank Blackout",
+			"Reroll every rank in the target opponent's hand from 1 to 10, including assigned Joker ranks. A rank can repeat.",
+			&"sabotage_cards", {"operation": &"randomize_all_ranks"}
+		),
+		_sabotage_definition(
+			&"ability_seal", "Ability Seal",
+			"The target opponent cannot play ability cards for the rest of this round.",
+			&"sabotage_cards", {"operation": &"disable_abilities"}
+		),
+		_sabotage_definition(
+			&"joker_takeover", "Joker Takeover",
+			"Turn up to 5 random cards in the target opponent's hand into double-sided Jokers. Each stays a Joker until it leaves their hand.",
+			&"sabotage_cards", {"operation": &"convert_to_jokers", "card_count": 5}
+		),
 	]
 
 
@@ -270,18 +282,20 @@ static func provisional_deck_recipe() -> Dictionary:
 	for id in [
 		&"context_roulette", &"ride_the_cycle", &"against_the_cycle",
 		&"context_exchange", &"context_convergence", &"mirror_rank",
+		&"suit_imprint", &"suit_exchange", &"suit_shift",
 	]:
 		recipe[id] = 4
-	for id in [&"suit_imprint", &"suit_exchange", &"suit_shift", &"suit_roulette"]:
-		recipe[id] = 5
 	for definition in hand_shape_designs():
 		if definition.id not in [
 			&"high_card_buff", &"high_card_nerf", &"single_context_buff", &"single_context_nerf",
+			&"straight_buff", &"straight_nerf", &"three_context_buff", &"three_context_nerf",
 		]:
 			recipe[definition.id] = 1
 	for definition in field_designs():
 		if definition.id not in [&"even_rank_favor", &"odd_rank_favor"]:
 			recipe[definition.id] = 1
+	for id in [&"reverse_cycle", &"rise_resonance", &"flourish_resonance", &"fall_resonance"]:
+		recipe[id] = 2
 	for definition in sabotage_designs(): recipe[definition.id] = 1
 	recipe[&"suit_scramble"] = 2
 	return recipe
@@ -421,10 +435,10 @@ static func _cycle_definition(
 	return _definition(
 		id,
 		display_name,
-		"Select any number of full cards. %s" % effect_text,
+		"Select 1 or 2 full cards. %s" % effect_text,
 		&"shift_context",
 		{"relative_direction": relative_direction},
-		[_variable_full_card_step()]
+		[_variable_full_card_step(2)]
 	)
 
 
@@ -442,8 +456,8 @@ static func _suit_half_step(prompt: String) -> Dictionary:
 	}
 
 
-static func _variable_full_card_step() -> Dictionary:
+static func _variable_full_card_step(max_count := 6) -> Dictionary:
 	return {
 		"key": "cards", "kind": "full_card", "min_count": 1,
-		"max_count": 6, "prompt": "Select full cards",
+		"max_count": max_count, "prompt": "Select full cards",
 	}
