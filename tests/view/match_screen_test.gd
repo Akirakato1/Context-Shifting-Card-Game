@@ -3,6 +3,30 @@ extends "res://tests/test_case.gd"
 const MATCH_SCREEN_PATH := "res://src/view/match/match_screen.tscn"
 
 
+func test_ready_prompt_keeps_its_dark_panel_when_sketch_guides_are_hidden() -> void:
+	var table := preload("res://src/view/match/match_screen.tscn").instantiate()
+	table.show_placeholder_guides = false
+	Engine.get_main_loop().root.add_child(table)
+	var controls := table.get_node("PhaseControls")
+	var backdrop := controls.get_node_or_null("ReadyBackdrop") as Panel
+	assert_true(backdrop != null, "The Ready prompt has a production backdrop")
+	if backdrop != null:
+		var ready := controls.get_node("MainControls/ReadyButton") as Button
+		var style := backdrop.get_theme_stylebox("panel") as StyleBoxFlat
+		assert_true(style != null and style.bg_color.b > style.bg_color.r and style.bg_color.v < 0.3)
+		for phase in [GameTypes.Phase.MAIN_1, GameTypes.Phase.MAIN_2]:
+			table.render({"phase": phase, "private_player_id": "p1", "active_context": 0,
+				"players": [{"player_id": "p1", "active": true}, {"player_id": "p2", "active": true}]})
+			assert_true(backdrop.is_visible_in_tree())
+			assert_true(backdrop.get_global_rect().encloses(ready.get_global_rect()))
+			assert_eq(ready.get_theme_stylebox("disabled").texture.resource_path.get_file(), "button_4.png")
+			var focus := ready.get_theme_stylebox("focus") as StyleBoxFlat
+			assert_true(focus != null and not focus.draw_center and focus.border_color.r > focus.border_color.b)
+		table.render({"phase": GameTypes.Phase.HAND_PLAY, "private_player_id": "p1", "active_context": 0})
+		assert_false(backdrop.visible)
+	table.queue_free()
+	await Engine.get_main_loop().process_frame
+
 func test_active_player_sees_compact_opponent_summaries_and_their_own_hand() -> void:
 	var table = await _mount_match()
 	if table == null:
@@ -154,17 +178,26 @@ func test_main_phase_surfaces_ready_status_and_ability_controls() -> void:
 	table.render(model)
 	assert_eq(table.get_node("PhaseBadge/Phase").text, "MAIN PHASE 1")
 	var hint := table.get_node_or_null("PhaseInstruction") as Label
-	assert_true(hint != null and hint.text.to_lower().contains("right-click"))
+	assert_true(hint != null and not hint.visible and hint.text.is_empty(), "Regular matches have no idle ability instructions")
+	if hint != null:
+		model["private_abilities_disabled"] = true
+		table.render(model)
+		assert_true(hint.visible and hint.text.contains("Ability Seal"))
+		model.erase("private_abilities_disabled")
+		table.render(model)
+		assert_false(hint.visible)
 	assert_true(table.get_node("Header/Timer").get_theme_font_size("font_size") >= 32)
 	var ready: Button = table.get_node("PhaseControls/MainControls/ReadyButton")
 	assert_true(ready.custom_minimum_size.y >= 52)
 	assert_true(table.get_node("PhaseControls/HandPlayControls/Hand/Cards").modulate != Color.WHITE)
-	var other := table.get_node_or_null("TableLayer/TopSeat/Info/ReadyStatus") as Label
+	var other := table.get_node_or_null("TableLayer/TopSeat/Summary/ReadyStatus") as Label
 	assert_true(other != null and other.text == "READY" and other.is_visible_in_tree())
 	if other != null:
 		model.phase = 4
 		model.players[1].ready = false
 		table.render(model)
+		var phase_motion: Tween = table.get_node("PhaseBadge").get("_motion")
+		phase_motion.custom_step(1.0)
 		assert_eq(table.get_node("PhaseBadge/Phase").text, "MAIN PHASE 2")
 		assert_eq(other.text, "DECIDING")
 		assert_true(other.is_visible_in_tree())
@@ -172,6 +205,90 @@ func test_main_phase_surfaces_ready_status_and_ability_controls() -> void:
 		table.render(model)
 		assert_false(other.visible)
 		assert_eq(table.get_node("PhaseControls/HandPlayControls/Hand/Cards").modulate, Color.WHITE)
+	await _unmount(table)
+
+
+func test_phase_sign_retracts_before_changing_label_and_lands_once_per_phase() -> void:
+	var table = await _mount_match()
+	if table == null:
+		return
+	var sign: Control = table.get_node("PhaseBadge")
+	assert_true(sign.has_signal("landed"), "A hanging phase sign signals when it settles")
+	if not sign.has_signal("landed"):
+		await _unmount(table)
+		return
+	var landings: Array[String] = []
+	var chain_cues: Array[String] = []
+	var title: Label = sign.get_node("Phase")
+	sign.connect("landed", func(): landings.append(title.text))
+	sign.connect("dropping", func(): chain_cues.append("drop"))
+	sign.connect("pulling", func(): chain_cues.append("pull"))
+	assert_true(sign.get_index() < table.get_node("Header").get_index())
+	assert_true(sign.get_index() < table.get_node("MenuButton").get_index())
+	assert_eq((sign.get_node("Art") as TextureRect).texture.resource_path.get_file(), "phase_sign.png")
+	var model := _active_player_model()
+	model.phase = 2
+	table.render(model)
+	var motion: Tween = sign.get("_motion")
+	var round_badge: PhaseSign = table.get_node("RoundBadge")
+	var round_motion: Tween = round_badge.get("_motion")
+	round_motion.custom_step(0.5)
+	assert_true(round_badge.get_global_rect().end.y > sign.size.y)
+	motion.pause()
+	assert_true(sign.position.y + sign.size.y < 0.0)
+	table.render(model)
+	assert_eq(sign.get("_motion"), motion, "Repeated snapshots do not replay the drop")
+	motion.custom_step(0.27)
+	assert_eq(landings, ["MAIN PHASE 1"])
+	assert_true(absf(sign.rotation_degrees) > 1.0)
+	assert_true(absf(sign.position.y) > 0.0 and absf(sign.position.y) < 4.0, "The landing briefly shakes the sign")
+	motion.custom_step(0.25)
+	assert_eq(sign.position.y, 0.0)
+	model.phase = 3
+	table.render(model)
+	assert_eq(round_badge.get("_motion"), round_motion, "A phase change leaves the round sign in place")
+	motion = sign.get("_motion")
+	motion.pause()
+	motion.custom_step(0.07)
+	assert_true(sign.position.y < 0.0)
+	assert_eq(title.text, "MAIN PHASE 1")
+	motion.custom_step(0.08)
+	assert_eq(title.text, "HAND PLAY")
+	assert_true(sign.position.y + sign.size.y < 0.0, "The text swaps while the wood is off screen")
+	motion.custom_step(0.5)
+	assert_eq(landings, ["MAIN PHASE 1", "HAND PLAY"])
+	assert_eq(chain_cues, ["drop", "pull", "drop"])
+	assert_eq(sign.position.y, 0.0)
+	model.round_number += 1
+	table.render(model)
+	assert_true(round_badge.get("_motion") != round_motion)
+	await _unmount(table)
+
+
+func test_timer_glows_red_and_counts_down_each_final_second_once() -> void:
+	var table = await _mount_match()
+	if table == null:
+		return
+	var timer: MatchTimer = table.get_node("Header/Timer")
+	assert_eq(timer.get_node("Stone").texture.resource_path.get_file(), "timer_tablet.png")
+	var ticks: Array[int] = []
+	timer.countdown_tick.connect(func(seconds: int): ticks.append(seconds))
+	timer.set_period(1, 2)
+	timer.show_remaining(10001, false, true)
+	assert_eq(timer.get_theme_color("font_shadow_color"), MatchTimer.NORMAL_GLOW)
+	timer.show_remaining(10000, false, true)
+	assert_eq(timer.get_theme_color("font_shadow_color"), MatchTimer.URGENT_GLOW)
+	for remaining in [5001, 5000, 4800, 5300, 4200, 4000, 3000, 2000, 1000, 0]:
+		timer.show_remaining(remaining, false, true)
+	assert_eq(ticks, [5, 4, 3, 2, 1])
+	timer.set_period(1, 3)
+	timer.show_remaining(5000, false, false)
+	assert_eq(ticks.size(), 5)
+	timer.show_remaining(5000, false, true)
+	assert_eq(ticks, [5, 4, 3, 2, 1, 5])
+	timer.show_remaining(-1, true, true)
+	assert_eq(timer.text, "UNTIMED")
+	assert_eq(timer.get_theme_color("font_shadow_color"), MatchTimer.NORMAL_GLOW)
 	await _unmount(table)
 
 
@@ -426,7 +543,7 @@ func test_local_and_revealed_cards_render_effective_faces_and_active_half() -> v
 	table.render(model)
 	assert_false(table.get_node("TableLayer/TopSeat/Hand").visible)
 	assert_eq(table.get_node("TableLayer/TopSeat/Hand").get_child_count(), 0)
-	assert_eq(table.get_node("TableLayer/TopSeat/Summary/ScoreSummary").text, "31 points this round")
+	assert_eq(table.get_node("TableLayer/TopSeat/Summary/ScoreSummary").text, "Hand score 31")
 	await _unmount(table)
 
 
@@ -569,7 +686,7 @@ func test_context_score_progress_fields_and_nil_round_render_clearly() -> void:
 	}
 	table.render(model)
 	assert_eq(table.get_node("PhaseBadge/Phase").text, "HAND PLAY")
-	assert_eq(table.get_node("Header/Round").text, "ROUND 4")
+	assert_eq(table.get_node("RoundBadge/Phase").text, "ROUND 4")
 	assert_eq(table.get_node("Header/Timer").text, "12.4s")
 	var clock: Control = table.get_node_or_null("TableScenery/ContextClock")
 	assert_true(clock != null)

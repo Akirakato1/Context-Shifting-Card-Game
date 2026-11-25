@@ -25,10 +25,6 @@ var _on_table := false
 func begin(workflow: Dictionary, private_hand: Array = [], player_targets: Array = [], on_table := false) -> void:
 	_on_table = on_table
 	_dimmer.visible = not _on_table
-	_panel.anchor_top = 0.14 if _on_table else 0.5
-	_panel.anchor_bottom = _panel.anchor_top
-	_panel.offset_top = 5.0 if _on_table else -105.0
-	_panel.offset_bottom = 113.0 if _on_table else 105.0
 	_player_labels.clear()
 	_steps = _resolved_steps(workflow.get("steps", []), private_hand, player_targets)
 	_choices.clear()
@@ -123,6 +119,13 @@ func _render_step() -> void:
 	var kind := str(step.get("kind", "value"))
 	var eligible: Array = step.get("eligible", [])
 	var selects_on_table := _on_table and kind in ["player", "half_index"]
+	# Leave the top portrait clear when the target is a player.
+	_panel.anchor_top = 0.5
+	if _on_table:
+		_panel.anchor_top = 0.42 if kind == "player" else 0.14
+	_panel.anchor_bottom = _panel.anchor_top
+	_panel.offset_top = 5.0 if _on_table else -105.0
+	_panel.offset_bottom = 113.0 if _on_table else 105.0
 	if kind not in ["card", "full_card", "half_card"] and not selects_on_table:
 		for value in eligible:
 			var button := Button.new()

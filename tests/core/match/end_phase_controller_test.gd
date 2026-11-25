@@ -119,6 +119,11 @@ func test_end_awards_both_victory_modes_and_unlocks_then_resets_rematch() -> voi
 	_give_extra_abilities(score_state, &"one", 3)
 	var score_controller := MatchController.new(score_state)
 	var result = _ready_both(score_controller, 10)
+	var outcome = _first_event(result.events, EventKinds.ROUND_FINALIZED)
+	assert_true(outcome != null)
+	if outcome != null:
+		assert_eq(outcome.payload.get("points_awarded"), outcome.payload.scores.one - outcome.payload.scores.two)
+		assert_eq(score_state.players[&"one"].match_score, outcome.payload.get("points_awarded"))
 	assert_true(score_state.match_complete)
 	assert_eq(score_state.winner_id, &"one")
 	assert_eq(score_state.phase, GameTypes.Phase.COMPLETE)

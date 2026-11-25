@@ -37,10 +37,22 @@ func test_menu_opens_separate_create_and_join_forms_and_returns() -> void:
 	var button := host.get_node_or_null("MainMenuScreen/Content/CreateLobbyButton") as Button
 	assert_true(button != null, "The main menu must expose Create Lobby")
 	if button != null:
+		assert_false(button.has_focus(), "Create Lobby has no focus outline on startup")
+		var tab := InputEventKey.new()
+		tab.keycode = KEY_TAB
+		tab.pressed = true
+		app.get_viewport().push_input(tab)
+		assert_eq(app.get_viewport().gui_get_focus_owner(), button, "Tab still reaches Create Lobby")
 		button.pressed.emit()
 		assert_eq(app.current_screen_id(), &"create_lobby")
 		assert_true(host.get_child(0).get_node("Content/PlayerName").visible)
+		assert_true(host.get_child(0).get_node("Content/PlayerName").has_focus())
 		assert_false(host.get_child(0).get_node("Content/JoinPanel").visible)
+		var picker: Control = host.get_child(0).get_node("Content/AvatarPicker")
+		assert_true(picker.is_visible_in_tree())
+		assert_eq(picker.get_node("Choices").get_child_count(), 5)
+		picker.get_node("Choices/avatar_5").pressed.emit()
+		assert_eq(host.get_child(0).avatar_id(), "avatar_5")
 		var back: Button = host.get_child(0).get_node("Content/BackButton")
 		back.pressed.emit()
 		assert_eq(app.current_screen_id(), &"menu")
@@ -48,6 +60,52 @@ func test_menu_opens_separate_create_and_join_forms_and_returns() -> void:
 		assert_eq(app.current_screen_id(), &"join_lobby")
 		assert_true(host.get_child(0).get_node("Content/JoinPanel").visible)
 		assert_false(host.get_child(0).get_node("Content/HostButton").visible)
+		assert_true(host.get_child(0).get_node("Content/AvatarPicker/Choices/avatar_5").button_pressed)
+	await _unmount(app)
+
+
+func test_main_menu_credits_open_and_close_from_the_corner() -> void:
+	var app = await _mount_app()
+	var menu: Control = app.get_node("SafeArea/ScreenHost/MainMenuScreen")
+	var credits := menu.get_node_or_null("CreditsButton") as Button
+	assert_true(credits != null, "The main menu exposes Credits")
+	if credits != null:
+		assert_true(credits.get_rect().get_center().x > menu.size.x / 2.0)
+		assert_true(credits.get_rect().get_center().y > menu.size.y / 2.0)
+		credits.pressed.emit()
+		var dialog := credits.get_node("CreditsDialog") as AcceptDialog
+		assert_true(dialog.visible)
+		var attribution := dialog.get_node("Margin/Attribution") as RichTextLabel
+		for name in ["anarchira", "akts625", "Willosuna", "JDSherbert", "Michael W. Moss"]:
+			assert_true(name in attribution.text, "Credits include %s" % name)
+		dialog.get_ok_button().pressed.emit()
+		assert_false(dialog.visible)
+		menu.get_node("Content/CreateLobbyButton").pressed.emit()
+		assert_false(credits.is_visible_in_tree())
+	await _unmount(app)
+
+
+func test_app_uses_cursor_art_with_precise_small_hotspots() -> void:
+	var app = await _mount_app()
+	var cursors: Resource = app.cursor_artwork
+	var expected := {
+		"pointer": ["cursor_default.png", Vector2(25, 36), Vector2(0, 0)],
+		"hover": ["cursor_select.png", Vector2(32, 36), Vector2(2, 0)],
+		"target": ["cursor_target.png", Vector2(36, 36), Vector2(18, 18)],
+	}
+	for name: String in expected:
+		var texture: Texture2D = cursors.get(name + "_texture")
+		assert_true(texture != null, "The %s cursor has artwork" % name)
+		if texture == null:
+			continue
+		assert_eq(texture.resource_path.get_file(), expected[name][0])
+		var pixels: Array = cursors.call("_cursor_pixels", texture, cursors.get(name + "_hotspot"))
+		assert_eq(pixels[0].get_size(), expected[name][1])
+		assert_eq(pixels[1], expected[name][2])
+	assert_eq(cursors.get("drag_texture"), cursors.get("hover_texture"))
+	assert_eq(cursors.get("drop_texture"), cursors.get("hover_texture"))
+	var button: Button = app.get_node("SafeArea/ScreenHost/MainMenuScreen/Content/CreateLobbyButton")
+	assert_eq(button.mouse_default_cursor_shape, Control.CURSOR_POINTING_HAND)
 	await _unmount(app)
 
 
@@ -131,7 +189,7 @@ func test_app_starts_on_menu_and_can_present_each_mock_screen() -> void:
 
 	app.show_screen(&"match", _match_model())
 	assert_eq(app.current_screen_id(), &"match")
-	assert_eq(app.get_node("SafeArea/ScreenHost").get_child(0).get_node("Header/Round").text, "ROUND 1")
+	assert_eq(app.get_node("SafeArea/ScreenHost").get_child(0).get_node("RoundBadge/Phase").text, "ROUND 1")
 
 	var complete := _match_model()
 	complete["match_complete"] = true
@@ -153,6 +211,15 @@ func test_practice_button_starts_a_match_and_can_open_settings_or_return() -> vo
 	assert_eq(app.current_screen_id(), &"match")
 	if app.current_screen_id() == &"match":
 		var table := host.get_child(0)
+		var opponents := {
+			"TopSeat": ["Bernhard Riemann", "avatar_2_front.png"],
+			"LeftSeat": ["Levent Alpöge", "avatar_front_3.png"],
+			"RightSeat": ["Claude-Louis Navier", "avatar_4_front.png"],
+		}
+		for seat_name: String in opponents:
+			var seat := table.get_node("TableLayer/" + seat_name)
+			assert_eq(seat.get_node("Info/Name").text, opponents[seat_name][0])
+			assert_eq(seat.get_node("Avatar/Portrait").texture.resource_path.get_file(), opponents[seat_name][1])
 		table.settings_requested.emit()
 		assert_eq(host.get_child(0), table)
 		assert_true(host.has_node("GeneralSettingsScreen"))
@@ -170,6 +237,7 @@ func test_tutorial_button_opens_lessons_and_leaving_resets_progress() -> void:
 	assert_eq(app.current_screen_id(), &"match")
 	if app.current_screen_id() == &"match":
 		var match_screen := host.get_child(0)
+		assert_eq(match_screen.get_node("TableLayer/TopSeat/Info/Name").text, "Mika")
 		var content := match_screen.get_node("Tutorial/Margin/Content")
 		assert_true(match_screen.get_node("Tutorial").visible)
 		assert_eq(content.get_node("Title").text, "Welcome to Zeitklus")
@@ -369,7 +437,7 @@ func test_authoritative_screen_id_routes_lobby_then_match_without_mock_calls() -
 	app.present_state(match_model)
 	assert_eq(app.current_screen_id(), &"match")
 	assert_eq(
-		app.get_node("SafeArea/ScreenHost").get_child(0).get_node("Header/Round").text,
+		app.get_node("SafeArea/ScreenHost").get_child(0).get_node("RoundBadge/Phase").text,
 		"ROUND 1"
 	)
 	await _unmount(app)
@@ -435,15 +503,19 @@ func test_app_routes_stage_ack_back_to_match_and_sends_followup_lock() -> void:
 	}]
 	app.present_state(model)
 	var controls = app.get_node("SafeArea/ScreenHost").get_child(0).get_node("PhaseControls")
-	controls.click_card(&"c1")
+	for edit in range(3):
+		controls.click_card(&"c1")
+	assert_eq(session.submissions.map(func(item): return item.command.kind), [
+		"update_hand_draft", "update_hand_draft", "update_hand_draft",
+	])
 	controls.get_node("HandPlayControls/ActionRow/SubmitButton").pressed.emit()
-	assert_eq(session.submissions.size(), 1)
-	assert_eq(session.submissions[0].command.kind, "stage_hand")
-	session.command_result_received.emit(session.submissions[0].message_id, {
+	assert_eq(session.submissions.size(), 4)
+	assert_eq(session.submissions[-1].command.kind, "stage_hand")
+	session.command_result_received.emit(session.submissions[-1].message_id, {
 		"accepted": true, "error_code": "",
 	})
-	assert_eq(session.submissions.size(), 2)
-	assert_eq(session.submissions[1].command.kind, "lock_hand")
+	assert_eq(session.submissions.size(), 5)
+	assert_eq(session.submissions[-1].command.kind, "lock_hand")
 	await _unmount(app)
 
 

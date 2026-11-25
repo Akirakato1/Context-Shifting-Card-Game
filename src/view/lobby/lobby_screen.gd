@@ -8,6 +8,7 @@ signal leave_requested
 signal retry_requested
 
 const MatchButtonArt := preload("res://src/view/match/match_button_art.gd")
+const AvatarCatalog := preload("res://src/view/common/avatar_catalog.gd")
 
 var _model: Dictionary = {}
 var _rendering := false
@@ -17,7 +18,7 @@ var _settings_open := false
 @onready var _room_code: Label = $Layout/Header/RoomCode
 @onready var _copy_code: Button = $Layout/Header/CopyCode
 @onready var _counts: Label = $Layout/Body/Roster/Counts
-@onready var _players: VBoxContainer = $Layout/Body/Roster/Players
+@onready var _players: VBoxContainer = $Layout/Body/Roster/Scroll/Players
 @onready var _victory_mode: OptionButton = $Layout/Body/Settings/VictoryMode
 @onready var _victory_target: SpinBox = $Layout/Body/Settings/VictoryTarget
 @onready var _visibility: OptionButton = $Layout/Body/Settings/Visibility
@@ -170,14 +171,23 @@ func _render_players(player_models: Array) -> void:
 			continue
 		var surface := PanelContainer.new()
 		surface.add_theme_stylebox_override("panel", preload("res://themes/shift_panel.tres"))
-		surface.custom_minimum_size.y = 54
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 12)
+		var portrait := TextureRect.new()
+		portrait.name = "Avatar"
+		portrait.texture = AvatarCatalog.front_texture(str(player.get("avatar_id",
+			AvatarCatalog.default_avatar_id(int(player.get("seat_index", 0))))))
+		portrait.custom_minimum_size = Vector2(72, 72)
+		portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		portrait.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		var name_label := Label.new()
+		name_label.name = "PlayerName"
 		name_label.text = str(player.get("name", "Player"))
+		name_label.tooltip_text = name_label.text
 		name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-		name_label.add_theme_font_size_override("font_size", 26)
+		name_label.add_theme_font_size_override("font_size", 28)
 		var seat := Label.new()
 		var spectator := str(player.get("role", "active")) == "spectator"
 		seat.text = "Ready" if player.get("ready", false) else "Waiting"
@@ -192,6 +202,7 @@ func _render_players(player_models: Array) -> void:
 		var margin := MarginContainer.new()
 		margin.add_theme_constant_override("margin_left", 18)
 		margin.add_theme_constant_override("margin_right", 18)
+		row.add_child(portrait)
 		row.add_child(name_label)
 		row.add_child(seat)
 		margin.add_child(row)

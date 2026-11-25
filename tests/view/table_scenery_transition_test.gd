@@ -1,5 +1,8 @@
 extends "res://tests/test_case.gd"
 
+const GameIcons := preload("res://src/view/common/game_icons.gd")
+const GameTypes := preload("res://src/core/common/game_types.gd")
+
 
 func test_context_art_is_wired_and_crossfades_with_the_board_shade() -> void:
 	var scene := load("res://src/view/match/match_screen.tscn") as PackedScene
@@ -38,6 +41,51 @@ func test_context_art_is_wired_and_crossfades_with_the_board_shade() -> void:
 		transition.custom_step(1.0)
 		assert_eq(background_material.get_shader_parameter("weights"), Vector3(0, 0, 1))
 		assert_eq(shade_material.get_shader_parameter("weights"), Vector3(0, 0, 1))
+	table.queue_free()
+	await Engine.get_main_loop().process_frame
+
+
+func test_suit_clock_keeps_a_fixed_clockwise_order_in_the_dashboard_corner() -> void:
+	var scene := load("res://src/view/match/match_screen.tscn") as PackedScene
+	var table := scene.instantiate()
+	Engine.get_main_loop().root.add_child(table)
+	var scenery := table.get_node("TableScenery") as Control
+	var context_clock := scenery.get_node("ContextClock") as Control
+	var suit_clock := scenery.get_node_or_null("SuitClock") as Control
+	assert_true(suit_clock != null, "The dashboard has a suit cycle reference")
+	if suit_clock != null:
+		var mountain := suit_clock.get_node("Mountain") as TextureRect
+		var cloud := suit_clock.get_node("Cloud") as TextureRect
+		var sea := suit_clock.get_node("Sea") as TextureRect
+		var direction := suit_clock.get_node("Direction") as TextureRect
+		var dial := suit_clock.get_node("Dial") as TextureRect
+		assert_eq(dial.texture.resource_path.get_file(), "suit_compass.png")
+		assert_eq(mountain.texture, GameIcons.suit(GameTypes.Suit.MOUNTAIN))
+		assert_eq(cloud.texture, GameIcons.suit(GameTypes.Suit.CLOUD))
+		assert_eq(sea.texture, GameIcons.suit(GameTypes.Suit.SEA))
+		assert_true(mountain.anchor_top < cloud.anchor_top)
+		assert_true(cloud.anchor_left > mountain.anchor_left)
+		assert_true(sea.anchor_left < mountain.anchor_left)
+		assert_eq(suit_clock.tooltip_text, "Suit clock\nMountain → Cloud → Sea → Mountain")
+		for emblem in [mountain, cloud, sea]:
+			assert_eq(emblem.self_modulate, Color(1, 0.81, 0.27, 1))
+		var tray := scenery.get_node("HandTrayArt") as Control
+		scenery.set_anchors_preset(Control.PRESET_TOP_LEFT)
+		for view_size: Vector2 in [Vector2(1920, 1080), Vector2(1280, 720)]:
+			scenery.size = view_size
+			var context_bounds := context_clock.get_global_rect()
+			var suit_bounds := suit_clock.get_global_rect()
+			assert_true(suit_bounds.get_center().x < context_bounds.get_center().x)
+			assert_true(suit_bounds.get_center().y < context_bounds.get_center().y)
+			var centers_distance := suit_bounds.get_center().distance_to(context_bounds.get_center())
+			assert_true(centers_distance > (context_bounds.size.x + suit_bounds.size.x) * 0.5)
+			assert_true(suit_bounds.end.x < tray.get_global_rect().position.x)
+			assert_true(suit_bounds.size.x < context_bounds.size.x)
+			assert_true(is_equal_approx(suit_bounds.size.x, suit_bounds.size.y))
+		scenery.render(0, 1, [0])
+		scenery.render(2, -1, [1, 2])
+		assert_eq(direction.texture.resource_path.get_file(), "clock_directionarrow_1.png")
+		assert_eq(suit_clock.rotation, 0.0)
 	table.queue_free()
 	await Engine.get_main_loop().process_frame
 

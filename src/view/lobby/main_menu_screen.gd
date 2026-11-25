@@ -9,12 +9,28 @@ signal practice_requested
 signal tutorial_requested
 
 const MatchButtonArt := preload("res://src/view/match/match_button_art.gd")
+const AvatarCatalog := preload("res://src/view/common/avatar_catalog.gd")
+const GameTypes := preload("res://src/core/common/game_types.gd")
+const SLIDE_HOLD_SECONDS := 7.0
+const SLIDE_FADE_SECONDS := 1.6
+const BACKGROUND_ART: Array[Texture2D] = [
+	preload("res://assets/artwork/background/background_rise.png"),
+	preload("res://assets/artwork/background/background_flourish.png"),
+	preload("res://assets/artwork/background/background_fall.png"),
+]
 
 var _busy := false
+var _avatar_id := ""
+var _avatar_buttons: Dictionary[String, Button] = {}
+var _slide_index := 0
+var _slideshow: Tween
 
+@onready var _current_slide: TextureRect = $Background/Current
+@onready var _incoming_slide: TextureRect = $Background/Incoming
 @onready var _title: Label = $Content/Title
 @onready var _name_label: Label = $Content/PlayerNameLabel
 @onready var _name_input: LineEdit = $Content/PlayerName
+@onready var _avatar_picker: VBoxContainer = $Content/AvatarPicker
 @onready var _host_button: Button = $Content/HostButton
 @onready var _join_panel: PanelContainer = $Content/JoinPanel
 @onready var _code_input: LineEdit = $Content/JoinPanel/JoinFields/Code
@@ -25,6 +41,10 @@ var _busy := false
 
 
 func _ready() -> void:
+	item_rect_changed.connect(_layout_background)
+	_layout_background()
+	_start_slideshow()
+	_build_avatar_picker()
 	for button: Button in $Content.find_children("*", "Button", true, false):
 		MatchButtonArt.skin(button, MatchButtonArt.ACTION)
 	if _role_input.item_count == 0:
@@ -47,8 +67,59 @@ func _ready() -> void:
 	set_page(&"menu")
 
 
-func set_page(page: StringName, name_prefill: String = "") -> void:
+func _layout_background() -> void:
+	var bounds := get_global_transform().affine_inverse() * get_viewport_rect()
+	$Background.position = bounds.position
+	$Background.size = bounds.size
+
+
+func _start_slideshow() -> void:
+	_current_slide.texture = BACKGROUND_ART[_slide_index]
+	_slideshow = create_tween().set_loops()
+	_slideshow.tween_interval(SLIDE_HOLD_SECONDS)
+	_slideshow.tween_callback(func():
+		_slide_index = (_slide_index + 1) % BACKGROUND_ART.size()
+		_incoming_slide.texture = BACKGROUND_ART[_slide_index]
+	)
+	_slideshow.tween_property(_incoming_slide, "modulate:a", 1.0, SLIDE_FADE_SECONDS) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	_slideshow.tween_callback(func():
+		_current_slide.texture = _incoming_slide.texture
+		_incoming_slide.modulate.a = 0.0
+	)
+
+
+func _build_avatar_picker() -> void:
+	var choices := _avatar_picker.get_node("Choices")
+	var group := ButtonGroup.new()
+	for index in GameTypes.AVATAR_IDS.size():
+		var id: String = GameTypes.AVATAR_IDS[index]
+		var option := Button.new()
+		option.name = id
+		option.tooltip_text = "Avatar %d" % (index + 1)
+		option.icon = AvatarCatalog.front_texture(id)
+		option.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		option.expand_icon = true
+		option.add_theme_constant_override("icon_max_width", 92)
+		option.custom_minimum_size.y = 98
+		option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		option.toggle_mode = true
+		option.button_group = group
+		option.pressed.connect(_select_avatar.bind(id))
+		choices.add_child(option)
+		_avatar_buttons[id] = option
+
+
+func _select_avatar(id: String) -> void:
+	_avatar_id = id if id in GameTypes.AVATAR_IDS else GameTypes.default_avatar_id(0)
+	for option_id in _avatar_buttons:
+		_avatar_buttons[option_id].set_pressed_no_signal(option_id == _avatar_id)
+
+
+func set_page(page: StringName, name_prefill: String = "", avatar_prefill: String = "") -> void:
 	var main := page == &"menu"
+	$CreditsButton.visible = main
+	$MenuSurface.visible = not main
 	$Content/Logo.visible = main
 	_title.visible = not main
 	if page == &"create_lobby":
@@ -62,21 +133,25 @@ func set_page(page: StringName, name_prefill: String = "") -> void:
 		button.visible = main
 	_name_label.visible = not main
 	_name_input.visible = not main
+	_avatar_picker.visible = not main
 	_host_button.visible = page == &"create_lobby"
 	_join_panel.visible = page == &"join_lobby"
 	_back.visible = not main
 	_status.visible = not main
 	_status.text = ""
 	_name_input.text = name_prefill
+	_select_avatar(avatar_prefill)
 	_update_buttons()
-	if main:
-		$Content/CreateLobbyButton.grab_focus()
-	else:
+	if not main:
 		_name_input.grab_focus()
 
 
 func player_name() -> String:
 	return _name_input.text.strip_edges()
+
+
+func avatar_id() -> String:
+	return _avatar_id
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -146,5 +221,7 @@ func _update_buttons() -> void:
 	_name_input.editable = not _busy
 	_code_input.editable = not _busy
 	_role_input.disabled = _busy
+	for option: Button in _avatar_buttons.values():
+		option.disabled = _busy
 	_host_button.disabled = _busy or not has_name
 	_join_button.disabled = _busy or not has_name or normalized_code().length() != 6

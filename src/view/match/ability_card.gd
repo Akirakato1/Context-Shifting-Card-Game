@@ -11,6 +11,14 @@ const CATEGORY_NAMES := ["Manipulation", "Field", "Buff / Nerf", "Sabotage"]
 const CATEGORY_COLORS := [
 	Color("78cfe1"), Color("9ed7a3"), Color("c7abf2"), Color("f29a91"),
 ]
+const CATEGORY_SYMBOLS := [
+	preload("res://assets/artwork/card/card_symbol_manipulation.png"),
+	preload("res://assets/artwork/card/card_symbol_field.png"),
+	preload("res://assets/artwork/card/card_symbol_buff.png"),
+	preload("res://assets/artwork/card/card_symbol_sabotage.png"),
+]
+# Shared crop around the figures in the 1920 × 1080 card overlays.
+const CATEGORY_SYMBOL_REGION := Rect2(90, 120, 390, 880)
 const PHASE_NAMES := ["Hand Play", "Main 1", "Main 1 / Main 2", "Main 1"]
 const DEFAULT_ACCENT := Color("adbdcf")
 static var _art_frame := StyleBoxEmpty.new()
@@ -42,8 +50,11 @@ var _inventory_focused := false
 var _inventory_playable_highlight := false
 var _hovered := false
 var _rules_text := ""
+var _details_expanded := true
+var _fitted_category_symbol := AtlasTexture.new()
 
 @onready var _artwork: TextureRect = $Artwork
+@onready var _category_symbol: TextureRect = $Face/CategorySymbol
 @onready var _art_space: Control = $Face/ArtSpace
 @onready var _context_emblem: TextureRect = $Face/ArtSpace/ContextEmblem
 @onready var _copy: Control = $Face/Copy
@@ -58,6 +69,8 @@ var _rules_text := ""
 func _ready() -> void:
 	_artwork.draw.connect(_draw_placeholder)
 	_artwork.resized.connect(_artwork.queue_redraw)
+	_fitted_category_symbol.region = CATEGORY_SYMBOL_REGION
+	_fitted_category_symbol.filter_clip = true
 	_fallback_frame = get_theme_stylebox("panel").duplicate() as StyleBoxFlat
 	add_theme_stylebox_override("panel", _fallback_frame)
 	mouse_entered.connect(_on_mouse_entered)
@@ -101,6 +114,8 @@ func render(entry: Dictionary, ability_id: String, show_copies: bool, playable :
 	if _context_emblem.texture == null:
 		_context_emblem.texture = GameIcons.suit(int(entry.get("suit_emblem", -1)))
 	_context_emblem.visible = _context_emblem.texture != null
+	_fitted_category_symbol.atlas = CATEGORY_SYMBOLS[timing] if valid_timing else null
+	_update_category_symbol_layout()
 	if inventory_layout:
 		modulate = Color.WHITE if playable else Color("b7bdc8")
 	_artwork.queue_redraw()
@@ -120,6 +135,7 @@ func set_inventory_playable_highlight(highlighted: bool) -> void:
 
 
 func set_tray_details(expanded: bool) -> void:
+	_details_expanded = expanded
 	custom_minimum_size.y = 0.0
 	_timing.visible = expanded
 	_rules.visible = expanded
@@ -131,6 +147,7 @@ func set_tray_details(expanded: bool) -> void:
 	_copy_layout.alignment = BoxContainer.ALIGNMENT_BEGIN if expanded else BoxContainer.ALIGNMENT_CENTER
 	_art_space.anchor_top = 0.73 if expanded else 0.15
 	_art_space.anchor_bottom = 0.93 if expanded else 0.85
+	_update_category_symbol_layout()
 	_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_title.max_lines_visible = 2
 	_title.add_theme_font_size_override("font_size", 26)
@@ -141,6 +158,30 @@ func set_tray_details(expanded: bool) -> void:
 		_rules.add_theme_font_size_override("normal_font_size", 16)
 		GameIcons.write(_rules, _rules_text)
 	tooltip_text = "%s\n%s\n%s" % [_title.text, _timing.text, _rules_text] if expanded else _title.text
+
+
+func _update_category_symbol_layout() -> void:
+	var source := _fitted_category_symbol.atlas
+	_category_symbol.visible = source != null
+	if source == null:
+		_category_symbol.texture = null
+		return
+
+	# The full overlay registers with the expanded card face. Fit the cropped
+	# figure when the tray crops the background or an emblem shares the artwork.
+	var fitted := not _details_expanded or _context_emblem.visible
+	var bounds := Rect2(0, 0, 1, 1)
+	if _details_expanded and _context_emblem.visible:
+		bounds = Rect2(0.09, 0.12, 0.16, 0.59)
+	elif not _details_expanded:
+		bounds = Rect2(0.02, 0.07, 0.095, 0.86) if _context_emblem.visible else Rect2(0.055, 0.07, 0.185, 0.86)
+
+	_category_symbol.texture = _fitted_category_symbol if fitted else source
+	_category_symbol.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED if fitted else TextureRect.STRETCH_SCALE
+	_category_symbol.anchor_left = bounds.position.x
+	_category_symbol.anchor_top = bounds.position.y
+	_category_symbol.anchor_right = bounds.end.x
+	_category_symbol.anchor_bottom = bounds.end.y
 
 
 func tray_height(width: float, expanded: bool) -> float:
@@ -210,7 +251,7 @@ func _draw_placeholder() -> void:
 	var center := Vector2(art_width * 0.5, _artwork.size.y * 0.5)
 	var ink := _accent.darkened(0.23)
 	_artwork.draw_rect(Rect2(Vector2.ZERO, Vector2(art_width, _artwork.size.y)), _accent.darkened(0.84))
-	if _context_emblem.visible:
+	if _context_emblem.visible or _category_symbol.visible:
 		return
 	var symbol_scale := minf(1.0, art_width / 60.0)
 	_artwork.draw_arc(center, 27.0 * symbol_scale, 0.0, TAU, 40, Color(ink, 0.35), 1.0, true)

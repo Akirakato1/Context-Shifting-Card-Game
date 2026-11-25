@@ -9,6 +9,7 @@ signal connection_state_changed(state: Dictionary)
 signal leave_completed
 
 const GameTypes = preload("res://src/core/common/game_types.gd")
+const CommandKinds = preload("res://src/core/commands/command_kinds.gd")
 const AbilityCatalog = preload("res://src/core/abilities/ability_catalog.gd")
 const ContextHandCatalog = preload("res://src/core/scoring/context_hand_catalog.gd")
 const ScoringReference = preload("res://src/view/app/scoring_reference.gd")
@@ -29,6 +30,7 @@ const MATCH_ID := "shift-match"
 const HOST_PLAYER_ID := &"host"
 const RECONNECT_MESSAGE_ID := "runtime-reconnect-message"
 const LEAVE_MESSAGE_ID := "runtime-leave-message"
+const AVATAR_MESSAGE_ID := "runtime-avatar-message"
 const LEAVE_ACK_TIMEOUT_MSEC := 1000
 
 var _transport: Variant
@@ -37,6 +39,8 @@ var _mode := ""
 var _role := "active"
 var _local_player_id: StringName = &""
 var _local_display_name := ""
+var _local_avatar_id := ""
+var _sent_avatar := false
 var _room_code := ""
 var _signaling_url := ""
 var _host_session: Variant
@@ -71,14 +75,18 @@ func _init(
 	_transport_factory = transport_factory
 
 
-func start_host(signaling_url: String, display_name: String) -> Error:
-	if not _mode.is_empty() or signaling_url.is_empty() or display_name.strip_edges().is_empty():
+func start_host(signaling_url: String, display_name: String, avatar_id: String = "") -> Error:
+	if (
+		not _mode.is_empty() or signaling_url.is_empty() or display_name.strip_edges().is_empty()
+		or (not avatar_id.is_empty() and avatar_id not in GameTypes.AVATAR_IDS)
+	):
 		return ERR_INVALID_PARAMETER
 	_mode = "host"
 	_signaling_url = signaling_url
 	_role = "active"
 	_local_player_id = HOST_PLAYER_ID
 	_local_display_name = display_name.strip_edges().left(32)
+	_local_avatar_id = avatar_id
 	_display_names[HOST_PLAYER_ID] = _local_display_name
 	_ensure_transport()
 	_wire_transport()
@@ -90,11 +98,13 @@ func start_join(
 	signaling_url: String,
 	room_code: String,
 	role: String,
-	display_name: String
+	display_name: String,
+	avatar_id: String = ""
 ) -> Error:
 	if (
 		not _mode.is_empty() or signaling_url.is_empty() or room_code.is_empty()
 		or role not in ["active", "spectator"] or display_name.strip_edges().is_empty()
+		or (not avatar_id.is_empty() and avatar_id not in GameTypes.AVATAR_IDS)
 	):
 		return ERR_INVALID_PARAMETER
 	_mode = "client"
@@ -102,6 +112,7 @@ func start_join(
 	_role = role
 	_room_code = room_code.to_upper()
 	_local_display_name = display_name.strip_edges().left(32)
+	_local_avatar_id = avatar_id
 	_reconnect_store.clear()
 	_ensure_transport()
 	_wire_transport()
@@ -204,7 +215,7 @@ func submit_command(message_id: String, command: Dictionary) -> Error:
 		"accepted": result.accepted,
 		"error_code": str(result.error_code),
 	})
-	if result.accepted:
+	if result.accepted and game_command.kind != CommandKinds.UPDATE_HAND_DRAFT:
 		_host_session.publish_state_change(result.events)
 	return OK
 
@@ -486,6 +497,7 @@ func _on_peer_connected(peer_id: String) -> void:
 func _create_host_authority(first_peer_id: String) -> void:
 	var config := _build_config([HOST_PLAYER_ID, StringName(first_peer_id)])
 	var state := MatchState.create(config, int(Time.get_unix_time_from_system()))
+	state.players[HOST_PLAYER_ID].avatar_id = _local_avatar_id
 	state.config.match_started = false
 	_controller = MatchController.new(state)
 	_host_session = HostNetworkSession.new(
@@ -543,6 +555,13 @@ func _on_client_snapshot(snapshot: Dictionary, sequence: int) -> void:
 	var rendered := snapshot.duplicate(true)
 	if not rendered.has("connection_state"):
 		rendered["connection_state"] = {"status": "connected", "reason": ""}
+	if not _sent_avatar and not _reconnect_pending and not _local_avatar_id.is_empty():
+		_sent_avatar = true
+		_client_session.submit_command(AVATAR_MESSAGE_ID, {
+			"command_id": "runtime-avatar-command",
+			"kind": str(CommandKinds.SET_AVATAR),
+			"payload": {"avatar_id": _local_avatar_id},
+		})
 	snapshot_applied.emit(rendered, sequence)
 
 
@@ -620,6 +639,7 @@ func _emit_lobby_snapshot() -> void:
 	_local_sequence += 1
 	var players: Array = [{
 		"player_id": str(HOST_PLAYER_ID), "name": _local_display_name,
+		"avatar_id": _local_avatar_id,
 		"is_host": true,
 		"role": "active", "spectator": false, "active": true,
 		"pending": false, "connected": true, "ready": false,
@@ -716,7 +736,7 @@ func _default_settings() -> Dictionary:
 		"victory_mode": GameTypes.VictoryMode.SCORE_RACE,
 		"victory_target": GameTypes.default_victory_target(GameTypes.VictoryMode.SCORE_RACE),
 		"information_visibility": GameTypes.InformationVisibility.PUBLIC,
-		"no_time_limit": false,
+		"no_time_limit": true,
 		"start_timer_msec": 20_000,
 		"main_timer_msec": 30_000,
 		"hand_timer_msec": 45_000,

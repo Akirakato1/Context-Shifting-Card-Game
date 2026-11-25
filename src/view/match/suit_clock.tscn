@@ -1,0 +1,64 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://src/view/match/suit_clock.gd" id="1_script"]
+[ext_resource type="Texture2D" path="res://assets/artwork/board/suit_compass.png" id="2_dial"]
+[ext_resource type="Texture2D" path="res://assets/artwork/board/clock_directionarrow_1.png" id="3_direction"]
+
+[node name="SuitClock" type="Control"]
+layout_mode = 0
+offset_right = 72.0
+offset_bottom = 72.0
+mouse_filter = 1
+tooltip_text = "Suit clock\nMountain → Cloud → Sea → Mountain"
+script = ExtResource("1_script")
+
+[node name="Dial" type="TextureRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+texture = ExtResource("2_dial")
+expand_mode = 1
+
+[node name="Direction" type="TextureRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+texture = ExtResource("3_direction")
+expand_mode = 1
+
+[node name="Mountain" type="TextureRect" parent="."]
+self_modulate = Color(1, 0.81, 0.27, 1)
+layout_mode = 1
+anchor_left = 0.366
+anchor_top = 0.10
+anchor_right = 0.634
+anchor_bottom = 0.368
+mouse_filter = 2
+expand_mode = 1
+stretch_mode = 5
+
+[node name="Cloud" type="TextureRect" parent="."]
+self_modulate = Color(1, 0.81, 0.27, 1)
+layout_mode = 1
+anchor_left = 0.624
+anchor_top = 0.509
+anchor_right = 0.892
+anchor_bottom = 0.777
+mouse_filter = 2
+expand_mode = 1
+stretch_mode = 5
+
+[node name="Sea" type="TextureRect" parent="."]
+self_modulate = Color(1, 0.81, 0.27, 1)
+layout_mode = 1
+anchor_left = 0.153
+anchor_top = 0.514
+anchor_right = 0.421
+anchor_bottom = 0.782
+mouse_filter = 2
+expand_mode = 1
+stretch_mode = 5

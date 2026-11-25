@@ -359,8 +359,8 @@ func _show_award(result: Dictionary, model: Dictionary) -> void:
 	var message := "No match progress awarded"
 	for player: Dictionary in model.get("players", []):
 		if str(player.get("player_id", "")) == winner:
-			var points := int(result.get("scores", {}).get(winner, 0))
-			var award := "+1 win" if int(model.get("victory_mode", 0)) == 1 else "+%d points" % points
+			var points := int(result.get("points_awarded", result.get("scores", {}).get(winner, 0)))
+			var award := "+1 win" if int(model.get("victory_mode", 0)) == 1 else "+%d match points" % points
 			message = "%s  %s" % [player.get("name", "Player"), award]
 			break
 	_show_score_message(message)

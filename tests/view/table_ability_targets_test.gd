@@ -67,29 +67,48 @@ func test_board_targets_only_accept_the_lit_areas_after_priming() -> void:
 	await Engine.get_main_loop().process_frame
 
 
-func test_real_click_selects_an_opponent_seat_only_while_targeting() -> void:
+func test_real_click_and_keyboard_select_an_opponent_avatar_only_while_targeting() -> void:
 	var viewport := SubViewport.new()
-	viewport.size = Vector2i(400, 200)
+	viewport.size = Vector2i(400, 220)
 	Engine.get_main_loop().root.add_child(viewport)
 	var seat := SEAT.instantiate() as PlayerSeat
 	viewport.add_child(seat)
 	seat.position = Vector2(20, 20)
 	seat.size = Vector2(300, 60)
-	seat.render({"player_id": "north", "name": "North"}, 2, false, false, 0)
+	seat.seat_position = &"left"
+	seat.render({"player_id": "north", "name": "North", "avatar_id": "avatar_2"}, 2, false, false, 0)
 	await Engine.get_main_loop().process_frame
 
 	var selected: Array[String] = []
 	seat.ability_target_requested.connect(func(player_id: String): selected.append(player_id))
 	var point: Vector2 = seat.ability_target_rect().get_center()
+	var avatar := seat.get_node_or_null("Avatar") as TextureRect
+	assert_true(avatar != null and avatar.texture != null and avatar.visible)
+	if avatar != null:
+		var portrait: TextureRect = avatar.get_node("Portrait")
+		assert_true(portrait.flip_h, "The left-side avatar faces into the table")
+		assert_eq(avatar.texture.resource_path.get_file(), "portrait_frame.png")
+		assert_true(portrait.texture != null and avatar.get_global_rect().encloses(portrait.get_global_rect()))
+		assert_true(seat.ability_target_rect().encloses(avatar.get_global_rect()))
+		point = avatar.get_global_rect().get_center()
 	seat.set_ability_target(true)
 	_send_click(viewport, point)
 	assert_true(selected.is_empty())
 	seat.set_ability_target(true, false, true)
 	_send_click(viewport, point)
 	assert_eq(selected, ["north"])
+	assert_true(seat.has_focus())
+	var activate := InputEventAction.new()
+	activate.action = &"ui_accept"
+	activate.pressed = true
+	viewport.push_input(activate, true)
+	assert_eq(selected, ["north", "north"])
 	seat.render({}, 2, false, false, 0)
 	_send_click(viewport, point)
-	assert_eq(selected, ["north"])
+	assert_eq(selected, ["north", "north"])
+	assert_false(seat.has_focus())
+	if avatar != null:
+		assert_false(avatar.visible)
 	viewport.queue_free()
 	await Engine.get_main_loop().process_frame
 

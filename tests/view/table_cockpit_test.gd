@@ -16,6 +16,8 @@ func test_cockpit_keeps_card_rectangles_between_phases() -> void:
 		var original := card.get_global_rect()
 		model.phase = 3
 		table.render(model)
+		var phase_motion: Tween = table.get_node("PhaseBadge").get("_motion")
+		phase_motion.custom_step(1.0)
 		await Engine.get_main_loop().process_frame
 		assert_eq(controls.card_widget(&"a").get_global_rect(), original)
 		assert_eq(table.get_node("PhaseBadge/Phase").text, "HAND PLAY")
@@ -58,11 +60,26 @@ func test_table_art_covers_the_hotbar_seam_and_uses_context_shades() -> void:
 	if board != null:
 		assert_eq(board.resource_path.get_file(), "board.png")
 		var source: Rect2 = scenery.get("table_source_region")
+		var board_layer := scenery.get_node("BoardArt") as TextureRect
+		var shade_layer := scenery.get_node("ContextShade") as ColorRect
+		var design_size: Vector2 = constants["BASE"]
+		var view_scale: Vector2 = scenery.size / design_size
+		var scale_per_pixel := board_layer.size / board.get_size()
+		assert_eq(board_layer.texture, board, "Render the full board texture, including both lower rails")
+		assert_eq(shade_layer.get_rect(), board_layer.get_rect())
+		var shade_material := shade_layer.material as ShaderMaterial
+		for context in ["rise", "flourish", "fall"]:
+			assert_eq(shade_material.get_shader_parameter(context + "_region"), Vector4(0, 0, 1, 1))
+		assert_true((board_layer.position + source.position * scale_per_pixel).is_equal_approx(rect.position * view_scale))
+		assert_true((board_layer.position + source.end * scale_per_pixel).is_equal_approx(rect.end * view_scale))
 		var board_pixels := board.get_image()
 		var seam_row := floori(source.position.y + (709.0 - rect.position.y) / rect.size.y * source.size.y)
 		for fraction in [0.25, 0.5, 0.75]:
 			var column := floori(source.position.x + source.size.x * fraction)
 			assert_true(board_pixels.get_pixel(column, seam_row).a > 0.95, "Table art should reach the hotbar")
+		for rail_column in [210, 2865]:
+			assert_true(board_pixels.get_pixel(rail_column, seam_row).a > 0.95,
+				"Both wooden rails extend beyond the reference region at the hotbar")
 	var shades: Array = scenery.get("table_shading") if scenery.get("table_shading") != null else []
 	assert_eq(shades.map(func(texture: Texture2D): return texture.resource_path.get_file()), [
 		"board_shade_blue.png", "board_shade_green.png", "board_shade_red.png",
@@ -80,7 +97,6 @@ func test_table_art_covers_the_hotbar_seam_and_uses_context_shades() -> void:
 	var button_assets := {
 		"MenuButton": "button_4.png",
 		"MatchMenu/Options/Settings": "button_4.png",
-		"AbilityHistory/Toggle": "button_2.png",
 		"HelpButton": "button_3.png",
 		"PhaseControls/MainControls/ReadyButton": "button_4.png",
 	}
@@ -90,6 +106,18 @@ func test_table_art_covers_the_hotbar_seam_and_uses_context_shades() -> void:
 			var style := button.get_theme_stylebox(state) as StyleBoxTexture
 			assert_true(style != null and style.texture.resource_path.get_file() == button_assets[button_path])
 	var menu := table.get_node("MatchMenu") as PanelContainer
+	var history: Button = table.get_node("AbilityHistory/Toggle")
+	assert_eq(history.icon.resource_path.get_file(), "history_scroll.png")
+	assert_eq(history.text, "")
+	var clock_bounds: Rect2 = scenery.call("clock_rect")
+	var clock_center := clock_bounds.get_center()
+	var history_center := history.get_global_rect().get_center()
+	assert_true(history_center.x > clock_center.x and history_center.y > clock_center.y)
+	assert_false(history.get_global_rect().intersects(tray.get_global_rect()))
+	assert_true(table.get_node("Header/Timer").get_global_rect().position.x > table.get_node("PhaseBadge").get_global_rect().end.x)
+	var round_badge: PhaseSign = table.get_node("RoundBadge")
+	assert_true(round_badge.get_node("UpperChains").position.y + round_badge.resting_y <= 0.0)
+	assert_true(round_badge.get_index() < table.get_node("PhaseBadge").get_index())
 	assert_eq(menu.get_theme_stylebox("panel").texture.resource_path.get_file(), "button_5.png")
 	table.queue_free()
 	await Engine.get_main_loop().process_frame

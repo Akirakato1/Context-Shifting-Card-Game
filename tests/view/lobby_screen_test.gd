@@ -4,6 +4,29 @@ const MAIN_MENU_PATH := "res://src/view/lobby/main_menu_screen.tscn"
 const LOBBY_PATH := "res://src/view/lobby/lobby_screen.tscn"
 
 
+func test_menu_slideshow_crossfades_through_all_three_contexts_and_loops() -> void:
+	var menu = await _mount(MAIN_MENU_PATH)
+	if menu == null:
+		return
+	var current := menu.get_node_or_null("Background/Current") as TextureRect
+	var incoming := menu.get_node_or_null("Background/Incoming") as TextureRect
+	assert_true(current != null and incoming != null, "The slideshow has two background layers")
+	if current != null and incoming != null:
+		var slideshow: Tween = menu.get("_slideshow")
+		slideshow.pause()
+		assert_eq(current.texture.resource_path.get_file(), "background_rise.png")
+		assert_eq(incoming.modulate.a, 0.0)
+		for name in ["background_flourish.png", "background_fall.png", "background_rise.png"]:
+			slideshow.custom_step(menu.SLIDE_HOLD_SECONDS + menu.SLIDE_FADE_SECONDS * 0.5)
+			assert_eq(incoming.texture.resource_path.get_file(), name)
+			assert_true(incoming.modulate.a > 0.0 and incoming.modulate.a < 1.0)
+			assert_false(current.texture == incoming.texture)
+			slideshow.custom_step(menu.SLIDE_FADE_SECONDS * 0.5 + 0.01)
+			assert_eq(current.texture.resource_path.get_file(), name)
+			assert_eq(incoming.modulate.a, 0.0)
+	await _unmount(menu)
+
+
 func test_lobby_settings_page_stays_open_when_roster_snapshot_updates() -> void:
 	var lobby = await _mount(LOBBY_PATH)
 	lobby.render(_lobby_model(true, false, 2, 0))
@@ -28,9 +51,12 @@ func test_main_menu_normalizes_join_code_and_blocks_duplicate_confirmation() -> 
 	assert_true(logo != null and logo.is_visible_in_tree())
 	if logo != null:
 		assert_eq((logo.texture as AtlasTexture).atlas.resource_path, "res://assets/artwork/logo.png")
+		assert_true(logo.size.x >= 460.0, "The home page uses the larger logo and subtitle")
+		assert_false(menu.get_node("MenuSurface").visible)
 		assert_false(menu.get_node("Content/Title").visible)
 		menu.set_page(&"join_lobby")
 		assert_false(logo.visible)
+		assert_true(menu.get_node("MenuSurface").visible)
 		assert_true(menu.get_node("Content/Title").visible)
 	var joins: Array[Dictionary] = []
 	menu.join_requested.connect(func(name: String, code: String, role: String):

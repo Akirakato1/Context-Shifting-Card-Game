@@ -68,6 +68,8 @@ func submit(command: GameCommand, now_msec: int) -> CommandResult:
 		return _record_result(_join_active(command))
 	if command != null and command.kind == CommandKinds.JOIN_SPECTATOR:
 		return _record_result(_join_spectator(command))
+	if command != null and command.kind == CommandKinds.SET_AVATAR:
+		return _set_avatar(command)
 	if command != null and command.kind == CommandKinds.RECONNECT:
 		return _record_result(_submit_reconnect(command, now_msec))
 	if command != null and command.kind == CommandKinds.FORFEIT:
@@ -188,6 +190,23 @@ func _validate_lifecycle_command(command: GameCommand) -> StringName:
 	return &""
 
 
+func _set_avatar(command: GameCommand) -> CommandResult:
+	var error := _validate_lifecycle_command(command)
+	if not error.is_empty():
+		return CommandResult.new(false, error)
+	var player: PlayerState = state.players[command.player_id]
+	var avatar: Variant = command.payload.get("avatar_id")
+	if not avatar is String or avatar not in GameTypes.AVATAR_IDS:
+		return CommandResult.new(false, &"invalid_avatar")
+	if not player.avatar_id.is_empty():
+		return CommandResult.new(false, &"avatar_already_set")
+	if not (player.active or player.pending or player.spectator):
+		return CommandResult.new(false, &"not_active_player")
+	player.avatar_id = avatar
+	_accepted_command_ids[command.player_id][command.command_id] = true
+	return CommandResult.new(true)
+
+
 func _is_identifier(value: Variant) -> bool:
 	return value is String or value is StringName
 
@@ -206,6 +225,7 @@ func _command_allowed_in_current_phase(kind: StringName) -> bool:
 			return kind in [
 				CommandKinds.STAGE_MANIPULATION, CommandKinds.CANCEL_MANIPULATION,
 				CommandKinds.COMMIT_MANIPULATION, CommandKinds.STAGE_HAND,
+				CommandKinds.UPDATE_HAND_DRAFT,
 				CommandKinds.LOCK_HAND, CommandKinds.UNLOCK_HAND,
 			]
 		GameTypes.Phase.END:
@@ -523,6 +543,7 @@ func _begin_end(now_msec: int) -> Array[DomainEvent]:
 	_end_transaction_active = true
 	var events: Array[DomainEvent] = []
 	var final_scores := {}
+	var previous_match_scores := {}
 	for player_id in state.seat_order:
 		var player = state.players[player_id]
 		if not player.active or player.pending:
@@ -530,12 +551,17 @@ func _begin_end(now_msec: int) -> Array[DomainEvent]:
 		player.provisional_score = _calculate_player_score(player)
 		player.finalized_score = player.provisional_score.final_score
 		final_scores[player_id] = player.finalized_score
+		previous_match_scores[player_id] = player.match_score
 	state.last_round_winner_id = state.resolve_round(final_scores)
-	events.append(DomainEvent.new(EventKinds.ROUND_FINALIZED, {
+	var outcome := {
 		"scores": _string_key_scores(final_scores),
 		"round_number": state.round_number,
 		"winner_id": str(state.last_round_winner_id),
-	}, &"public"))
+	}
+	if state.config.victory_mode == GameTypes.VictoryMode.SCORE_RACE:
+		var winner := state.last_round_winner_id
+		outcome["points_awarded"] = 0 if winner.is_empty() else state.players[winner].match_score - previous_match_scores[winner]
+	events.append(DomainEvent.new(EventKinds.ROUND_FINALIZED, outcome, &"public"))
 	if end_transaction_probe.is_valid():
 		end_transaction_probe.call()
 		end_transaction_probe = Callable()
@@ -555,6 +581,7 @@ func _begin_end(now_msec: int) -> Array[DomainEvent]:
 		player.pending_manipulation.clear()
 		player.staged_submission.clear()
 		player.has_staged_submission = false
+		player.deadline_submission = null
 		player.hand_locked = false
 		player.abilities_disabled = false
 		player.completed_manipulation_ids.clear()
@@ -775,6 +802,7 @@ func reset_for_rematch(new_seed: int, lobby_phase: int = GameTypes.Phase.SETUP) 
 			var player: PlayerState = state.players[player_id]
 			var old_player: PlayerState = previous.players[player_id]
 			player.reconnect_token = old_player.reconnect_token
+			player.avatar_id = old_player.avatar_id
 			player.connected = old_player.connected
 			player.disconnect_deadline_msec = old_player.disconnect_deadline_msec
 		if not _accepted_command_ids.has(player_id):
@@ -918,6 +946,7 @@ func _forfeit_player(player_id: StringName) -> Array[DomainEvent]:
 	events.append_array(_discard_abilities(player_id, discarded))
 	player.pending_manipulation.clear()
 	player.staged_submission.clear()
+	player.deadline_submission = null
 	player.submission_locked_card_ids.clear()
 	player.end_discard_copy_ids.clear()
 	player.submitted_cards.clear()
@@ -1018,6 +1047,11 @@ func _submit_hand_play(command: GameCommand, now_msec: int) -> CommandResult:
 			return _commit_manipulation(command, now_msec)
 		CommandKinds.STAGE_HAND:
 			return _stage_hand(command, now_msec)
+		CommandKinds.UPDATE_HAND_DRAFT:
+			var round_number: Variant = command.payload.get("round_number")
+			if not round_number is int or round_number != state.round_number:
+				return CommandResult.new(false, &"invalid_draft_round")
+			return _stage_hand(command, now_msec, true)
 		CommandKinds.LOCK_HAND:
 			if not state.players[command.player_id].pending_manipulation.is_empty():
 				return CommandResult.new(false, &"manipulation_incomplete")
@@ -1109,7 +1143,7 @@ func _configure_joker(command: GameCommand) -> CommandResult:
 	return CommandResult.new(true)
 
 
-func _stage_hand(command: GameCommand, now_msec: int) -> CommandResult:
+func _stage_hand(command: GameCommand, now_msec: int, for_deadline := false) -> CommandResult:
 	if not command.payload.has("cards") or not command.payload.cards is Array:
 		return CommandResult.new(false, &"malformed_command")
 	var selections: Array = command.payload.cards
@@ -1142,7 +1176,7 @@ func _stage_hand(command: GameCommand, now_msec: int) -> CommandResult:
 	if not evaluation.is_valid:
 		return CommandResult.new(false, evaluation.error_code)
 	_ensure_phase_clock(now_msec)
-	player.staged_submission.clear()
+	var normalized_submission: Array[Dictionary] = []
 	for index in candidate.size():
 		var selection: Dictionary = candidate[index]
 		var card := evaluation.submitted_cards[index]
@@ -1150,23 +1184,29 @@ func _stage_hand(command: GameCommand, now_msec: int) -> CommandResult:
 		for choice: Dictionary in selection.joker_choices:
 			var half := card.half_at(choice.half_index)
 			var rank: int = choice.get("rank", half.joker_rank)
-			half.set_joker_choice(choice.context, choice.suit, rank)
+			if not for_deadline:
+				half.set_joker_choice(choice.context, choice.suit, rank)
 			var canonical := {
 				"half_index": choice.half_index,
 				"context": choice.context,
 				"suit": choice.suit,
 			}
-			if rank > 0:
+			if rank > 0 or for_deadline:
 				canonical["rank"] = rank
 			canonical_choices.append(canonical)
 		canonical_choices.sort_custom(func(left: Dictionary, right: Dictionary):
 			return left.half_index < right.half_index
 		)
-		player.staged_submission.append({
+		normalized_submission.append({
 			"card_id": StringName(selection.card_id), "half_index": selection.half_index,
 			"joker_choices": canonical_choices,
 		})
-	player.has_staged_submission = true
+	if for_deadline:
+		player.deadline_submission = normalized_submission
+	else:
+		player.staged_submission = normalized_submission
+		player.has_staged_submission = true
+		player.deadline_submission = null
 	return CommandResult.new(true)
 
 
@@ -1242,7 +1282,11 @@ func _finish_hand_play(now_msec: int) -> Array[DomainEvent]:
 			continue
 		player.pending_manipulation.clear()
 		if not player.hand_locked:
+			if player.deadline_submission is Array:
+				player.staged_submission.assign(player.deadline_submission)
+				player.has_staged_submission = true
 			_lock_player_hand(player_id, true)
+		player.deadline_submission = null
 	return _resolve_hand_play(now_msec)
 
 

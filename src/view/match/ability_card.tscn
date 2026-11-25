@@ -49,6 +49,15 @@ stretch_mode = 0
 layout_mode = 2
 mouse_filter = 2
 
+[node name="CategorySymbol" type="TextureRect" parent="Face"]
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+expand_mode = 1
+
 [node name="ArtSpace" type="Control" parent="Face"]
 layout_mode = 1
 anchor_left = 0.12

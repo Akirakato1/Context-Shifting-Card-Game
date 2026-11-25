@@ -20,6 +20,9 @@ func test_tutorial_plays_three_fixed_rounds_through_the_match_controller() -> vo
 	assert_eq(state.phase, Types.Phase.MAIN_1)
 	assert_eq(state.phase_deadline_msec, -1)
 	assert_false(_send(&"set_ready", {"ready": true}).accepted)
+	_session.advance_lesson()
+	var controls_lesson: String = _session._current_lesson().body
+	assert_true(controls_lesson.contains("scroll") and controls_lesson.contains("round scores"))
 	_read_steps()
 
 	_play(&"rise_ascendancy")
@@ -59,6 +62,8 @@ func test_tutorial_plays_three_fixed_rounds_through_the_match_controller() -> vo
 	_draw({0: 1, 2: 5})
 	assert_eq(player.ability_hand.size(), 5)
 	_ready_up()
+	var suit_lesson: String = _session._current_lesson().body
+	assert_true(suit_lesson.contains("suit clock") and suit_lesson.contains("Mountain → Cloud → Sea → Mountain"))
 	_manipulate(&"suit_imprint", 4, 0)
 	_manipulate(&"ride_the_cycle", 5)
 	var joker_pick := _pick(3, 0)

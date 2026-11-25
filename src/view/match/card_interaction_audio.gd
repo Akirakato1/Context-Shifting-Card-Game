@@ -19,11 +19,22 @@ const CUES := {
 	&"score_multiplier": [CARD_PACK + "mult_up_01.wav", -20.0, 1.0, 0.0],
 	&"clock_tick": [CARD_PACK + "deck_tap_01.wav", -18.0, 1.18, 0.0],
 	&"clock_reverse": [PACK + "Piece Move - 2.wav", -17.0, 0.92, 0.0],
+	&"phase_sign_land": [PACK + "Piece Impact - 1.wav", -19.0, 0.82, 0.0],
+	&"phase_chain_drop": ["res://assets/sound_effects/phase_chain_drop.wav", -15.0, 1.0, 0.0],
+	&"phase_chain_pull": ["res://assets/sound_effects/phase_chain_pull.wav", -15.0, 1.0, 0.0],
+	&"match_countdown": ["res://assets/sound_effects/match_countdown.wav", -13.0, 1.0, 0.0],
 	&"round_win": [CARD_PACK + "hand_win_01.wav", -15.0, 1.0, 0.0],
 	&"round_loss": [CARD_PACK + "hand_lose_01.wav", -19.0, 1.0, 0.0],
 	&"prime": [PACK + "Deck Deal - 2.wav", -11.0, 1.36, 0.010],
 	&"unprime": [PACK + "Dice Pickup - 2.wav", -16.0, 0.95, 0.045],
 	&"play": [PACK + "Piece Impact - 2.wav", -10.0, 0.92, 0.041],
+}
+const PACK_FALLBACKS := {
+	&"clock_reverse": CARD_PACK + "card_flip_01.wav",
+	&"phase_sign_land": CARD_PACK + "deck_tap_01.wav",
+	&"prime": CARD_PACK + "card_deal_01.wav",
+	&"unprime": CARD_PACK + "dice_shake_01.wav",
+	&"play": CARD_PACK + "card_place_01.wav",
 }
 const HOVER_COOLDOWN_MSEC := 95
 
@@ -37,7 +48,9 @@ func _ready() -> void:
 	for cue in CUES:
 		var settings: Array = CUES[cue]
 		var path: String = settings[0]
-		if ResourceLoader.exists(path):
+		if not ResourceLoader.exists(path):
+			path = PACK_FALLBACKS.get(cue, "")
+		if not path.is_empty() and ResourceLoader.exists(path):
 			_add_player(cue, load(path) as AudioStream, settings[1], settings[2])
 	_add_player(&"invalid", _soft_buzz(), -16.0, 1.0)
 	for cue in [&"draw", &"deal"]:

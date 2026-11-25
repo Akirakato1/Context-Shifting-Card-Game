@@ -28,5 +28,7 @@ static func surface(texture: Texture2D, tint: Color = Color.WHITE) -> StyleBoxTe
 
 static func skin(button: Button, texture: Texture2D) -> void:
 	button.flat = false
+	if button.mouse_default_cursor_shape == Control.CURSOR_ARROW:
+		button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	for state: String in STATE_TINTS:
 		button.add_theme_stylebox_override(state, surface(texture, STATE_TINTS[state]))

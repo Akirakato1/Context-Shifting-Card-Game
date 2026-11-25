@@ -27,6 +27,7 @@ var _pending_draws: Dictionary[StringName, bool] = {}
 var _card_targets: Dictionary[StringName, Vector2] = {}
 var _card_tweens: Dictionary[StringName, Tween] = {}
 var _expanded := false
+var _target_behind_drawer := false
 var _input_locked := false
 var _focused_id: StringName
 var _activating_id: StringName
@@ -139,7 +140,6 @@ func render(abilities: Array, phase: int, catalog: Dictionary, input_locked: boo
 		card.set_inventory_playable_highlight(playable and phase == GameTypes.Phase.MAIN_1)
 		_update_card_details(copy_id)
 		_update_draw_presentation(copy_id)
-	_drawer.visible = _expanded
 	_update_toggle()
 	_update_discard_controls()
 	_layout_cards()
@@ -149,7 +149,13 @@ func open_drawer() -> void:
 	if _expanded or _abilities.is_empty():
 		return
 	_expanded = true
-	_drawer.show()
+	_update_toggle()
+
+
+func set_target_behind_drawer(behind_drawer: bool) -> void:
+	if _target_behind_drawer == behind_drawer:
+		return
+	_target_behind_drawer = behind_drawer
 	_update_toggle()
 
 
@@ -220,7 +226,6 @@ func _set_all_details(enabled: bool) -> void:
 		_update_card_details(copy_id)
 	if enabled and not _abilities.is_empty():
 		_expanded = true
-		_drawer.show()
 	_details_mode.icon = DETAILS_EYE_HIDDEN if enabled else DETAILS_EYE
 	_details_mode.tooltip_text = "Hide all ability descriptions" if enabled else "Show all ability descriptions"
 	_update_toggle()
@@ -382,12 +387,12 @@ func _on_toggle_pressed() -> void:
 	_finish_drag(false)
 	_set_focused_id(&"")
 	_expanded = not _expanded
-	_drawer.visible = _expanded
 	_update_toggle()
 
 
 func _update_toggle() -> void:
-	_toggle.text = "ABILITIES  %d  %s" % [_abilities.size(), "▼" if _expanded else "▲"]
+	_drawer.visible = _expanded and (_discarding or not _target_behind_drawer)
+	_toggle.text = "ABILITIES  %d  %s" % [_abilities.size(), "▼" if _drawer.visible else "▲"]
 	_toggle.disabled = _discarding or (_abilities.is_empty() and not _expanded)
 	_details_mode.disabled = _abilities.is_empty()
 

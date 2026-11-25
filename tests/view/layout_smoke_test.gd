@@ -34,6 +34,16 @@ func test_full_table_stays_inside_supported_landscape_sizes() -> void:
 			"Center", "PhaseControls", "AbilityPanel/ToggleButton",
 		]:
 			_assert_inside(table.get_node(path), Rect2(Vector2.ZERO, viewport_size), "%s at %s" % [path, viewport_size])
+		for path in ["TopSeat", "LeftSeat", "RightSeat"]:
+			var seat: Control = table.get_node("TableLayer/" + path)
+			var avatar := seat.get_node_or_null("Avatar") as TextureRect
+			assert_true(avatar != null and avatar.texture != null and avatar.is_visible_in_tree())
+			if avatar != null:
+				var name_label: Label = seat.get_node("Info/Name")
+				var tally: Label = seat.get_node("Summary/SeatTally")
+				_assert_inside(avatar, seat.get_global_rect(), "%s avatar at %s" % [path, viewport_size])
+				assert_true(name_label.get_global_rect().end.y <= avatar.get_global_rect().position.y)
+				assert_true(avatar.get_global_rect().end.y <= tally.get_global_rect().position.y)
 		var submit_button: Control = table.get_node("PhaseControls/HandPlayControls/ActionRow/SubmitButton")
 		var ability_button: Control = table.get_node("AbilityPanel/ToggleButton")
 		assert_false(submit_button.get_global_rect().intersects(ability_button.get_global_rect()), "ability tab overlaps hand action at %s" % viewport_size)
@@ -125,7 +135,7 @@ func test_end_shows_seat_scores_and_keeps_the_discard_tray_clear() -> void:
 			assert_eq(hand.get_child_count(), 0)
 			var score: Label = seat.get_node("Summary/ScoreSummary")
 			assert_true(score.is_visible_in_tree())
-			assert_eq(score.text, "20 points this round")
+			assert_eq(score.text, "Hand score 20")
 			_assert_inside(score, Rect2(Vector2.ZERO, viewport_size), position)
 		model.erase("private_player_id")
 		model.erase("private_hand")

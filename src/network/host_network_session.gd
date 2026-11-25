@@ -343,7 +343,7 @@ func _on_message_received(peer_id: String, bytes: PackedByteArray) -> void:
 	_send_command_result(
 		peer_id, player_id, message_id, result.accepted, result.error_code
 	)
-	if result.accepted:
+	if result.accepted and kind != CommandKinds.UPDATE_HAND_DRAFT:
 		publish_state_change(result.events)
 
 

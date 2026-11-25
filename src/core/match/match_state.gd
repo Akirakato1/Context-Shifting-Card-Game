@@ -124,11 +124,13 @@ func deal_start_abilities() -> Dictionary:
 
 func resolve_round(final_scores: Dictionary) -> StringName:
 	var highest := -1
+	var lowest := -1
 	var leaders: Array[StringName] = []
 	for player_id in seat_order:
 		var player: PlayerState = players[player_id]
-		if not player.active: continue
+		if not player.active or player.pending: continue
 		var score: int = final_scores.get(player_id, 0)
+		lowest = score if lowest < 0 else mini(lowest, score)
 		if score > highest:
 			highest = score
 			leaders = [player_id]
@@ -139,7 +141,7 @@ func resolve_round(final_scores: Dictionary) -> StringName:
 	var round_winner_id := leaders[0]
 	var round_winner: PlayerState = players[round_winner_id]
 	if config.victory_mode == GameTypes.VictoryMode.SCORE_RACE:
-		round_winner.match_score += max(highest, 0)
+		round_winner.match_score += highest - lowest
 		if round_winner.match_score >= config.victory_target:
 			_set_winner(round_winner_id)
 	else:
@@ -233,6 +235,7 @@ func to_dict() -> Dictionary:
 			submitted_faces.append(_serialize_face(face))
 		serialized_players.append({
 			"player_id": str(player.player_id), "seat_index": player.seat_index,
+			"avatar_id": player.avatar_id,
 			"spectator": player.spectator, "active": player.active, "pending": player.pending,
 			"connected": player.connected, "ready": player.ready, "hand": serialized_hand,
 			"ability_hand": ability_ids, "match_score": player.match_score,
@@ -242,6 +245,7 @@ func to_dict() -> Dictionary:
 			"pending_manipulation": player.pending_manipulation.duplicate(true),
 			"staged_submission": player.staged_submission.duplicate(true),
 			"has_staged_submission": player.has_staged_submission,
+			"deadline_submission": player.deadline_submission.duplicate(true) if player.deadline_submission is Array else null,
 			"hand_locked": player.hand_locked,
 			"submitted_card_ids": player.submitted_cards.map(func(card: FullCardState): return str(card.card_id)),
 			"submitted_faces": submitted_faces,
@@ -341,12 +345,17 @@ static func from_dict(data: Dictionary) -> MatchState:
 			))
 		player.pending_manipulation = player_data.get("pending_manipulation", {}).duplicate(true)
 		player.abilities_disabled = player_data.get("abilities_disabled", false)
+		var avatar := str(player_data.get("avatar_id", ""))
+		player.avatar_id = avatar if avatar in GameTypes.AVATAR_IDS else ""
 		for raw_selection: Dictionary in player_data.get("staged_submission", []):
 			var selection: Dictionary = raw_selection.duplicate(true)
 			if not selection.has("joker_choices"):
 				selection["joker_choices"] = []
 			player.staged_submission.append(selection)
 		player.has_staged_submission = player_data.get("has_staged_submission", false)
+		var deadline_submission: Variant = player_data.get("deadline_submission")
+		if deadline_submission is Array:
+			player.deadline_submission = deadline_submission.duplicate(true)
 		player.hand_locked = player_data.get("hand_locked", false)
 		for submitted_id: String in player_data.get("submitted_card_ids", []):
 			for card in player.hand:

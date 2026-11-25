@@ -52,16 +52,37 @@ func test_guest_ready_toggle_updates_both_lobbies_with_latest_choice() -> void:
 	Engine.get_main_loop().root.add_child(guest_app)
 	host_app.bind_session(host)
 	guest_app.bind_session(guest)
-	assert_eq(host.start_host("ws://127.0.0.1:8080", "Mira"), OK)
+	assert_eq(host.start_host("ws://127.0.0.1:8080", "Mira", "avatar_5"), OK)
 	host_transport.lobby_created.emit("ABC234")
-	assert_eq(guest.start_join("ws://127.0.0.1:8080", "ABC234", "active", "Noah"), OK)
+	assert_eq(guest.start_join("ws://127.0.0.1:8080", "ABC234", "active", "Noah", "avatar_3"), OK)
 	var assignment := {"peer_id": "peer-one", "role": "active", "display_name": "Noah"}
 	guest_transport.join_status.emit("approved", assignment)
 	guest_transport.peer_connected.emit("host")
 	host_transport.join_status.emit("approved", assignment)
 	host_transport.peer_connected.emit("peer-one")
 	_deliver(host_transport, guest_transport, "peer-one", "host")
+	_deliver(guest_transport, host_transport, "host", "peer-one")
+	_deliver(host_transport, guest_transport, "peer-one", "host")
 	assert_eq(guest_app.current_screen_id(), &"lobby")
+	assert_eq(host_app.presentation_state.private_state().players[0].avatar_id, "avatar_5")
+	assert_eq(guest_app.presentation_state.private_state().players[1].avatar_id, "avatar_3")
+	for app in [host_app, guest_app]:
+		var roster: Control = app.get_node_or_null("SafeArea/ScreenHost/LobbyScreen/Layout/Body/Roster/Scroll/Players")
+		assert_true(roster != null, "The lobby displays a scrollable roster")
+		if roster == null:
+			continue
+		assert_eq(roster.get_child_count(), 2)
+		var expected := [["Mira", "avatar_5_front.png"], ["Noah", "avatar_front_3.png"]]
+		for index in expected.size():
+			var entry: Control = roster.get_child(index)
+			var portrait := entry.find_child("Avatar", true, false) as TextureRect
+			var name_label := entry.find_child("PlayerName", true, false) as Label
+			assert_true(portrait != null and name_label != null)
+			if portrait != null and name_label != null:
+				assert_eq(portrait.texture.resource_path.get_file(), expected[index][1])
+				assert_eq(name_label.text, expected[index][0])
+	var restored := MatchState.from_dict(host._controller.state.to_dict())
+	assert_eq(restored.players[&"peer-one"].avatar_id, "avatar_3")
 	assert_eq(host_app.presentation_state.private_state().get("lobby_unready_guests", -1), 1)
 	assert_eq(host.start_match(), ERR_BUSY)
 	assert_eq(host_app.current_screen_id(), &"lobby")
@@ -89,6 +110,7 @@ func test_guest_ready_toggle_updates_both_lobbies_with_latest_choice() -> void:
 		_deliver(host_transport, guest_transport, "peer-one", "host")
 		assert_false(host_app.presentation_state.private_state().players[1].ready)
 		assert_false(guest_app.presentation_state.private_state().players[1].ready)
+		assert_eq(guest_app.presentation_state.private_state().players[1].avatar_id, "avatar_3")
 		assert_false(ready.button_pressed)
 		assert_eq(host.start_match(), ERR_BUSY)
 		ready.button_pressed = true
@@ -96,6 +118,8 @@ func test_guest_ready_toggle_updates_both_lobbies_with_latest_choice() -> void:
 		_deliver(host_transport, guest_transport, "peer-one", "host")
 		assert_eq(host_app.presentation_state.private_state().get("lobby_unready_guests", -1), 0)
 		assert_eq(host.start_match(), OK)
+		assert_true(host._controller.state.config.no_time_limit)
+		assert_eq(host._controller.state.phase_deadline_msec, -1)
 		_deliver(guest_transport, host_transport, "host", "peer-one")
 		_deliver(host_transport, guest_transport, "peer-one", "host")
 		assert_false(host_app.presentation_state.private_state().players[1].ready)
@@ -265,6 +289,7 @@ func test_host_runtime_builds_authority_after_first_active_peer_and_projects_nam
 
 	assert_eq(runtime.start_host("ws://127.0.0.1:8080", "Mira"), OK)
 	assert_eq(transport.hosted_url, "ws://127.0.0.1:8080")
+	assert_eq(runtime.update_lobby_setting(&"no_time_limit", false), &"")
 	transport.lobby_created.emit("ABC234")
 	assert_eq(snapshots[-1].screen_id, "lobby")
 	assert_eq(snapshots[-1].room_code, "ABC234")
@@ -369,6 +394,8 @@ func test_host_switches_victory_defaults_and_starts_an_untimed_match() -> void:
 	)
 	assert_eq(runtime.start_host("ws://127.0.0.1:8080", "Mira"), OK)
 	transport.lobby_created.emit("ABC234")
+	assert_true(snapshots[-1].settings.no_time_limit)
+	assert_eq(snapshots[-1].settings.victory_mode, GameTypes.VictoryMode.SCORE_RACE)
 	assert_eq(snapshots[-1].settings.victory_target, 1_000)
 	assert_false(snapshots[-1].settings.has("base_score_mode"))
 	assert_eq(runtime.update_lobby_setting(&"base_score_mode", 1), &"invalid_setting")

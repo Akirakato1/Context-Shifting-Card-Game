@@ -10,11 +10,11 @@ const STEPS := [
 	},
 	{
 		"round": 1, "phase": Types.Phase.MAIN_1, "title": "Find your controls",
-		"body": "Use Menu for settings or to leave. The ? button opens rules, hand shapes, context hands, and the ability catalog. The History drawer records public plays. Space, A, and H are the default Ready, Abilities, and History hotkeys.",
+		"body": "Use Menu for settings or to leave, and ? to open Rules & Cards. The scroll at the lower-right of the large context clock opens History. It groups public plays, hand reveals, and round scores. Space readies up, A toggles Abilities, and H toggles History by default.",
 	},
 	{
 		"round": 1, "phase": Types.Phase.MAIN_1, "title": "Read your abilities",
-		"body": "The Abilities tray opens in Main 1 and highlights playable cards. Use an eye to read one card or the eye by the tray button to show all descriptions. Drag a card to reorder the tray. Right-click a card to prime or cancel it, then left-click to play it.",
+		"body": "The Abilities tray opens in Main 1 and highlights playable cards. The eye icons show descriptions, and you can drag to reorder cards. Right-click a playable ability to begin. Choose its targets if prompted. For a card without targets, left-click the highlighted card to play it.",
 	},
 	{
 		"round": 1, "phase": Types.Phase.MAIN_1, "title": "Play a field ability",
@@ -100,7 +100,7 @@ const STEPS := [
 	},
 	{
 		"round": 3, "phase": Types.Phase.HAND_PLAY, "title": "Change a suit",
-		"body": "Prime and play Suit Imprint. Click the Fall 7 Cloud card, then choose Mountain. Fall 7 Mountain can now join the flush.",
+		"body": "The small suit clock at the upper-left of the large context clock shows Mountain → Cloud → Sea → Mountain. Ride the Suit Cycle follows that order. Suit Imprint lets you choose a suit directly. Right-click Suit Imprint, pick Fall 7 Cloud, then choose Mountain to build the flush.",
 		"command": Kinds.COMMIT_MANIPULATION, "ability": &"suit_imprint", "card": 4, "suit": Types.Suit.MOUNTAIN,
 	},
 	{
@@ -121,7 +121,7 @@ const STEPS := [
 	},
 	{
 		"round": 3, "phase": Types.Phase.MAIN_2, "title": "Finish the tutorial",
-		"body": "Compare your updated score and the buff entry in History. Press Ready to finalize the third round. You can replay this lesson from the results screen or try an untimed Practice match from the menu.",
+		"body": "Open the History scroll or press H to find your buff under Round 3. Compare your updated score, then press Ready to finalize the round. Replay the tutorial from Results or try an untimed Practice match from the menu.",
 		"command": Kinds.SET_READY,
 	},
 ]

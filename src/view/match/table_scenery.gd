@@ -9,6 +9,7 @@ const BACKGROUND := [Color("2c2330"), Color("142f31"), Color("202c48")]
 const BASE := Vector2(1920, 1080)
 const TABLE_RECT := Rect2(142, 282, 1636, 476)
 const CLOCK_RECT := Rect2(26, 740, 306, 306)
+const SUIT_CLOCK_POSITION := Vector2(8, 715)
 const HOTBAR_TOP := 710.0
 const SCORE_BAR_TOP := 662.0
 const HAND_TRAY_RECT := Rect2(349, 718, 1271, 350)
@@ -25,7 +26,7 @@ const CONTEXT_TRANSITION_SECONDS := 0.42
 		_set_background_fallback()
 		queue_redraw()
 @export var table_art: Texture2D
-## Shared crop for the base table and context shades. An empty rect uses each whole texture.
+## Source region that maps onto TABLE_RECT. Artwork outside it is drawn at the same scale.
 @export var table_source_region := Rect2()
 ## Shade layers in Rise, Flourish, and Fall order, registered to the same canvas as Table Art.
 @export var table_shading: Array[Texture2D]
@@ -42,6 +43,7 @@ var _board_layer: TextureRect
 var _shade_layer: ColorRect
 var _hand_tray_layer: TextureRect
 @onready var _clock: ContextClock = $ContextClock
+@onready var _suit_clock: Control = $SuitClock
 
 
 func _ready() -> void:
@@ -53,14 +55,7 @@ func _ready() -> void:
 	_board_layer.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	_board_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_board_layer.show_behind_parent = true
-	if table_art != null and table_source_region.has_area():
-		var cropped_art := AtlasTexture.new()
-		cropped_art.atlas = table_art
-		cropped_art.region = table_source_region
-		cropped_art.filter_clip = true
-		_board_layer.texture = cropped_art
-	else:
-		_board_layer.texture = table_art
+	_board_layer.texture = table_art
 	add_child(_board_layer)
 	_shade_layer = _add_blend_layer("ContextShade", TABLE_SHADE_OPACITY)
 	_shade_layer.visible = table_art != null
@@ -107,8 +102,7 @@ func _configure_blend_layer(layer: ColorRect, textures: Array, is_background: bo
 func _texture_region(texture: Texture2D, is_background: bool) -> Rect2:
 	var texture_size := texture.get_size()
 	if not is_background:
-		return Rect2(table_source_region.position / texture_size, table_source_region.size / texture_size) \
-			if table_source_region.has_area() else Rect2(Vector2.ZERO, Vector2.ONE)
+		return Rect2(Vector2.ZERO, Vector2.ONE)
 	var cover_scale := maxf(BASE.x / texture_size.x, BASE.y / texture_size.y)
 	var visible_size := BASE / (texture_size * cover_scale)
 	return Rect2((Vector2.ONE - visible_size) / 2.0, visible_size)
@@ -125,21 +119,37 @@ func _set_background_fallback() -> void:
 
 func _layout_layers() -> void:
 	_background_layer.size = size
+	var art_bounds := _table_art_bounds()
 	for layer in [_board_layer, _shade_layer]:
-		layer.position = TABLE_RECT.position * size / BASE
-		layer.size = TABLE_RECT.size * size / BASE
+		layer.position = art_bounds.position * size / BASE
+		layer.size = art_bounds.size * size / BASE
 	_hand_tray_layer.position = HAND_TRAY_RECT.position * size / BASE
 	_hand_tray_layer.size = HAND_TRAY_RECT.size * size / BASE
 	var clock_bounds := clock_rect()
 	_clock.position = clock_bounds.position
 	_clock.size = clock_bounds.size
+	var suit_bounds := _dial_rect(Rect2(SUIT_CLOCK_POSITION, _suit_clock.size))
+	_suit_clock.position = suit_bounds.position
+	_suit_clock.scale = suit_bounds.size / _suit_clock.size
 	queue_redraw()
 
 
+func _table_art_bounds() -> Rect2:
+	if table_art == null or not table_source_region.has_area():
+		return TABLE_RECT
+	var scale_per_pixel := TABLE_RECT.size / table_source_region.size
+	return Rect2(TABLE_RECT.position - table_source_region.position * scale_per_pixel,
+		table_art.get_size() * scale_per_pixel)
+
+
 func clock_rect() -> Rect2:
+	return _dial_rect(CLOCK_RECT)
+
+
+func _dial_rect(bounds: Rect2) -> Rect2:
 	var view_scale := size / BASE
-	var diameter := CLOCK_RECT.size.x * minf(view_scale.x, view_scale.y)
-	return Rect2(CLOCK_RECT.get_center() * view_scale - Vector2.ONE * diameter / 2.0,
+	var diameter := bounds.size.x * minf(view_scale.x, view_scale.y)
+	return Rect2(bounds.get_center() * view_scale - Vector2.ONE * diameter / 2.0,
 		Vector2.ONE * diameter)
 
 

@@ -24,6 +24,8 @@ const MAX_FOCUS_REGIONS := 6
 const PHASE_NAMES := ["SETUP", "START", "MAIN PHASE 1", "HAND PLAY", "MAIN PHASE 2", "END", "COMPLETE"]
 const OPENING_DRAW_WINDOW_MSEC := 2000
 const DRAW_STAGGER := 0.15
+const HISTORY_SCROLL_CENTER := Vector2(314, 1035)
+const HISTORY_SCROLL_SIZE := Vector2(53, 55)
 const CONTEXT_EMBLEMS := [
 	preload("res://assets/artwork/context_emblems/context_emblem_rish.png"),
 	preload("res://assets/artwork/context_emblems/context_emblem_flourish.png"),
@@ -51,30 +53,30 @@ var _timer_local_deadline_msec := -1
 var _rules: Control
 var _field_details: AcceptDialog
 var _selected_sort := -1
-var _history_items: Array[String] = []
+var _history_items: Dictionary[int, Array] = {}
 var _field_detail_text: RichTextLabel
 var _draw_generation := 0
 var _draw_speed := GameplayPreferences.DRAW_NORMAL
 
 @export_group("Artwork")
 @export var show_placeholder_guides := true
-@export var phase_badge_art: StyleBoxTexture
 @export var match_score_art: StyleBoxTexture
 @export var opponent_seat_art: StyleBoxTexture
 @export var reveal_panel_art: StyleBoxTexture
 @export var history_panel_art: StyleBoxTexture
 @export var context_sort_art: Array[Texture2D]
 
-@onready var _phase: Label = $PhaseBadge/Phase
+@onready var _phase_sign: PhaseSign = $PhaseBadge
+@onready var _round_sign: PhaseSign = $RoundBadge
 @onready var _phase_instruction: Label = $PhaseInstruction
-@onready var _round: Label = $Header/Round
-@onready var _timer: Label = $Header/Timer
+@onready var _timer: MatchTimer = $Header/Timer
 @onready var _progress: Label = $MatchScore/Progress
 @onready var _spectators: Label = $Header/Spectators
 @onready var _top_seat = $TableLayer/TopSeat
 @onready var _left_seat = $TableLayer/LeftSeat
 @onready var _right_seat = $TableLayer/RightSeat
 @onready var _bottom_seat = $TableLayer/BottomSeat
+@onready var _side_seat_offsets := Vector2(_left_seat.offset_top, _left_seat.offset_bottom)
 @onready var _active_effects = $Center/Fields
 @onready var _round_result: Label = $Center/RoundResult
 @onready var _phase_controls = $PhaseControls
@@ -101,6 +103,11 @@ func _ready() -> void:
 	_card_audio.name = "CardInteractionAudio"
 	add_child(_card_audio)
 	$TableScenery/ContextClock.transition_sound.connect(_card_audio.play)
+	for sign in [_phase_sign, _round_sign]:
+		sign.landed.connect(_card_audio.play.bind(&"phase_sign_land"))
+		sign.pulling.connect(_card_audio.play.bind(&"phase_chain_pull"))
+		sign.dropping.connect(_card_audio.play.bind(&"phase_chain_drop"))
+	_timer.countdown_tick.connect(func(_seconds_left: int): _card_audio.play(&"match_countdown"))
 	_table_targets.name = "TableAbilityTargets"
 	add_child(_table_targets)
 	# The lower semicircle overlaps the cockpit's bounds. Its hit polygon wins
@@ -124,6 +131,7 @@ func _ready() -> void:
 		seat.ability_target_requested.connect(_on_seat_target_requested)
 	$RoundReveal/Content/HandName.add_theme_font_override("font", _phase_controls.score_font)
 	_rules = Rules.instantiate()
+	_rules.z_index = 40
 	add_child(_rules)
 	_field_details = AcceptDialog.new()
 	_field_details.dialog_autowrap = true
@@ -136,19 +144,23 @@ func _ready() -> void:
 		_cancel_ability_focus()
 		if _history_drawer.visible:
 			_toggle_history()
-		$MatchMenu.visible = not $MatchMenu.visible
+		_set_match_menu_open(not $MatchMenu.visible)
+	)
+	$MatchMenuDimmer.gui_input.connect(func(event: InputEvent):
+		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+			_set_match_menu_open(false)
 	)
 	$HelpButton.pressed.connect(func():
 		_cancel_ability_focus()
-		$MatchMenu.hide()
+		_set_match_menu_open(false)
 		_rules.open()
 	)
 	$MatchMenu/Options/Settings.pressed.connect(func():
-		$MatchMenu.hide()
+		_set_match_menu_open(false)
 		settings_requested.emit()
 	)
 	$MatchMenu/Options/Leave.pressed.connect(func():
-		$MatchMenu.hide()
+		_set_match_menu_open(false)
 		$ConfirmLeave.popup_centered()
 	)
 	$ConfirmLeave.confirmed.connect(func(): leave_requested.emit())
@@ -210,7 +222,6 @@ func _configure_artwork() -> void:
 		seat.show_placeholder_guides = show_placeholder_guides
 		seat.seat_art = opponent_seat_art
 	var art_by_panel := {
-		$PhaseBadge: phase_badge_art if phase_badge_art != null else MatchButtonArt.surface(MatchButtonArt.PILL),
 		$MatchScore: match_score_art if match_score_art != null else MatchButtonArt.surface(MatchButtonArt.BAR),
 		$RoundReveal: reveal_panel_art,
 		_history_drawer: history_panel_art,
@@ -229,7 +240,6 @@ func _configure_artwork() -> void:
 	]:
 		MatchButtonArt.skin(button, MatchButtonArt.ACTION)
 	MatchButtonArt.skin($HelpButton, MatchButtonArt.ROUND)
-	MatchButtonArt.skin(_history_toggle, MatchButtonArt.BAR)
 	var menu_frame := MatchButtonArt.surface(MatchButtonArt.MENU)
 	menu_frame.content_margin_left = 16.0
 	menu_frame.content_margin_right = 16.0
@@ -329,6 +339,23 @@ func handle_match_hotkey(action: StringName, repeat: bool) -> bool:
 		GameplayPreferences.HOTKEY_HISTORY:
 			_toggle_history()
 	return true
+
+
+func _set_match_menu_open(open: bool) -> void:
+	if $MatchMenu.visible == open:
+		return
+	$MatchMenu.visible = open
+	$MatchMenuDimmer.visible = open
+	if open:
+		$MatchMenu/Options/Settings.grab_focus()
+	else:
+		$MenuButton.grab_focus()
+
+
+func _unhandled_key_input(event: InputEvent) -> void:
+	if $MatchMenu.visible and event.is_action_pressed(&"ui_cancel"):
+		_set_match_menu_open(false)
+		get_viewport().set_input_as_handled()
 
 
 func _incoming_draws(model: Dictionary) -> Dictionary:
@@ -447,7 +474,7 @@ func handle_command_result(
 		_ability_panel.discard_rejected(error_code)
 	if not accepted and kind in [
 		&"stage_hand", &"lock_hand", &"unlock_hand", &"stage_manipulation", &"commit_manipulation",
-		&"play_public_ability", &"configure_joker",
+		&"play_public_ability",
 	]:
 		_card_audio.play(&"invalid")
 	if kind == &"stage_manipulation" and not accepted:
@@ -472,12 +499,11 @@ func handle_command_result(
 
 func _render_header() -> void:
 	var phase_index := int(_model.get("phase", 0))
-	_phase.text = PHASE_NAMES[phase_index] if phase_index >= 0 and phase_index < PHASE_NAMES.size() else "UNKNOWN"
-	var has_player := not str(_model.get("private_player_id", "")).is_empty()
-	_phase_instruction.visible = has_player and phase_index in [
-		GameTypes.Phase.MAIN_1, GameTypes.Phase.HAND_PLAY, GameTypes.Phase.MAIN_2,
-	]
-	_round.text = "ROUND %d" % int(_model.get("round_number", 0))
+	var round_number := int(_model.get("round_number", 0))
+	var phase_name: String = PHASE_NAMES[phase_index] if phase_index >= 0 and phase_index < PHASE_NAMES.size() else "UNKNOWN"
+	_phase_sign.present_phase(phase_name, round_number)
+	_round_sign.present_phase("ROUND %d" % round_number, round_number)
+	_timer.set_period(round_number, phase_index)
 	var deadline := int(_model.get("phase_deadline_msec", -1))
 	var server_now := int(_model.get(
 		"server_now_msec", _model.get("now_msec", deadline)
@@ -502,11 +528,9 @@ func _render_header() -> void:
 
 
 func _update_timer(remaining_msec: int) -> void:
-	if _timer_local_deadline_msec >= 0:
-		_timer.text = "%.1fs" % (remaining_msec / 1000.0)
-	else:
-		var untimed := bool(_model.get("is_practice", false)) or bool(_lobby_setting("no_time_limit", false))
-		_timer.text = "UNTIMED" if untimed else "—"
+	var untimed := bool(_model.get("is_practice", false)) or bool(_lobby_setting("no_time_limit", false))
+	_timer.show_remaining(remaining_msec if _timer_local_deadline_msec >= 0 else -1,
+		untimed, not bool(_model.get("frozen", false)))
 
 
 func _render_context_and_piles() -> void:
@@ -556,8 +580,13 @@ func _render_seats() -> void:
 	var victory_mode := int(_model.get("victory_mode", GameTypes.VictoryMode.SCORE_RACE))
 	var requests: Dictionary = _model.get("replacement_requests", {})
 	var context_catalog: Array = _model.get("scoring_catalog", {}).get("context", [])
+	# Spectator hands need room for a second card row above History.
+	var side_seat_shift := -110.0 if viewing_as_spectator else 0.0
+	for seat in [_left_seat, _right_seat]:
+		seat.offset_top = _side_seat_offsets.x + side_seat_shift
+		seat.offset_bottom = _side_seat_offsets.y + side_seat_shift
 	_bottom_seat.visible = viewing_as_spectator or phase in [GameTypes.Phase.MAIN_2, GameTypes.Phase.END]
-	_bottom_seat.offset_top = 42.0 if phase == GameTypes.Phase.MAIN_2 else 0.0
+	_bottom_seat.offset_top = 42.0 if phase == GameTypes.Phase.MAIN_2 else -16.0
 	_bottom_seat.offset_bottom = _bottom_seat.offset_top + 53.0
 	_bottom_seat.render(
 		local_player, phase, viewing_as_spectator, not viewing_as_spectator,
@@ -646,6 +675,15 @@ func _render_phase_controls() -> void:
 func _position_cockpit() -> void:
 	var view_scale := size / TableScenery.BASE
 	var ui_scale := maxf(0.25, minf(view_scale.x, view_scale.y))
+	var view_bounds := get_global_transform().affine_inverse() * get_viewport_rect()
+	$AbilityHistory.offset_left = view_bounds.position.x
+	_history_toggle.size = HISTORY_SCROLL_SIZE * ui_scale
+	_history_toggle.position = HISTORY_SCROLL_CENTER * view_scale - $AbilityHistory.position - _history_toggle.size * 0.5
+	$MatchMenuDimmer.position = view_bounds.position
+	$MatchMenuDimmer.size = view_bounds.size
+	var table_light := get_global_transform() * (TableScenery.TABLE_RECT.get_center() * view_scale)
+	for seat in [_top_seat, _left_seat, _right_seat, _bottom_seat]:
+		seat.set_shadow_light(table_light)
 	var tray := TableScenery.HAND_TRAY_RECT
 	_phase_controls.position = Vector2(tray.position.x, TableScenery.SCORE_BAR_TOP) * view_scale
 	_phase_controls.scale = Vector2.ONE * ui_scale
@@ -734,43 +772,62 @@ func _render_ability_history() -> void:
 		player_names[id] = str(player.get("name", id))
 	var catalog: Dictionary = _model.get("ability_catalog", {})
 	var events: Array = _model.get("public_history", [])
-	var items: Array[String] = []
+	var items: Dictionary[int, Array] = {}
 	for index in range(events.size() - 1, -1, -1):
 		var event: Dictionary = events[index]
 		var description := _history_description(event, player_names, catalog)
 		if description.is_empty():
 			continue
 		var round_number := int(event.get("payload", {}).get("round_number", event.get("round_number", 0)))
-		items.append("Round %d  ·  %s" % [round_number, description] if round_number > 0 else description)
+		var entries: Array = items.get_or_add(round_number, [])
+		entries.append(description)
 	if items.is_empty():
 		for played: Dictionary in _model.get("recent_public_abilities", []):
-			items.append(_history_description({"kind": "public_ability_played", "payload": played}, {}, catalog))
+			var round_number := int(played.get("round_number", 0))
+			var entries: Array = items.get_or_add(round_number, [])
+			entries.append(_history_description({"kind": "public_ability_played", "payload": played}, {}, catalog))
 	if items.is_empty():
-		items.append("No public plays yet.")
+		items[0] = ["No public plays yet."]
 	if items == _history_items:
 		return
 	_history_items = items
 	for child in _history_rows.get_children():
 		_history_rows.remove_child(child)
 		child.queue_free()
-	for text in items:
-		if text.begins_with("Clock moved to ") or text.contains("  ·  Clock moved to "):
-			var row := GameIcons.label(_phase_controls.score_font, 18, Color("edf2fa"))
-			_history_rows.add_child(row)
-			GameIcons.write(row, text)
-		else:
-			var row := Label.new()
-			row.add_theme_font_override("font", _phase_controls.score_font)
-			row.text = text
-			row.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-			_history_rows.add_child(row)
+	var rounds := items.keys()
+	rounds.sort()
+	rounds.reverse()
+	for round_number: int in rounds:
+		var section := VBoxContainer.new()
+		section.add_theme_constant_override("separation", 6)
+		_history_rows.add_child(section)
+		if round_number > 0:
+			section.add_child(HSeparator.new())
+			var heading := Label.new()
+			heading.name = "Heading"
+			heading.text = "ROUND %d" % round_number
+			heading.add_theme_color_override("font_color", Color("f4ca8b"))
+			heading.add_theme_font_size_override("font_size", 22)
+			section.add_child(heading)
+		for entry: String in items[round_number]:
+			if entry.begins_with("Clock moved to "):
+				var row := GameIcons.label(_phase_controls.score_font, 18, Color("edf2fa"))
+				section.add_child(row)
+				GameIcons.write(row, entry)
+			else:
+				var row := Label.new()
+				row.add_theme_font_override("font", _phase_controls.score_font)
+				row.text = entry
+				row.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+				section.add_child(row)
 
 
 func _toggle_history() -> void:
 	_history_drawer.visible = not _history_drawer.visible
 	if _history_drawer.visible:
-		$MatchMenu.hide()
-	_history_toggle.text = "HISTORY  ▼" if _history_drawer.visible else "HISTORY  ▲"
+		_set_match_menu_open(false)
+	_history_toggle.set_pressed_no_signal(_history_drawer.visible)
+	_history_toggle.tooltip_text = "Close match history" if _history_drawer.visible else "Open match history"
 
 
 func _history_description(event: Dictionary, names: Dictionary, catalog: Dictionary) -> String:
@@ -801,6 +858,8 @@ func _history_description(event: Dictionary, names: Dictionary, catalog: Diction
 		"round_finalized":
 			var winner := str(payload.get("winner_id", ""))
 			var result := "Tied round" if winner.is_empty() else "%s wins" % str(names.get(winner, winner))
+			if not winner.is_empty() and payload.has("points_awarded"):
+				result += "  ·  +%d match points" % int(payload.points_awarded)
 			var scores: Dictionary = payload.get("scores", {})
 			var terms: Array[String] = []
 			for id in scores:
@@ -1006,11 +1065,15 @@ func _clear_active_ability() -> void:
 
 func _refresh_ability_focus() -> void:
 	var ability := _active_ability if not _active_ability.is_empty() else _primed_ability
-	_phase_instruction.text = "Right-click a playable ability to begin."
+	_phase_instruction.text = ""
 	if bool(_model.get("private_abilities_disabled", false)):
 		_phase_instruction.text = "Ability Seal is active until the end of this round."
 	elif _active_ability.is_empty() and not _primed_ability.is_empty():
 		_phase_instruction.text = "Left-click the highlighted ability to play it."
+	_phase_instruction.visible = (
+		not _phase_instruction.text.is_empty() and not str(_model.get("private_player_id", "")).is_empty()
+		and int(_model.get("phase", 0)) in [GameTypes.Phase.MAIN_1, GameTypes.Phase.HAND_PLAY, GameTypes.Phase.MAIN_2]
+	)
 	var timing := int(ability.get("timing", -1))
 	var has_focus := not ability.is_empty() and not bool(_model.get("frozen", false))
 	_phase_controls.set_ability_focus_held(has_focus)
@@ -1028,6 +1091,7 @@ func _refresh_ability_focus() -> void:
 		seats[seat.seat_position] = player_id
 		var seat_eligible := timing == AbilityDefinition.Timing.SABOTAGE and player_id in eligible
 		seat.set_ability_target(seat_eligible, player_id in _selected_seats, selects_player)
+	_ability_panel.set_target_behind_drawer(selects_player and _right_seat.is_ability_target())
 	_table_targets.set_targets(
 		seats, eligible if timing == AbilityDefinition.Timing.HAND_SHAPE else [],
 		_selected_seats, selects_player

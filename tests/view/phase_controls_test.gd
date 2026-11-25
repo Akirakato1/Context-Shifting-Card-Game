@@ -279,22 +279,31 @@ func test_hand_builder_stages_eligible_cards_requires_half_choice_and_defaults_j
 	var hand := _hand()
 	hand[3].first["joker_context"] = 2
 	hand[3].first["joker_suit"] = 1
+	hand[3].first["joker_rank"] = 5
 	controls.render(_model(3, hand, {}))
 	var joker_rank: OptionButton = controls.card_widget(&"c4").get_node("Face/FirstChoices/Rank")
 	assert_eq(joker_rank.item_count, 11)
 	joker_rank.item_selected.emit(7)
-	assert_eq(intents, [[&"configure_joker", {"card_id": "c4", "half_index": 0, "context": 2, "suit": 1, "rank": 7}]])
-	hand[3].first["joker_rank"] = 7
-	controls.handle_command_result(&"configure_joker", true, &"", 3)
+	assert_true(intents.is_empty(), "Changing a Joker never sends a standalone command")
+	assert_true(controls.card_widget(&"c4").has_node("Face/FirstRankArt/Digit7"))
+	var joker_suit_picker: OptionButton = controls.card_widget(&"c4").get_node("Face/FirstChoices/Suit")
+	joker_suit_picker.item_selected.emit(2)
+	controls.set_joker_choice(&"c4", 0, 2, 2, 11)
 	controls.render(_model(3, hand, {}))
 	assert_true(controls.card_widget(&"c4").has_node("Face/FirstRankArt/Digit7"))
 	controls.click_card(&"c4")
-	assert_eq(controls.staged_selection(&"c4").get("joker_choices", []), [{"half_index": 0, "context": 2, "suit": 1, "rank": 7}])
+	assert_eq(controls.staged_selection(&"c4").get("joker_choices", []), [{"half_index": 0, "context": 2, "suit": 2, "rank": 7}])
 	controls.render(_model(4, hand, {}))
 	controls.render(_model(3, hand, {}))
 	assert_false(controls.has_staged_card(&"c4"))
 	controls.click_card(&"c4")
-	assert_eq(controls.staged_selection(&"c4").get("joker_choices", []), [{"half_index": 0, "context": 2, "suit": 1, "rank": 7}])
+	assert_eq(controls.staged_selection(&"c4").get("joker_choices", []), [{"half_index": 0, "context": 2, "suit": 2, "rank": 7}])
+	controls.card_widget(&"c4").get_node("Face/FirstChoices/Rank").item_selected.emit(0)
+	controls.get_node("HandPlayControls/ActionRow/SubmitButton").pressed.emit()
+	assert_eq(intents, [[&"stage_hand", {"cards": [{
+		"card_id": "c4", "half_index": 0,
+		"joker_choices": [{"half_index": 0, "context": 2, "suit": 2, "rank": 0}],
+	}]}]])
 	await _unmount(controls)
 
 
@@ -612,6 +621,30 @@ func test_match_screen_hosts_phase_controls_and_bubbles_intents() -> void:
 	phase_controls.get_node("HandPlayControls/ActionRow/SubmitButton").pressed.emit()
 	assert_eq(intents, [{"kind": &"stage_hand", "payload": {"cards": []}}])
 	await _unmount(match_screen)
+
+
+func test_timed_staging_sends_each_new_draft_without_locking_edits() -> void:
+	var controls = await _mount_controls()
+	var intents: Array[Dictionary] = []
+	controls.intent_requested.connect(func(kind, payload): intents.append({"kind": kind, "payload": payload}))
+	var model := _model(3, _hand(), {"round_number": 4, "phase_deadline_msec": 10000})
+	controls.render(model)
+	assert_true(intents.is_empty())
+	controls.click_card(&"c2")
+	controls.choose_half(&"c2", 1)
+	controls.render(model)
+	controls.click_card(&"c2")
+	assert_eq(intents, [
+		{"kind": &"update_hand_draft", "payload": {"round_number": 4, "cards": [{"card_id": "c2", "half_index": 0, "joker_choices": []}]}},
+		{"kind": &"update_hand_draft", "payload": {"round_number": 4, "cards": [{"card_id": "c2", "half_index": 1, "joker_choices": []}]}},
+		{"kind": &"update_hand_draft", "payload": {"round_number": 4, "cards": []}},
+	])
+	controls.click_card(&"c2")
+	model["round_number"] = 5
+	controls.render(model)
+	assert_false(controls.has_staged_card(&"c2"))
+	assert_eq(intents[-1].payload.round_number, 4)
+	await _unmount(controls)
 
 
 func _model(phase: int, hand: Array, extra: Dictionary) -> Dictionary:

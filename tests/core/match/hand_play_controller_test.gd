@@ -15,6 +15,39 @@ const MatchController = preload("res://src/core/match/match_controller.gd")
 const SnapshotProjector = preload("res://src/core/match/snapshot_projector.gd")
 
 
+func test_timeout_locks_the_latest_private_draft_and_passes_an_empty_one() -> void:
+	var state := _hand_play_state(62)
+	var controller := MatchController.new(state)
+	controller.tick(0)
+	var player: PlayerState = state.players[&"one"]
+	var card = _card_with_context(player.hand, state.active_context)
+	var picks := [{"card_id": card.card_id, "half_index": card.eligible_half_indexes(state.active_context)[0]}]
+	var deadline := state.phase_deadline_msec
+	var previous := GameCommand.new(&"prior", &"one", &"update_hand_draft", {"cards": [], "round_number": state.round_number - 1})
+	assert_false(controller.submit(previous, 1).accepted)
+	assert_true(controller.submit(GameCommand.new(&"draft", &"one", &"update_hand_draft", {
+		"cards": picks, "round_number": state.round_number,
+	}), 2).accepted)
+	assert_false(player.hand_locked)
+	var two: PlayerState = state.players[&"two"]
+	var other = _card_with_context(two.hand, state.active_context)
+	assert_true(controller.submit(GameCommand.new(&"draft-two", &"two", &"update_hand_draft", {
+		"cards": [{"card_id": other.card_id, "half_index": other.eligible_half_indexes(state.active_context)[0]}],
+		"round_number": state.round_number,
+	}), 2).accepted)
+	assert_true(controller.submit(GameCommand.new(&"clear-two", &"two", &"update_hand_draft", {
+		"cards": [], "round_number": state.round_number,
+	}), 3).accepted)
+	var guest := SnapshotProjector.for_recipient(state, &"two", GameTypes.RecipientRole.ACTIVE_PLAYER)
+	assert_false(JSON.stringify(guest.get("private_staging", {})).contains(str(card.card_id)))
+	var restored := MatchState.from_dict(state.to_dict())
+	controller = MatchController.new(restored)
+	controller.tick(deadline)
+	assert_eq(restored.phase, GameTypes.Phase.MAIN_2)
+	assert_eq(restored.players[&"one"].submitted_cards.map(func(value): return str(value.card_id)), [str(card.card_id)])
+	assert_true(restored.players[&"two"].submitted_cards.is_empty())
+
+
 func test_submission_can_be_reopened_and_replaced_before_the_final_lock() -> void:
 	var state := _hand_play_state(62)
 	var controller := MatchController.new(state)

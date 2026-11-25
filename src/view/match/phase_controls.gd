@@ -13,6 +13,7 @@ const ScorePreview := preload("res://src/view/match/score_preview.gd")
 const ScoringReference := preload("res://src/view/app/scoring_reference.gd")
 const GameTypes := preload("res://src/core/common/game_types.gd")
 const CardFactory := preload("res://src/core/cards/card_factory.gd")
+const HalfCard := preload("res://src/core/cards/half_card_state.gd")
 const AbilityDeckState := preload("res://src/core/abilities/ability_deck_state.gd")
 const Rational := preload("res://src/core/common/rational.gd")
 const GameIcons := preload("res://src/view/common/game_icons.gd")
@@ -58,6 +59,7 @@ var _model: Dictionary = {}
 var _phase := -1
 var _required_halves := 0
 var _pending: Dictionary = {}
+var _last_deadline_draft: Variant = []
 var _after_stage_action: StringName = &""
 var _hand_lock_acknowledged := false
 var _hand_order_before_lock: Array[StringName] = []
@@ -68,6 +70,7 @@ var _hand_order: Array[StringName] = []
 var _staged_order: Array[StringName] = []
 var _staged: Dictionary = {}
 var _orientations: Dictionary = {}
+var _joker_drafts: Dictionary[String, Dictionary] = {}
 var _tutorial_flip_card: StringName = &""
 var _card_widgets: Dictionary = {}
 var _sabotage_highlights: Dictionary[StringName, Tween] = {}
@@ -109,6 +112,7 @@ var show_placeholder_guides := true
 @onready var _start_grid: HBoxContainer = $StartControls/RequestGrid
 @onready var _start_total: Label = $StartControls/Total
 @onready var _start_ready: Button = $StartControls/ReadyButton
+@onready var _ready_backdrop: Panel = $ReadyBackdrop
 @onready var _main: HBoxContainer = $MainControls
 @onready var _main_ready: Button = $MainControls/ReadyButton
 @onready var _hand_play: Control = $HandPlayControls
@@ -237,7 +241,7 @@ func _draw() -> void:
 	if not table_cockpit:
 		draw_style_box(get_theme_stylebox("panel"), Rect2(Vector2.ZERO, size))
 		return
-	for controls: Control in [_start, _main, _end]:
+	for controls: Control in [_start, _end]:
 		if controls.visible:
 			draw_style_box(get_theme_stylebox("panel"), Rect2(controls.position - Vector2(12, 10), controls.size + Vector2(24, 20)))
 
@@ -253,6 +257,10 @@ func _position_phase_content() -> void:
 		if table_cockpit and controls == _main and _phase == PHASE_MAIN_2:
 			top = 49.0
 		controls.position = Vector2((size.x - panel_width) / 2.0, top)
+	_ready_backdrop.visible = table_cockpit and _main.visible
+	if _ready_backdrop.visible:
+		_ready_backdrop.position = _main.position - Vector2(12, 10)
+		_ready_backdrop.size = _main.size + Vector2(24, 20)
 	_hand_play.offset_top = 0.0 if table_cockpit else 42.0
 	_hand_play.offset_bottom = _hand_play.offset_top + (410.0 if table_cockpit else 478.0)
 	_status.position = Vector2(0, -240 if table_cockpit else 0)
@@ -292,9 +300,14 @@ func _layout_cockpit() -> void:
 
 func render(model: Dictionary) -> void:
 	var next_phase := int(model.get("phase", -1))
-	if next_phase != _phase:
+	var round_changed: bool = _model.get("round_number") != model.get("round_number")
+	var player_changed: bool = _model.get("private_player_id") != model.get("private_player_id")
+	if player_changed:
+		_joker_drafts.clear()
+	if next_phase != _phase or round_changed or player_changed:
 		_cancel_hand_drag()
 		_pending.clear()
+		_last_deadline_draft = []
 		_after_stage_action = &""
 		_hand_lock_acknowledged = false
 		_hand_order_before_lock.clear()
@@ -310,7 +323,7 @@ func render(model: Dictionary) -> void:
 				_start_counts[context] = 0
 			_last_start_request = _start_counts.duplicate()
 			_confirmed_start_request = _start_counts.duplicate()
-	if next_phase == PHASE_HAND_PLAY:
+	if next_phase == PHASE_HAND_PLAY and not round_changed and not player_changed:
 		var was_locked := _host_hand_is_locked()
 		var is_locked := bool(model.get("private_staging", {}).get("hand_locked", false))
 		if is_locked and not was_locked:
@@ -428,15 +441,23 @@ func set_joker_choice(card_id: StringName, half_index: int, context: int, suit: 
 	if (
 		not _can_configure_jokers() or _hand_command_pending()
 		or not _hand_cards.has(card_id) or half_index not in [0, 1]
-		or int(_card_half(_hand_cards[card_id], half_index).get("kind", 0)) != GameTypes.HalfKind.JOKER
 	):
 		return
-	var choice := {
-		"card_id": str(card_id), "half_index": half_index, "context": context, "suit": suit,
-	}
-	if rank >= 0:
-		choice["rank"] = rank
-	_emit_intent(&"configure_joker", choice)
+	var half := _card_half(_hand_cards[card_id], half_index)
+	if int(half.get("kind", 0)) != GameTypes.HalfKind.JOKER:
+		return
+	var shown := _joker_values(half)
+	var chosen_rank := shown.z if rank == -1 else rank
+	if not HalfCard.joker_choice_error(context, suit, chosen_rank).is_empty():
+		interaction_sound.emit(&"invalid")
+		return
+	var choice := Vector3i(context, suit, chosen_rank)
+	var key := _joker_key(card_id, half_index, half)
+	var host: Vector3i = _joker_drafts.get(key, {}).get("host", shown)
+	if choice == host:
+		_joker_drafts.erase(key)
+	else:
+		_joker_drafts[key] = {"host": host, "choice": choice}
 	_render_hand_play()
 
 
@@ -574,7 +595,7 @@ func _top_half(card_id: StringName) -> int:
 func _hand_command_pending() -> bool:
 	return (
 		_pending.has(&"stage_hand") or _pending.has(&"lock_hand")
-		or _pending.has(&"unlock_hand") or _pending.has(&"configure_joker")
+		or _pending.has(&"unlock_hand")
 	)
 
 
@@ -799,6 +820,8 @@ func set_inputs_locked(locked: bool) -> void:
 		return
 	_input_locked = locked
 	if _phase == PHASE_HAND_PLAY:
+		if locked:
+			_last_deadline_draft = null
 		_render_hand_play()
 	elif not locked and _phase == PHASE_START:
 		_advance_start_request()
@@ -869,6 +892,10 @@ func handle_command_result(
 	error_code: StringName,
 	authoritative_phase: int
 ) -> void:
+	if kind == &"update_hand_draft":
+		if not accepted and error_code in [&"send_failed", &"input_locked", &"session_unavailable"]:
+			_last_deadline_draft = null
+		return
 	if not _pending.has(kind):
 		return
 	if kind == &"unlock_hand" and accepted and authoritative_phase == _phase and _host_hand_is_locked():
@@ -884,19 +911,13 @@ func handle_command_result(
 			_advance_start_request()
 			_refresh_buttons()
 			return
-		if _phase == PHASE_START and kind != &"configure_joker":
+		if _phase == PHASE_START:
 			_start_ready_requested = false
 		_status.text = "Action rejected: %s" % str(error_code).replace("_", " ")
 		_show_hand_feedback(_status.text)
 		if table_cockpit and _phase != PHASE_HAND_PLAY:
 			_status.show()
-		if kind == &"configure_joker":
-			_render_hand_play()
-		else:
-			_refresh_buttons()
-		return
-	if kind == &"configure_joker":
-		_render_hand_play()
+		_refresh_buttons()
 		return
 	if _phase == PHASE_START and kind in [&"set_replenishment_request", &"set_ready"]:
 		_status.text = ""
@@ -933,14 +954,15 @@ func _render_hand_play() -> void:
 	if _phase == PHASE_HAND_PLAY:
 		_load_authoritative_staging_if_needed()
 		for card_id in _staged.keys():
-			if bool(_hand_cards[card_id].get("submission_locked", false)):
+			var card: Dictionary = _hand_cards[card_id]
+			var selection: Dictionary = _staged[card_id]
+			if bool(card.get("submission_locked", false)) or (
+				int(_model.get("phase_deadline_msec", -1)) >= 0 and not _half_index_is_eligible(card, int(selection.half_index))
+			):
 				_staged.erase(card_id)
 				_staged_order.erase(card_id)
 				continue
-			var selection: Dictionary = _staged[card_id]
-			selection["joker_choices"] = _default_joker_choices(
-				_hand_cards[card_id], selection.get("joker_choices", [])
-			)
+			selection["joker_choices"] = _default_joker_choices(card, selection.get("joker_choices", []))
 	var flip_card := StringName(_model.get("tutorial", {}).get("flip_card_id", ""))
 	if flip_card != _tutorial_flip_card:
 		_tutorial_flip_card = flip_card
@@ -978,6 +1000,7 @@ func _render_hand_play() -> void:
 		if _phase == PHASE_HAND_PLAY:
 			_render_preview()
 		_refresh_buttons()
+		_sync_deadline_draft()
 		return
 	for card_id in _staged_order:
 		if not _hand_cards.has(card_id):
@@ -998,18 +1021,36 @@ func _render_hand_play() -> void:
 		_make_card_widget(card_id, active_context, false, locked, _hand_cards_node)
 	_render_preview()
 	_refresh_buttons()
+	_sync_deadline_draft()
 
 
 func _load_private_hand() -> bool:
 	var cards: Array = _model.get("private_hand", [])
 	var current_ids: Array[StringName] = []
+	var retained_drafts: Dictionary[String, Dictionary] = {}
 	_hand_cards.clear()
-	for card in cards:
-		if not card is Dictionary:
+	for incoming in cards:
+		if not incoming is Dictionary:
 			continue
+		var card: Dictionary = incoming.duplicate(true)
 		var card_id := StringName(card.get("card_id", ""))
 		current_ids.append(card_id)
-		_hand_cards[card_id] = card.duplicate(true)
+		_hand_cards[card_id] = card
+		for half_index in 2:
+			var half := _card_half(card, half_index)
+			if int(half.get("kind", 0)) != GameTypes.HalfKind.JOKER:
+				continue
+			var key := _joker_key(card_id, half_index, half)
+			var draft: Dictionary = _joker_drafts.get(key, {})
+			# A snapshot that changes the Joker's authoritative face supersedes its draft.
+			if draft.is_empty() or draft.host != _joker_values(half):
+				continue
+			var choice: Vector3i = draft.choice
+			half["joker_context"] = choice.x
+			half["joker_suit"] = choice.y
+			half["joker_rank"] = choice.z
+			retained_drafts[key] = draft
+	_joker_drafts = retained_drafts
 	var changed := current_ids.size() != _hand_order.size()
 	for existing in _hand_order.duplicate():
 		if existing not in current_ids:
@@ -1029,10 +1070,14 @@ func _load_private_hand() -> bool:
 
 
 func _load_authoritative_staging_if_needed() -> void:
-	var authoritative: Array = _model.get("private_staging", {}).get("staged_submission", [])
+	var staging: Dictionary = _model.get("private_staging", {})
+	var authoritative: Array = staging.get("staged_submission", [])
 	var signature := JSON.stringify([_host_hand_is_locked(), authoritative])
 	if signature == _authoritative_staging_signature:
 		return
+	if _authoritative_staging_signature.is_empty() and not _host_hand_is_locked() and staging.get("deadline_submission") is Array:
+		authoritative = staging.deadline_submission
+		_last_deadline_draft = authoritative.duplicate(true)
 	_authoritative_staging_signature = signature
 	_staged.clear()
 	_staged_order.clear()
@@ -1534,6 +1579,19 @@ func _canonical_staging() -> Array:
 	return cards
 
 
+func _sync_deadline_draft() -> void:
+	if (
+		_phase != PHASE_HAND_PLAY or int(_model.get("phase_deadline_msec", -1)) < 0
+		or _input_locked or bool(_model.get("frozen", false)) or _hand_is_locked() or _hand_command_pending()
+	):
+		return
+	var cards := _canonical_staging()
+	if _last_deadline_draft == cards:
+		return
+	_last_deadline_draft = cards.duplicate(true)
+	intent_requested.emit(&"update_hand_draft", {"round_number": int(_model.get("round_number", 0)), "cards": cards})
+
+
 func _card_is_eligible(card: Dictionary) -> bool:
 	if card.has("eligible_half_indexes"):
 		return not card.eligible_half_indexes.is_empty()
@@ -1564,6 +1622,14 @@ func _card_half(card: Dictionary, half_index: int) -> Dictionary:
 	return card.get("first", {}) if half_index == 0 else card.get("second", {})
 
 
+func _joker_key(card_id: StringName, half_index: int, half: Dictionary) -> String:
+	return str(half.get("copy_id", "%s:%d" % [card_id, half_index]))
+
+
+func _joker_values(half: Dictionary) -> Vector3i:
+	return Vector3i(int(half.get("joker_context", -1)), int(half.get("joker_suit", -1)), int(half.get("joker_rank", 0)))
+
+
 func _default_half_index(card: Dictionary) -> int:
 	return 0 if _half_index_is_eligible(card, 0) else 1
 
@@ -1587,8 +1653,9 @@ func _default_joker_choices(card: Dictionary, previous_choices: Array = []) -> A
 				choice = previous
 				break
 		if half.has("joker_suit"):
-			choice = {"half_index": half_index, "context": half.joker_context, "suit": half.joker_suit}
-			if int(half.get("joker_rank", 0)) > 0:
-				choice["rank"] = half.joker_rank
+			choice = {
+				"half_index": half_index, "context": half.joker_context, "suit": half.joker_suit,
+				"rank": int(half.get("joker_rank", 0)),
+			}
 		choices.append(choice)
 	return choices

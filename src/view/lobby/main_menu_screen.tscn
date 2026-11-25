@@ -3,15 +3,15 @@
 [ext_resource type="Script" path="res://src/view/lobby/main_menu_screen.gd" id="1_script"]
 [ext_resource type="Theme" path="res://themes/placeholder_theme.tres" id="2_theme"]
 [ext_resource type="StyleBox" path="res://themes/shift_panel.tres" id="3_panel"]
-[ext_resource type="Texture2D" path="res://assets/artwork/board/board.png" id="4_board"]
 [ext_resource type="Texture2D" path="res://assets/artwork/logo.png" id="5_logo"]
 [ext_resource type="StyleBox" path="res://themes/shift_primary_action.tres" id="6_primary"]
+[ext_resource type="PackedScene" path="res://src/view/lobby/credits_button.tscn" id="7_credits"]
 
 [sub_resource type="StyleBoxEmpty" id="StyleBoxEmpty_join"]
 
 [sub_resource type="AtlasTexture" id="Atlas_logo"]
 atlas = ExtResource("5_logo")
-region = Rect2(90, 150, 1776, 1320)
+region = Rect2(81, 164, 1775, 1283)
 filter_clip = true
 
 [node name="MainMenuScreen" type="Control"]
@@ -24,18 +24,12 @@ grow_vertical = 2
 theme = ExtResource("2_theme")
 script = ExtResource("1_script")
 
-[node name="Backdrop" type="ColorRect" parent="."]
-layout_mode = 1
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
+[node name="Background" type="ColorRect" parent="."]
+layout_mode = 0
 mouse_filter = 2
 color = Color(0.078, 0.102, 0.129, 1)
 
-[node name="BoardTexture" type="TextureRect" parent="."]
-modulate = Color(0.67, 0.78, 0.92, 0.18)
+[node name="Current" type="TextureRect" parent="Background"]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -43,11 +37,23 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
-texture = ExtResource("4_board")
+expand_mode = 1
+stretch_mode = 6
+
+[node name="Incoming" type="TextureRect" parent="Background"]
+modulate = Color(1, 1, 1, 0)
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
 expand_mode = 1
 stretch_mode = 6
 
 [node name="MenuSurface" type="Panel" parent="."]
+visible = false
 layout_mode = 1
 anchors_preset = 8
 anchor_left = 0.5
@@ -79,7 +85,7 @@ theme_override_constants/separation = 13
 alignment = 1
 
 [node name="Logo" type="TextureRect" parent="Content"]
-custom_minimum_size = Vector2(350, 248)
+custom_minimum_size = Vector2(470, 340)
 layout_mode = 2
 size_flags_horizontal = 4
 mouse_filter = 2
@@ -146,6 +152,20 @@ placeholder_text = "How should the table know you?"
 max_length = 24
 theme_override_font_sizes/font_size = 24
 
+[node name="AvatarPicker" type="VBoxContainer" parent="Content"]
+visible = false
+layout_mode = 2
+theme_override_constants/separation = 7
+
+[node name="Label" type="Label" parent="Content/AvatarPicker"]
+layout_mode = 2
+text = "Avatar"
+theme_override_font_sizes/font_size = 24
+
+[node name="Choices" type="HBoxContainer" parent="Content/AvatarPicker"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
 [node name="HostButton" type="Button" parent="Content"]
 custom_minimum_size = Vector2(0, 54)
 layout_mode = 2
@@ -198,6 +218,8 @@ theme_override_colors/font_color = Color(0.72, 0.78, 0.85, 1)
 theme_override_font_sizes/font_size = 22
 horizontal_alignment = 1
 autowrap_mode = 2
+
+[node name="CreditsButton" parent="." instance=ExtResource("7_credits")]
 
 [connection signal="text_changed" from="Content/PlayerName" to="." method="_on_input_changed"]
 [connection signal="pressed" from="Content/HostButton" to="." method="_on_host_pressed"]

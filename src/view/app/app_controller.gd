@@ -42,6 +42,7 @@ var _last_presentation: Dictionary = {}
 var _settings_overlay: Control
 var _settings_previous_focus: WeakRef
 var _player_name := ""
+var _avatar_id := ""
 
 @onready var _screen_host: Control = $SafeArea/ScreenHost
 @onready var _connection_banner: PanelContainer = $SafeArea/ConnectionBanner
@@ -69,6 +70,11 @@ func _ready() -> void:
 			var result := write_startup_smoke_marker(marker_path)
 			get_tree().quit(0 if result == OK else 1)
 			return
+
+
+func _exit_tree() -> void:
+	if cursor_artwork != null:
+		cursor_artwork.clear()
 
 
 func _record_first_frame(mode: int) -> void:
@@ -161,7 +167,7 @@ func show_screen(screen_id: StringName, model: Dictionary = {}) -> void:
 	if _current_screen is Control:
 		_current_screen.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	if _current_screen.has_method("set_page"):
-		_current_screen.set_page(screen_id, _player_name)
+		_current_screen.set_page(screen_id, _player_name, _avatar_id)
 	_wire_current_screen()
 	if not model.is_empty() and _current_screen.has_method("render"):
 		_current_screen.render(model)
@@ -315,6 +321,7 @@ func _wire_current_screen() -> void:
 func _on_menu_screen_requested(screen_id: StringName) -> void:
 	if not _current_screen.player_name().is_empty():
 		_player_name = _current_screen.player_name()
+	_avatar_id = _current_screen.avatar_id()
 	if screen_id == &"menu":
 		_return_to_menu()
 	else:
@@ -363,9 +370,10 @@ func start_tutorial() -> void:
 
 func _begin_host_runtime(player_name: String) -> void:
 	_player_name = player_name
+	_avatar_id = _current_screen.avatar_id()
 	host_requested.emit(player_name)
 	_replace_runtime_session()
-	var error: Error = _session.start_host(_signaling_url(), player_name)
+	var error: Error = _session.start_host(_signaling_url(), player_name, _avatar_id)
 	if error != OK:
 		_set_connection("idle", "")
 		_show_current_error("Could not start the room service (%d)." % error)
@@ -373,10 +381,11 @@ func _begin_host_runtime(player_name: String) -> void:
 
 func _begin_join_runtime(player_name: String, room_code: String, role: String) -> void:
 	_player_name = player_name
+	_avatar_id = _current_screen.avatar_id()
 	join_requested.emit(player_name, room_code, role)
 	_replace_runtime_session()
 	var error: Error = _session.start_join(
-		_signaling_url(), room_code, role, player_name
+		_signaling_url(), room_code, role, player_name, _avatar_id
 	)
 	if error != OK:
 		_set_connection("idle", "")
@@ -473,7 +482,7 @@ func _on_match_intent(kind: StringName, payload: Dictionary) -> void:
 		return
 	game_intent_requested.emit(kind, payload.duplicate(true))
 	if _session != null:
-		command_gateway.send(kind, payload)
+		command_gateway.send(kind, payload, kind == CommandKinds.UPDATE_HAND_DRAFT)
 
 
 func _on_connection_action(action: StringName) -> void:

@@ -5,6 +5,7 @@ const Preview = preload("res://src/view/match/score_preview.gd")
 const MatchConfig = preload("res://src/core/match/match_config.gd")
 const MatchState = preload("res://src/core/match/match_state.gd")
 const MatchController = preload("res://src/core/match/match_controller.gd")
+const GameCommand = preload("res://src/core/commands/game_command.gd")
 const Projector = preload("res://src/core/match/snapshot_projector.gd")
 const Protocol = preload("res://src/network/game_protocol.gd")
 const AbilityCatalog = preload("res://src/core/abilities/ability_catalog.gd")
@@ -12,6 +13,7 @@ const AbilityDefinition = preload("res://src/core/abilities/ability_definition.g
 const Card = preload("res://src/core/cards/full_card_state.gd")
 const Half = preload("res://src/core/cards/half_card_state.gd")
 const NormalHand = preload("res://src/core/scoring/normal_hand_definition.gd")
+const NormalCatalog = preload("res://src/core/scoring/normal_hand_catalog.gd")
 const ContextCatalog = preload("res://src/core/scoring/context_hand_catalog.gd")
 const ScoringTypes = preload("res://src/core/scoring/scoring_types.gd")
 const Rational = preload("res://src/core/common/rational.gd")
@@ -94,6 +96,58 @@ func test_cockpit_preview_matches_host_after_snapshot_decoration_and_network_rou
 		{"rank": 0, "suit": 2, "joker": true},
 	]
 	assert_eq(expected.base_components, components)
+
+
+func test_local_joker_edits_preview_the_buffed_straight_before_host_validation() -> void:
+	var abilities := AbilityCatalog.build_deck(AbilityCatalog.provisional_deck_recipe())
+	var config := MatchConfig.new(
+		[&"one", &"two"], [], 0, 1000, 0, {1: 1000, 2: 1000, 3: 1000, 4: 1000, 5: 1000},
+		100, 1000, 1000, abilities, NormalCatalog.definitions(), ContextCatalog.definitions()
+	)
+	var state := MatchState.create(config, 81)
+	state.phase = GameTypes.Phase.HAND_PLAY
+	state.active_context = GameTypes.Context.RISE
+	var player = state.players[&"one"]
+	var joker := Half.new(&"joker:0", 0, 0, Half.NO_SUIT, GameTypes.HalfKind.JOKER)
+	joker.set_joker_choice(0, 0, 10)
+	player.hand.assign([
+		Card.new(&"a", Half.new(&"a:0", 0, 2, 0), Half.new(&"a:1", 1, 7, 0)),
+		Card.new(&"b", Half.new(&"b:0", 0, 3, 1), Half.new(&"b:1", 1, 7, 0)),
+		Card.new(&"c", Half.new(&"c:0", 0, 4, 2), Half.new(&"c:1", 1, 7, 0)),
+		Card.new(&"joker", joker, Half.new(&"joker:1", 1, 7, 0)),
+	])
+	var snapshot := Projector.for_recipient(state, &"one", GameTypes.RecipientRole.ACTIVE_PLAYER)
+	snapshot["lobby_settings"] = config.to_dict()
+	var controls := CONTROLS.instantiate() as PhaseControls
+	controls.table_cockpit = true
+	Engine.get_main_loop().root.add_child(controls)
+	controls.render(snapshot)
+	for id in [&"a", &"b", &"c", &"joker"]:
+		controls.click_card(id)
+	var intents: Array[Dictionary] = []
+	controls.intent_requested.connect(func(kind: StringName, payload: Dictionary):
+		intents.append({"kind": kind, "payload": payload})
+	)
+	var factors := controls.get_node("HandPlayControls/Preview/Factors")
+	assert_eq(factors.get_node("HandName").text, "High Card")
+	controls.set_joker_choice(&"joker", 0, 0, 0, 5)
+	assert_eq(factors.get_node("HandName").text, "Four-card Straight")
+	assert_eq(factors.get_node("HandValue").text, "5/2")
+	assert_eq(factors.get_node("BaseValue").text, "9")
+	assert_eq(joker.joker_rank, 10)
+	assert_true(intents.is_empty())
+	var total := int(factors.get_node("TotalValue").text)
+	controls.get_node("HandPlayControls/ActionRow/SubmitButton").pressed.emit()
+	assert_eq(intents.size(), 1)
+	if intents.size() == 1:
+		var controller := MatchController.new(state)
+		var result := controller.submit(GameCommand.new(&"stage", &"one", intents[0].kind, intents[0].payload), 1)
+		assert_true(result.accepted)
+		assert_eq(joker.joker_rank, 5)
+		assert_eq(controller._lock_player_hand(&"one", false), &"")
+		assert_eq(player.provisional_score.final_score, total)
+	controls.queue_free()
+	await Engine.get_main_loop().process_frame
 
 
 func test_cockpit_values_each_own_a_named_contribution_table() -> void:

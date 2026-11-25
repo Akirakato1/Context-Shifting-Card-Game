@@ -81,10 +81,15 @@ func test_setup_uses_shared_piles_and_deals_opening_hands_then_start_abilities()
 
 
 func test_score_race_and_round_win_race_use_greater_than_or_equal_thresholds() -> void:
-	var score_config := _config([&"one", &"two"], [])
+	var score_config := _config([&"one", &"two", &"three"], [&"watcher"])
 	var score_state := MatchState.create(score_config, 1)
-	assert_eq(score_state.resolve_round({&"one": 11, &"two": 5}), &"one")
-	assert_eq(score_state.players[&"one"].match_score, 11)
+	assert_eq(score_state.resolve_round({&"one": 11, &"two": 8, &"three": 5, &"watcher": 0}), &"one")
+	assert_eq(score_state.players[&"one"].match_score, 6)
+	assert_eq(score_state.players[&"two"].match_score, 0)
+	assert_eq(score_state.players[&"three"].match_score, 0)
+	assert_eq(score_state.winner_id, &"")
+	assert_eq(score_state.resolve_round({&"one": 4, &"two": 3, &"three": 0}), &"one")
+	assert_eq(score_state.players[&"one"].match_score, 10)
 	assert_eq(score_state.winner_id, &"one")
 
 	var wins_config := _config([&"one", &"two"], [])

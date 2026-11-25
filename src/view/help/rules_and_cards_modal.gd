@@ -138,7 +138,7 @@ func _build_how_to_play() -> void:
 	_add_phase(steps, "Main 1",
 		"Play Field, Sabotage, or Buff/Nerf abilities. Ready when you’re done.")
 	_add_phase(steps, "Hand Play",
-		"Use Manipulation abilities, then choose cards with a half that matches an active context. Choose which half scores and submit or pass. Use Undo Submit to edit your hand while other players are still choosing.")
+		"Use Manipulation abilities, then choose cards with a half that matches an active context. Choose which half scores and submit or pass. If time runs out, the game submits your staged cards. Use Undo Submit to edit while other players are still choosing.")
 	_add_phase(steps, "Main 2",
 		"Review the revealed hands and provisional scores. Play any final Buff/Nerf abilities and ready.")
 	_add_phase(steps, "End",
@@ -156,7 +156,7 @@ func _build_how_to_play() -> void:
 	)
 	_label(
 		content,
-		"The host chooses whether the match ends at a total score or a total number of round wins.",
+		"In Score Race, the round winner earns the highest hand score minus the lowest. A pass counts as zero, and a tie for highest awards no points. In Round-Win Race, each outright win counts once.",
 		20, MUTED
 	)
 

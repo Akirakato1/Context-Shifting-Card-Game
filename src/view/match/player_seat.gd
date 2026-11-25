@@ -4,6 +4,7 @@ extends VBoxContainer
 signal ability_target_requested(player_id: String)
 
 const CARD_SCENE := preload("res://src/view/match/card_widget.tscn")
+const AvatarCatalog := preload("res://src/view/common/avatar_catalog.gd")
 const GameTypes := preload("res://src/core/common/game_types.gd")
 const ScoringReference := preload("res://src/view/app/scoring_reference.gd")
 const FACE_SIZE := Vector2(92, 96)
@@ -23,11 +24,13 @@ var _target_selected := false
 var _target_interactive := false
 var _target_hovered := false
 var _target_glow := TARGET_AURA.duplicate() as StyleBoxFlat
-var _base_info_mouse_filter := Control.MOUSE_FILTER_PASS
+var _shadow_light := Vector2.INF
 
-@onready var _info: HBoxContainer = $Info
 @onready var _name: Label = $Info/Name
-@onready var _ready_status: Label = $Info/ReadyStatus
+@onready var _avatar_frame: TextureRect = $Avatar
+@onready var _avatar: TextureRect = $Avatar/Portrait
+@onready var _summary: VBoxContainer = $Summary
+@onready var _ready_status: Label = $Summary/ReadyStatus
 @onready var _score: Label = $Summary/ScoreSummary
 @onready var _seat_tally: Label = $Summary/SeatTally
 @onready var _request: Label = $Request
@@ -37,27 +40,64 @@ var _base_info_mouse_filter := Control.MOUSE_FILTER_PASS
 func _ready() -> void:
 	resized.connect(queue_redraw)
 	minimum_size_changed.connect(queue_redraw)
+	_avatar_frame.item_rect_changed.connect(queue_redraw)
+	set_notify_transform(true)
 	mouse_entered.connect(_set_target_hovered.bind(true))
 	mouse_exited.connect(_set_target_hovered.bind(false))
 	focus_entered.connect(queue_redraw)
 	focus_exited.connect(queue_redraw)
-	_base_info_mouse_filter = _info.mouse_filter
 	_target_glow.draw_center = true
 	_target_glow.set_corner_radius_all(10)
 	_target_glow.set_border_width_all(2)
 	_target_glow.shadow_size = 10
 
 
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_TRANSFORM_CHANGED:
+		queue_redraw()
+
+
+func set_shadow_light(world_position: Vector2) -> void:
+	_shadow_light = world_position
+	queue_redraw()
+
+
 func _draw() -> void:
-	var frame := seat_art if seat_art != null else (get_theme_stylebox("panel") if show_placeholder_guides else null)
-	if frame != null:
-		draw_style_box(frame, Rect2(-10, -8, size.x + 20, get_combined_minimum_size().y + 16))
+	if _avatar_frame.visible:
+		_draw_avatar_shadow()
+	else:
+		var frame := seat_art if seat_art != null else (get_theme_stylebox("panel") if show_placeholder_guides else null)
+		if frame != null:
+			draw_style_box(frame, _ability_target_local_rect())
 	if _target_eligible:
 		var emphasized := _target_hovered or _target_selected or has_focus()
 		_target_glow.border_color = Color(TARGET_AURA.border_color, 0.82 if emphasized else 0.43)
 		_target_glow.bg_color = Color(TARGET_AURA.border_color, 0.13 if emphasized else 0.055)
 		_target_glow.shadow_color = Color(TARGET_AURA.shadow_color, 0.28 if emphasized else 0.12)
 		draw_style_box(_target_glow, _ability_target_local_rect())
+
+
+func _draw_avatar_shadow() -> void:
+	if _avatar.texture == null or not _shadow_light.is_finite():
+		return
+	var dimensions := _avatar_frame.size
+	var foot := _avatar_frame.position + Vector2(dimensions.x * 0.5, dimensions.y - 2.0)
+	var ground_scale := Vector2(1.0, 0.55)
+	var light := get_global_transform().affine_inverse() * _shadow_light
+	var outward := ((foot - light) / ground_scale).normalized()
+	var across := Vector2(-outward.y, outward.x)
+	if (across.x < 0.0) != _avatar.flip_h:
+		across = -across
+	var width_axis := across * ground_scale * 0.9
+	var height_axis := -outward * ground_scale * 0.85
+	var origin := foot - width_axis * dimensions.x * 0.5 - height_axis * dimensions.y
+	var silhouette := Rect2(Vector2.ZERO, dimensions)
+	for edge_offset in [-3.0, 3.0]:
+		draw_set_transform_matrix(Transform2D(width_axis, height_axis, origin + across * edge_offset))
+		draw_texture_rect(_avatar.texture, silhouette, false, Color(0.02, 0.013, 0.02, 0.12))
+	draw_set_transform_matrix(Transform2D(width_axis, height_axis, origin))
+	draw_texture_rect(_avatar.texture, silhouette, false, Color(0.02, 0.013, 0.02, 0.32))
+	draw_set_transform_matrix(Transform2D.IDENTITY)
 
 
 func player_id() -> String:
@@ -71,7 +111,6 @@ func set_ability_target(eligible: bool, selected := false, interactive := false)
 	mouse_filter = Control.MOUSE_FILTER_STOP if _target_interactive else Control.MOUSE_FILTER_IGNORE
 	mouse_default_cursor_shape = Control.CURSOR_CROSS if _target_interactive else Control.CURSOR_ARROW
 	focus_mode = Control.FOCUS_ALL if _target_interactive else Control.FOCUS_NONE
-	_info.mouse_filter = Control.MOUSE_FILTER_PASS if _target_interactive else _base_info_mouse_filter
 	if not _target_interactive:
 		release_focus()
 		_target_hovered = false
@@ -87,8 +126,9 @@ func is_ability_target() -> bool:
 
 
 func _ability_target_local_rect() -> Rect2:
-	var width := minf(size.x + 16, 320.0) if not _hand.visible else size.x + 16
-	return Rect2((size.x - width) / 2.0, -6, width, maxf(size.y, get_combined_minimum_size().y) + 12)
+	var info_width := maxf(_name.get_combined_minimum_size().x, _summary.get_combined_minimum_size().x)
+	var width := (size.x if _hand.visible else info_width) + 16.0
+	return Rect2((size.x - width) / 2.0, -6, width, get_combined_minimum_size().y + 12)
 
 
 func _has_point(point: Vector2) -> bool:
@@ -132,6 +172,11 @@ func render(
 	var display_name := str(player.get("name", player.get("player_id", "OPEN SEAT")))
 	_name.text = ("YOU  ·  " + display_name) if is_local else display_name
 	_name.tooltip_text = display_name if occupied else ""
+	var avatar_id := str(player.get("avatar_id", AvatarCatalog.default_avatar_id(int(player.get("seat_index", 0)))))
+	_avatar.texture = AvatarCatalog.seat_texture(avatar_id, seat_position) if occupied else null
+	_avatar.flip_h = occupied and seat_position == &"left" and AvatarCatalog.has_side(avatar_id)
+	_avatar_frame.visible = occupied
+	queue_redraw()
 	_ready_status.visible = (
 		occupied and bool(player.get("active", false)) and not bool(player.get("pending", false))
 		and phase in [GameTypes.Phase.START, GameTypes.Phase.MAIN_1, GameTypes.Phase.MAIN_2]
@@ -139,7 +184,7 @@ func render(
 	var ready := bool(player.get("ready", false))
 	_ready_status.text = "READY" if ready else "DECIDING"
 	_ready_status.modulate = Color("8fedc2") if ready else Color("f4ca8b")
-	$Summary.visible = occupied
+	_summary.visible = occupied
 	var use_wins := victory_mode == GameTypes.VictoryMode.ROUND_WIN_RACE
 	var count := int(player.get("ability_count", 0))
 	_seat_tally.text = "%d %s  ·  %d %s" % [
@@ -168,7 +213,7 @@ func render(
 	if revealed.get("cards", []).is_empty():
 		_score.text = "Passed"
 	else:
-		_score.text = ("%d points this round" if is_end else "%d provisional points") % score
+		_score.text = ("Hand score %d" if is_end else "%d provisional points") % score
 	_score.tooltip_text = _score_text(revealed) if _score.visible else ""
 
 

@@ -97,6 +97,51 @@ func test_ability_drawer_expands_upward_and_enforces_all_four_timings() -> void:
 	await _unmount(panel)
 
 
+func test_ability_cards_show_the_matching_category_symbol_in_each_layout() -> void:
+	const CARD_PATHS := [
+		"res://src/view/match/ability_card.tscn",
+		"res://src/view/match/ability_inventory_card.tscn",
+	]
+	const SYMBOL_NAMES := ["manipulation", "field", "buff", "sabotage"]
+	for card_path: String in CARD_PATHS:
+		var card = await _mount(card_path)
+		if card == null:
+			continue
+		var symbol := card.find_child("CategorySymbol") as TextureRect
+		assert_true(symbol != null, "Ability cards need the artist's category symbol")
+		if symbol == null:
+			await _unmount(card)
+			continue
+
+		for timing in SYMBOL_NAMES.size():
+			card.render({"timing": timing}, "test", not card.inventory_layout)
+			assert_true(symbol.visible and symbol.texture != null)
+			if symbol.texture == null:
+				continue
+			assert_true(symbol.texture.resource_path.ends_with("card_symbol_%s.png" % SYMBOL_NAMES[timing]))
+			assert_eq(symbol.stretch_mode, TextureRect.STRETCH_SCALE)
+
+		if card.inventory_layout:
+			card.set_tray_details(false)
+			var fitted_symbol := symbol.texture as AtlasTexture
+			assert_true(symbol.visible and fitted_symbol != null)
+			if fitted_symbol != null:
+				assert_true(fitted_symbol.atlas.resource_path.ends_with("card_symbol_sabotage.png"))
+			assert_eq(symbol.stretch_mode, TextureRect.STRETCH_KEEP_ASPECT_CENTERED)
+			card.render({"timing": 3, "suit_emblem": 0}, "test", false)
+			var emblem := card.find_child("ContextEmblem") as TextureRect
+			var emblem_space := emblem.get_parent() as Control
+			assert_true(symbol.visible and emblem.visible)
+			assert_true(symbol.anchor_right <= emblem_space.anchor_left)
+			card.set_tray_details(true)
+			assert_true(symbol.anchor_bottom <= emblem_space.anchor_top)
+
+		card.render({}, "unknown", false)
+		assert_false(symbol.visible)
+		assert_eq(symbol.texture, null)
+		await _unmount(card)
+
+
 func test_ability_drawer_plays_only_after_right_click_focus_and_same_card_left_click() -> void:
 	var panel = await _mount(ABILITY_PANEL_PATH)
 	if panel == null:
@@ -202,28 +247,53 @@ func test_sabotage_targets_the_opponent_seat_and_clears_on_play() -> void:
 	var model := _active_model(2)
 	model.private_abilities = [{"copy_id": "sabotage-copy", "ability_id": "forced_mulligan"}]
 	model.ability_catalog = AbilityCatalog.public_catalog({})
+	for index in [2, 3]:
+		var player: Dictionary = model.players[1].duplicate()
+		player.player_id = "p%d" % (index + 1)
+		player.seat_index = index
+		model.players.append(player)
 	screen.render(model)
 	var commands: Array[Dictionary] = []
 	screen.intent_requested.connect(func(kind: StringName, payload: Dictionary):
 		commands.append({"kind": kind, "payload": payload}))
 	var panel: Control = screen.get_node("AbilityPanel")
 	await Engine.get_main_loop().process_frame
+	var left_avatar: Control = screen.get_node("TableLayer/LeftSeat/Avatar")
+	var right_avatar: Control = screen.get_node("TableLayer/RightSeat/Avatar")
+	var left_center := left_avatar.get_global_rect().get_center()
+	var right_center := right_avatar.get_global_rect().get_center()
+	assert_eq(left_center.y, right_center.y)
+	assert_true(is_equal_approx(left_center.x + right_center.x, screen.get_global_rect().get_center().x * 2.0),
+		"The left and right avatars mirror each other with the tray open")
+	assert_true(panel.get_node("Drawer").visible)
 	_click_card(panel.get_node("Drawer/Layout/Scroll/Cards").get_child(0), MOUSE_BUTTON_RIGHT)
 	var overlay: Control = screen.get_node("TargetingOverlay")
 	assert_true(overlay.visible, "Right-clicking the ability immediately enables seat targeting")
 	assert_true(commands.is_empty(), "Priming alone does not play the ability")
 	assert_eq(overlay.get_node("Panel/Layout/Options").get_child_count(), 0)
-	var seat: Control = screen.get_node("TableLayer/TopSeat")
-	if seat.has_method("ability_target_rect"):
-		var bounds: Rect2 = seat.call("ability_target_rect")
-		_mouse_button(screen.get_viewport(), bounds.get_center(), MOUSE_BUTTON_LEFT, true)
-		_mouse_button(screen.get_viewport(), bounds.get_center(), MOUSE_BUTTON_LEFT, false)
+	assert_false(panel.get_node("Drawer").visible, "The drawer clears the right seat during targeting")
+	var click_point := Vector2.ZERO
+	for position in ["TopSeat", "RightSeat"]:
+		var seat: Control = screen.get_node("TableLayer/" + position)
+		var portrait: TextureRect = seat.get_node("Avatar")
+		assert_eq(portrait.size, Vector2(138, 138))
+		click_point = portrait.get_global_transform_with_canvas() * (portrait.size * 0.5)
+		var motion := InputEventMouseMotion.new()
+		motion.position = click_point
+		screen.get_viewport().push_input(motion, true)
+		var hovered: Control = screen.get_viewport().gui_get_hovered_control()
+		assert_eq(hovered, seat, "The %s avatar click reached %s" % [position,
+			str(hovered.get_path()) if hovered != null else "no control",
+		])
+	_mouse_button(screen.get_viewport(), click_point, MOUSE_BUTTON_LEFT, true)
+	_mouse_button(screen.get_viewport(), click_point, MOUSE_BUTTON_LEFT, false)
 	assert_eq(commands, [{
 		"kind": &"play_public_ability",
-		"payload": {"copy_id": "sabotage-copy", "target_player_id": "p2",
-			"choices": {"target_player_id": ["p2"]}},
+		"payload": {"copy_id": "sabotage-copy", "target_player_id": "p4",
+			"choices": {"target_player_id": ["p4"]}},
 	}])
 	screen.handle_command_result(&"play_public_ability", true, &"", 2)
+	assert_true(panel.get_node("Drawer").visible, "The drawer returns after targeting ends")
 	var dimmer := screen.get_node_or_null("AbilityFocus") as Control
 	assert_true(dimmer != null and not dimmer.visible)
 	await _unmount(screen)

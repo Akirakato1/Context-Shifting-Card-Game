@@ -13,9 +13,13 @@ const CommandResult := preload("res://src/core/commands/command_result.gd")
 const DomainEvent := preload("res://src/core/events/domain_event.gd")
 const Projector := preload("res://src/core/match/snapshot_projector.gd")
 const HOST := &"host"
-const OPPONENTS := [&"mika", &"ren", &"jo"]
+const PRACTICE_BOTS := {
+	&"mika": {"avatar_id": "avatar_2", "name": "Bernhard Riemann"},
+	&"ren": {"avatar_id": "avatar_3", "name": "Levent Alpöge"},
+	&"jo": {"avatar_id": "avatar_4", "name": "Claude-Louis Navier"},
+}
 
-var _opponents := OPPONENTS.duplicate()
+var _bot_profiles := PRACTICE_BOTS
 var _runtime := Runtime.new()
 var _controller: Controller
 var _sequence := 0
@@ -27,14 +31,18 @@ var _closed := false
 
 
 func start() -> void:
-	var config = _runtime._build_config([HOST] + _opponents)
+	var config = _runtime._build_config([HOST] + _bot_profiles.keys())
 	config.set_victory_mode(Types.VictoryMode.ROUND_WIN_RACE)
 	config.set_victory_target(3)
 	config.set_information_visibility(Types.InformationVisibility.PRIVATE)
 	_controller = Controller.new(_create_starting_state(config), null, Callable(), false)
 	_controller.begin_match(Time.get_ticks_msec())
 	_runtime._controller = _controller
-	_runtime._display_names = {HOST: "You", &"mika": "Mika", &"ren": "Ren", &"jo": "Jo"}
+	_runtime._display_names = {HOST: "You"}
+	for id: StringName in _bot_profiles:
+		var profile: Dictionary = _bot_profiles[id]
+		_controller.state.players[id].avatar_id = profile.avatar_id
+		_runtime._display_names[id] = profile.name
 	_publish()
 
 
@@ -52,9 +60,11 @@ func submit_command(request_message_id: String, command: Dictionary) -> Error:
 func _submit_local(request_message_id: String, command: Dictionary) -> void:
 	if _closed:
 		return
+	var kind := StringName(command.kind)
 	var result = _submit_player_command(Command.new(StringName(command.command_id), HOST,
-		StringName(command.kind), command.payload), Time.get_ticks_msec())
-	_publish(result.events)
+		kind, command.payload), Time.get_ticks_msec())
+	if kind != CommandKinds.UPDATE_HAND_DRAFT:
+		_publish(result.events)
 	command_result_received.emit(request_message_id, {"accepted": result.accepted, "error_code": str(result.error_code)})
 
 
@@ -71,7 +81,7 @@ func poll() -> void:
 	var changed := not events.is_empty()
 	if now >= _next_bot_move:
 		_next_bot_move = now + 1_100
-		for opponent in _opponents:
+		for opponent: StringName in _bot_profiles:
 			if _controller.state.phase != _last_phase or _controller.state.round_number != _last_round:
 				break
 			changed = _play_bot(opponent, now, events) or changed

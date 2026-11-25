@@ -47,8 +47,8 @@ static func manipulation_designs() -> Array[AbilityDefinition]:
 			}]
 		),
 		_definition(
-			&"suit_shift", "Suit Shift",
-			"Select 1 or 2 non-Joker halves. Advance each suit from Mountain to Cloud to Sea to Mountain.",
+			&"suit_shift", "Ride the Suit Cycle",
+			"Select 1 or 2 non-Joker halves. Advance each suit one step on the suit clock.",
 			&"shift_suit", {}, [_suit_half_step("Select 1 or 2 halves to shift their suits")]
 		),
 		_definition(

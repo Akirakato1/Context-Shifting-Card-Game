@@ -53,6 +53,11 @@ enum Phase {
 }
 
 const MAIN_2_REVIEW_MSEC_PER_PLAYER := 3000
+const AVATAR_IDS := ["avatar_1", "avatar_2", "avatar_3", "avatar_4", "avatar_5"]
+
+
+static func default_avatar_id(seat_index: int) -> String:
+	return AVATAR_IDS[maxi(seat_index, 0) % AVATAR_IDS.size()]
 
 enum VictoryMode {
 	SCORE_RACE,

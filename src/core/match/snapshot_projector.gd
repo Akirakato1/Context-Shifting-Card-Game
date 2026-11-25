@@ -48,6 +48,7 @@ static func for_recipient(
 		var player = state.players[player_id]
 		var projected_player := {
 			"player_id": str(player.player_id), "seat_index": player.seat_index,
+			"avatar_id": player.avatar_id if not player.avatar_id.is_empty() else GameTypes.default_avatar_id(player.seat_index),
 			"spectator": player.spectator, "active": player.active, "pending": player.pending,
 			"connected": player.connected,
 			"hand_count": player.hand.size() - (player.submitted_cards.size() if player.submission_revealed else 0),
@@ -129,6 +130,8 @@ static func for_recipient(
 			"staged_submission": recipient.staged_submission.duplicate(true),
 			"hand_locked": recipient.hand_locked,
 		}
+		if recipient.deadline_submission is Array:
+			snapshot["private_staging"]["deadline_submission"] = recipient.deadline_submission.duplicate(true)
 		if recipient.hand_locked and recipient.provisional_score != null:
 			snapshot["private_staging"]["submitted_score"] = score_breakdown(
 				recipient.provisional_score, recipient.submitted_faces

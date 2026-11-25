@@ -1,11 +1,24 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene load_steps=8 format=3]
 
 [ext_resource type="Script" path="res://src/view/app/app_controller.gd" id="1_controller"]
 [ext_resource type="Theme" path="res://themes/placeholder_theme.tres" id="2_theme"]
 [ext_resource type="Script" path="res://src/view/app/cursor_artwork.gd" id="3_cursors"]
+[ext_resource type="Texture2D" path="res://assets/artwork/cursor_default.png" id="4_pointer"]
+[ext_resource type="Texture2D" path="res://assets/artwork/cursor_select.png" id="5_select"]
+[ext_resource type="Texture2D" path="res://assets/artwork/cursor_target.png" id="6_target"]
 
 [sub_resource type="Resource" id="CursorArtwork"]
 script = ExtResource("3_cursors")
+pointer_texture = ExtResource("4_pointer")
+pointer_hotspot = Vector2(493, 449)
+hover_texture = ExtResource("5_select")
+hover_hotspot = Vector2(535, 457)
+target_texture = ExtResource("6_target")
+target_hotspot = Vector2(503, 492)
+drag_texture = ExtResource("5_select")
+drag_hotspot = Vector2(535, 457)
+drop_texture = ExtResource("5_select")
+drop_hotspot = Vector2(535, 457)
 
 [node name="AppRoot" type="Control"]
 layout_mode = 3

@@ -269,6 +269,44 @@ func test_outbound_payload_and_queue_limits_disconnect_slow_peer() -> void:
 	})
 
 
+func test_guest_deadline_draft_uses_the_newest_joker_choice_without_broadcasting_edits() -> void:
+	var state := MatchState.create(_config(), 121)
+	state.phase = GameTypes.Phase.HAND_PLAY
+	state.phase_started_msec = -1
+	state.phase_deadline_msec = -1
+	var joker := HalfCardState.new(&"draft-joker", 0, 0, HalfCardState.NO_SUIT, GameTypes.HalfKind.JOKER)
+	state.players[&"one"].hand[0] = FullCardState.new(
+		&"draft-card", joker, HalfCardState.new(&"draft-normal", state.active_context, 5, GameTypes.Suit.MOUNTAIN)
+	)
+	var controller := MatchController.new(state)
+	var transport := FakePeerTransport.new()
+	var host = _host(controller, transport)
+	host.register_peer("peer-one", &"one", GameTypes.RecipientRole.ACTIVE_PLAYER)
+	host.register_peer("peer-two", &"two", GameTypes.RecipientRole.ACTIVE_PLAYER)
+	transport.clear_sent()
+	for rank in [4, 6]:
+		transport.inject_message("peer-one", GameProtocol.encode(_command_envelope(
+			"draft-message-%d" % rank, "one", "draft-command-%d" % rank, "update_hand_draft", {
+				"round_number": state.round_number,
+				"cards": [{"card_id": "draft-card", "half_index": 0, "joker_choices": [
+					{"half_index": 0, "context": 2, "suit": 1, "rank": rank},
+				]}],
+			}
+		)))
+	var responses := _decoded_for(transport, "peer-one")
+	assert_eq(responses.map(func(message): return message.kind), ["command_result", "command_result"])
+	for response in responses:
+		assert_true(response.payload.accepted)
+	assert_true(_decoded_for(transport, "peer-two").is_empty())
+	assert_eq(joker.joker_rank, 0, "Private timed drafts do not change the live Joker")
+	_now_msec = state.phase_deadline_msec
+	host.poll()
+	var reveal := _network_event(transport, "peer-two", "hand_revealed", "one")
+	assert_false(reveal.is_empty())
+	if not reveal.is_empty():
+		assert_eq(reveal.payload.cards[0].halves[0].rank, 6)
+
+
 func test_resolved_joker_reveal_is_sanitized_for_every_network_role() -> void:
 	var state := MatchState.create(_config(), 121)
 	state.phase = GameTypes.Phase.HAND_PLAY

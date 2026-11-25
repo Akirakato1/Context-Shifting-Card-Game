@@ -19,7 +19,7 @@ var _opening_cards: Array[StringName] = []
 
 
 func start() -> void:
-	_opponents.assign([BOT])
+	_bot_profiles = {BOT: {"avatar_id": "avatar_2", "name": "Mika"}}
 	super.start()
 
 
