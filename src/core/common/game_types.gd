@@ -55,12 +55,18 @@ enum Phase {
 const MAIN_2_REVIEW_MSEC_PER_PLAYER := 3000
 const AVATAR_IDS := [
 	"avatar_1", "avatar_2", "avatar_3", "avatar_4", "avatar_5", "avatar_6",
-	"avatar_7", "avatar_8", "avatar_9", "avatar_10", "avatar_11",
+	"avatar_8", "avatar_9", "avatar_10", "avatar_11",
 ]
 
 
 static func canonical_avatar_id(avatar_id: String) -> String:
-	return "avatar_8" if avatar_id == "avatar_8_2" else avatar_id
+	match avatar_id:
+		"avatar_7":
+			return default_avatar_id(0)
+		"avatar_8_2":
+			return "avatar_8"
+		_:
+			return avatar_id
 
 
 static func default_avatar_id(seat_index: int) -> String:

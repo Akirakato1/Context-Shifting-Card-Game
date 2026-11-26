@@ -6,6 +6,7 @@ signal events_applied(events: Array, sequence: int)
 
 const Types := preload("res://src/core/common/game_types.gd")
 const Runtime := preload("res://src/view/app/runtime_game_session.gd")
+const AvatarCatalog := preload("res://src/view/common/avatar_catalog.gd")
 const Controller := preload("res://src/core/match/match_controller.gd")
 const State := preload("res://src/core/match/match_state.gd")
 const Command := preload("res://src/core/commands/game_command.gd")
@@ -14,9 +15,9 @@ const DomainEvent := preload("res://src/core/events/domain_event.gd")
 const Projector := preload("res://src/core/match/snapshot_projector.gd")
 const HOST := &"host"
 const PRACTICE_BOTS := {
-	&"mika": {"avatar_id": "avatar_2", "name": "Bernhard Riemann"},
-	&"ren": {"avatar_id": "avatar_3", "name": "Levent Alpöge"},
-	&"jo": {"avatar_id": "avatar_4", "name": "Claude-Louis Navier"},
+	&"mika": {"avatar_id": "avatar_2"},
+	&"ren": {"avatar_id": "avatar_3"},
+	&"jo": {"avatar_id": "avatar_4"},
 }
 
 var _bot_profiles := PRACTICE_BOTS
@@ -42,7 +43,7 @@ func start() -> void:
 	for id: StringName in _bot_profiles:
 		var profile: Dictionary = _bot_profiles[id]
 		_controller.state.players[id].avatar_id = profile.avatar_id
-		_runtime._display_names[id] = profile.name
+		_runtime._display_names[id] = profile.get("name", AvatarCatalog.display_name(profile.avatar_id))
 	_publish()
 
 

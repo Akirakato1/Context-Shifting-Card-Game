@@ -67,11 +67,12 @@ func test_menu_opens_separate_create_and_join_forms_and_returns() -> void:
 		if choices != null:
 			assert_eq(choices.columns, 6)
 		var portraits := {
-			"avatar_6": "avatar_6_front.png", "avatar_7": "avatars_7_front.png",
+			"avatar_6": "avatar_6_front.png",
 			"avatar_9": "avatar_9_front.png", "avatar_10": "avatar_10_front.png",
 			"avatar_11": "avatar_11_front.png",
 		}
-		assert_eq(picker.get_node("Choices").get_child_count(), 11)
+		assert_eq(picker.get_node("Choices").get_child_count(), 10)
+		assert_false(choices.has_node("avatar_7"))
 		for id: String in portraits:
 			var avatar := picker.get_node_or_null("Choices/" + id) as Button
 			assert_true(avatar != null, "%s is selectable" % id)
@@ -99,6 +100,7 @@ func test_avatar_picker_combines_mascot_frames_and_shows_portrait_names() -> voi
 	menu.set_page(&"create_lobby", "Guest", "avatar_8_2")
 	var choices := menu.get_node("Content/AvatarPicker/Choices") as GridContainer
 	assert_false(choices.has_node("avatar_8_2"))
+	assert_eq(choices.get_node("avatar_3").tooltip_text, "John Smith")
 	assert_eq(choices.get_node("avatar_5").tooltip_text, "Traveler")
 	assert_eq(choices.get_node("avatar_9").tooltip_text, "Max Planck")
 	assert_eq(menu.avatar_id(), "avatar_8")
@@ -118,6 +120,9 @@ func test_avatar_picker_combines_mascot_frames_and_shows_portrait_names() -> voi
 		var catalog := preload("res://src/view/common/avatar_catalog.gd")
 		assert_eq(catalog.seat_texture("avatar_8", &"left"), animation)
 		assert_eq(catalog.front_texture("avatar_8_2"), animation)
+	menu.set_page(&"create_lobby", "Guest", "avatar_7")
+	assert_eq(menu.avatar_id(), GameTypes.default_avatar_id(0))
+	assert_true(choices.get_node(GameTypes.default_avatar_id(0)).button_pressed)
 	await _unmount(app)
 
 
