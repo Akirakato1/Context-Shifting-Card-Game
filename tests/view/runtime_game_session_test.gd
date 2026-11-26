@@ -5,6 +5,7 @@ const AbilityCatalog = preload("res://src/core/abilities/ability_catalog.gd")
 const GameTypes = preload("res://src/core/common/game_types.gd")
 const FakePeerTransport = preload("res://tests/network/fake_peer_transport.gd")
 const GameProtocol = preload("res://src/network/game_protocol.gd")
+const AvatarCatalog = preload("res://src/view/common/avatar_catalog.gd")
 
 
 class RuntimeTransport extends FakePeerTransport:
@@ -39,6 +40,234 @@ class RuntimeTransport extends FakePeerTransport:
 		return OK
 
 
+func test_practice_lobby_enters_a_configurable_match_with_distinct_named_bots() -> void:
+	var runtime := RuntimeGameSession.new(null, Callable(self, "_now"))
+	var snapshots: Array[Dictionary] = []
+	runtime.snapshot_applied.connect(func(snapshot: Dictionary, _sequence: int): snapshots.append(snapshot))
+	assert_true(runtime.has_method("start_practice"), "Practice opens its own lobby")
+	if not runtime.has_method("start_practice"):
+		return
+	assert_eq(runtime.call("start_practice"), OK)
+	var initial: Dictionary = snapshots[-1]
+	assert_true(initial.is_practice)
+	assert_eq(initial.screen_id, "lobby")
+	assert_eq(initial.lobby_unready_guests, 0)
+	assert_false(initial.can_add_bot)
+	var bots: Array = initial.players.filter(func(player): return player.get("is_bot", false))
+	assert_eq(bots.size(), 3)
+	var avatars := {}
+	for bot in bots:
+		assert_false(avatars.has(bot.avatar_id))
+		avatars[bot.avatar_id] = true
+		assert_true(bot.avatar_id in GameTypes.AVATAR_IDS)
+		assert_eq(bot.name, AvatarCatalog.display_name(bot.avatar_id))
+		assert_true(bot.ready)
+	var bot_id := StringName(bots[0].player_id)
+	assert_eq(runtime.call("set_bot_difficulty", bot_id, 2), &"")
+	assert_eq(snapshots[-1].players[1].bot_difficulty, 2)
+	assert_eq(runtime.call("remove_bot", StringName(bots[1].player_id)), &"")
+	assert_true(snapshots[-1].can_add_bot)
+	assert_eq(runtime.call("add_bot"), &"")
+	assert_eq(runtime.update_lobby_setting(&"no_time_limit", false), &"")
+	assert_eq(runtime.update_lobby_setting(&"victory_mode", GameTypes.VictoryMode.SCORE_RACE), &"")
+	assert_eq(runtime.start_match(), OK)
+	assert_eq(snapshots[-1].screen_id, "match")
+	assert_true(snapshots[-1].is_practice)
+	assert_true(snapshots[-1].phase_deadline_msec > _now())
+	assert_eq(runtime.call("remove_bot", bot_id), &"config_locked")
+	runtime._controller.state.phase = GameTypes.Phase.COMPLETE
+	runtime._controller.state.match_complete = true
+	assert_eq(runtime.reset_for_rematch(), OK)
+	assert_eq(snapshots[-1].screen_id, "lobby")
+	assert_false(snapshots[-1].settings.no_time_limit)
+	assert_eq(snapshots[-1].players[1].bot_difficulty, 2)
+	runtime.close()
+
+
+func test_online_hosts_can_add_bots_before_a_guest_and_guests_still_must_ready() -> void:
+	var transport := RuntimeTransport.new()
+	var runtime := RuntimeGameSession.new(transport, Callable(self, "_now"))
+	assert_eq(runtime.start_host("ws://127.0.0.1:8080", "Mira", "avatar_5"), OK)
+	transport.lobby_created.emit("ABC234")
+	assert_true(runtime.has_method("add_bot"), "An online host can add a bot before a guest arrives")
+	if not runtime.has_method("add_bot"):
+		runtime.close()
+		return
+	assert_eq(runtime.call("add_bot"), &"")
+	assert_eq(runtime.call("add_bot"), &"")
+	assert_true(runtime.has_method("set_bot_avatar"), "Hosts can edit an online bot's avatar")
+	var avatar := ""
+	if runtime.has_method("set_bot_avatar"):
+		var state: MatchState = runtime._controller.state
+		for id: String in GameTypes.AVATAR_IDS:
+			if id != "avatar_5" and id != state.players[&"bot-1"].avatar_id and id != state.players[&"bot-2"].avatar_id:
+				avatar = id
+				break
+		assert_eq(runtime.call("set_bot_avatar", &"bot-1", "avatar_5"), &"avatar_in_use")
+		assert_eq(runtime.call("set_bot_avatar", &"bot-1", avatar), &"")
+		assert_eq(runtime.set_bot_difficulty(&"bot-1", 2), &"")
+	_connect_peer(transport, "peer-one", "active")
+	var guest := _last_snapshot(transport, "peer-one")
+	assert_eq(guest.active_player_count, 4)
+	assert_eq(guest.players.filter(func(player): return player.get("is_bot", false)).size(), 2)
+	if not avatar.is_empty():
+		var updated: Dictionary = guest.players.filter(func(player): return player.player_id == "bot-1").front()
+		assert_eq(updated.avatar_id, avatar)
+		assert_eq(updated.name, AvatarCatalog.display_name(avatar))
+		assert_eq(updated.bot_difficulty, 2)
+	assert_false(guest.can_add_bot)
+	assert_eq(runtime.call("add_bot"), &"active_seats_full")
+	assert_eq(runtime.start_match(), ERR_BUSY)
+	assert_true(runtime._controller.submit(GameCommand.new(
+		&"ready-human", &"peer-one", &"set_lobby_ready", {"ready": true}
+	), _now()).accepted)
+	assert_eq(runtime.start_match(), OK)
+	runtime.close()
+
+
+func test_practice_hint_calculates_before_click_and_refreshes_after_a_hand_change() -> void:
+	var runtime := RuntimeGameSession.new(null, Callable(self, "_now"))
+	var snapshots: Array[Dictionary] = []
+	runtime.snapshot_applied.connect(func(snapshot: Dictionary, _sequence: int): snapshots.append(snapshot))
+	assert_eq(runtime.start_practice(), OK)
+	assert_false(snapshots[-1].has("practice_hint"))
+	var state: MatchState = runtime._controller.state
+	for id: StringName in state.seat_order.slice(2):
+		assert_eq(runtime.remove_bot(id), &"")
+	assert_eq(runtime.start_match(), OK)
+	state.phase = GameTypes.Phase.HAND_PLAY
+	state.active_context = GameTypes.Context.RISE
+	var host: PlayerState = state.players[&"host"]
+	host.ability_hand.clear()
+	host.hand.assign([FullCardState.new(&"hint-card",
+		HalfCardState.new(&"hint-front", GameTypes.Context.RISE, 9, GameTypes.Suit.SEA),
+		HalfCardState.new(&"hint-back", GameTypes.Context.FALL, 5, GameTypes.Suit.CLOUD))])
+	runtime._publish_authority([])
+	var hint: Dictionary = snapshots[-1].get("practice_hint", {})
+	assert_eq(hint.get("status"), "calculating")
+	if hint.is_empty():
+		runtime.close()
+		return
+	var deadline := Time.get_ticks_msec() + 2000
+	while hint.get("status") != "ready" and Time.get_ticks_msec() < deadline:
+		runtime.poll()
+		await Engine.get_main_loop().create_timer(0.01).timeout
+		hint = snapshots[-1].get("practice_hint", {})
+	assert_eq(hint.get("status"), "ready")
+	assert_eq(hint.get("plan", {}).get("score"), 9)
+	host.hand[0].first.apply_overrides(GameTypes.Context.RISE, 4, GameTypes.Suit.SEA)
+	runtime._publish_authority([])
+	assert_eq(snapshots[-1].get("practice_hint", {}).get("status"), "calculating")
+	deadline = Time.get_ticks_msec() + 2000
+	while snapshots[-1].get("practice_hint", {}).get("status") != "ready" and Time.get_ticks_msec() < deadline:
+		runtime.poll()
+		await Engine.get_main_loop().create_timer(0.01).timeout
+	assert_eq(snapshots[-1].get("practice_hint", {}).get("plan", {}).get("score"), 4)
+	runtime.close()
+
+
+func test_hard_bot_replays_its_selected_plan_and_self_buff() -> void:
+	var runtime := RuntimeGameSession.new(null, Callable(self, "_now"))
+	assert_eq(runtime.start_practice(), OK)
+	var controller: MatchController = runtime._controller
+	var state := controller.state
+	var bot_id := state.seat_order[1]
+	for id: StringName in state.seat_order.slice(2):
+		assert_eq(runtime.remove_bot(id), &"")
+	assert_eq(runtime.set_bot_difficulty(bot_id, 2), &"")
+	assert_eq(runtime.start_match(), OK)
+	state.phase = GameTypes.Phase.HAND_PLAY
+	state.active_context = GameTypes.Context.RISE
+	var bot: PlayerState = state.players[bot_id]
+	bot.hand.assign([FullCardState.new(&"choice",
+		HalfCardState.new(&"top", GameTypes.Context.RISE, 9, GameTypes.Suit.SEA),
+		HalfCardState.new(&"bottom", GameTypes.Context.FALL, 5, GameTypes.Suit.CLOUD))])
+	for definition in AbilityCatalog.hand_shape_designs():
+		if definition.id == &"high_card_buff":
+			var buff := AbilityState.new(&"planned-buff", definition)
+			buff.move_to(AbilityState.Zone.HAND, bot_id)
+			bot.ability_hand.assign([buff])
+			break
+	assert_true(controller.submit(GameCommand.new(&"host-pass", &"host", &"lock_hand"), _now()).accepted)
+	var deadline := Time.get_ticks_msec() + 2500
+	while not bot.hand_locked and Time.get_ticks_msec() < deadline:
+		runtime.poll()
+		await Engine.get_main_loop().create_timer(0.01).timeout
+	assert_true(bot.hand_locked, "The authority committed the worker's best hand")
+	assert_eq(state.phase, GameTypes.Phase.MAIN_2)
+	runtime.poll()
+	assert_eq(bot.provisional_score.final_score if bot.provisional_score != null else -1, 14)
+	assert_true(bot.ability_hand.is_empty())
+	runtime.close()
+
+
+func test_timed_bot_submits_a_legal_fallback_near_the_deadline() -> void:
+	var runtime := RuntimeGameSession.new(null, Callable(self, "_now"))
+	assert_eq(runtime.start_practice(), OK)
+	var controller: MatchController = runtime._controller
+	var state := controller.state
+	var bot_id := state.seat_order[1]
+	for id: StringName in state.seat_order.slice(2):
+		assert_eq(runtime.remove_bot(id), &"")
+	assert_eq(runtime.update_lobby_setting(&"no_time_limit", false), &"")
+	assert_eq(runtime.start_match(), OK)
+	state.phase = GameTypes.Phase.HAND_PLAY
+	state.phase_deadline_msec = _now() + 20
+	state.active_context = GameTypes.Context.RISE
+	var bot: PlayerState = state.players[bot_id]
+	bot.hand.assign([FullCardState.new(&"choice",
+		HalfCardState.new(&"top", GameTypes.Context.FALL, 10, GameTypes.Suit.SEA),
+		HalfCardState.new(&"bottom", GameTypes.Context.RISE, 5, GameTypes.Suit.CLOUD))])
+	assert_true(controller.submit(GameCommand.new(&"host-pass", &"host", &"lock_hand"), _now()).accepted)
+	runtime.poll()
+	assert_eq(state.phase, GameTypes.Phase.MAIN_2)
+	assert_eq(bot.submitted_faces.size(), 1)
+	if not bot.submitted_faces.is_empty():
+		assert_eq(bot.submitted_faces[0].half_index, 1)
+	runtime.close()
+
+
+func test_untimed_bot_stops_searching_after_all_human_hands_are_locked() -> void:
+	var clock := {"now": 1000}
+	var runtime := RuntimeGameSession.new(null, func() -> int: return clock.now)
+	assert_eq(runtime.start_practice(), OK)
+	var controller: MatchController = runtime._controller
+	var state := controller.state
+	var bot_id := state.seat_order[1]
+	for id: StringName in state.seat_order.slice(2):
+		assert_eq(runtime.remove_bot(id), &"")
+	assert_eq(runtime.start_match(), OK)
+	state.phase = GameTypes.Phase.HAND_PLAY
+	state.active_context = GameTypes.Context.RISE
+	var bot: PlayerState = state.players[bot_id]
+	bot.hand.clear()
+	for index in 6:
+		bot.hand.append(FullCardState.new(StringName("card-%d" % index),
+			HalfCardState.new(StringName("top-%d" % index), index % 3, index + 1, (index + 1) % 3),
+			HalfCardState.new(StringName("bottom-%d" % index), (index + 1) % 3, 10 - index, index % 3)))
+	bot.ability_hand.clear()
+	for definition in AbilityCatalog.manipulation_designs():
+		if definition.id in [&"ride_the_cycle", &"against_the_cycle", &"suit_exchange", &"suit_shift", &"mirror_rank"]:
+			var ability := AbilityState.new(definition.id, definition)
+			ability.move_to(AbilityState.Zone.HAND, bot_id)
+			bot.ability_hand.append(ability)
+	runtime.poll()
+	clock.now += 1000
+	runtime.poll()
+	assert_false(bot.hand_locked, "The human still has a chance to submit before the bot's wait is capped")
+	assert_true(controller.submit(GameCommand.new(&"host-pass", &"host", &"lock_hand"), clock.now).accepted)
+	runtime.poll()
+	clock.now += 1000
+	runtime.poll()
+	var worker_deadline := Time.get_ticks_msec() + 750
+	while not bot.hand_locked and Time.get_ticks_msec() < worker_deadline:
+		await Engine.get_main_loop().create_timer(0.01).timeout
+		runtime.poll()
+	assert_true(bot.hand_locked, "The bot submits without waiting for the expensive search to finish")
+	assert_eq(state.phase, GameTypes.Phase.MAIN_2)
+	runtime.close()
+
+
 func test_guest_ready_toggle_updates_both_lobbies_with_latest_choice() -> void:
 	var host_transport := RuntimeTransport.new()
 	var guest_transport := RuntimeTransport.new()
@@ -52,9 +281,9 @@ func test_guest_ready_toggle_updates_both_lobbies_with_latest_choice() -> void:
 	Engine.get_main_loop().root.add_child(guest_app)
 	host_app.bind_session(host)
 	guest_app.bind_session(guest)
-	assert_eq(host.start_host("ws://127.0.0.1:8080", "Mira", "avatar_5"), OK)
+	assert_eq(host.start_host("ws://127.0.0.1:8080", "Mira", "avatar_11"), OK)
 	host_transport.lobby_created.emit("ABC234")
-	assert_eq(guest.start_join("ws://127.0.0.1:8080", "ABC234", "active", "Noah", "avatar_3"), OK)
+	assert_eq(guest.start_join("ws://127.0.0.1:8080", "ABC234", "active", "Noah", "avatar_8_2"), OK)
 	var assignment := {"peer_id": "peer-one", "role": "active", "display_name": "Noah"}
 	guest_transport.join_status.emit("approved", assignment)
 	guest_transport.peer_connected.emit("host")
@@ -64,15 +293,15 @@ func test_guest_ready_toggle_updates_both_lobbies_with_latest_choice() -> void:
 	_deliver(guest_transport, host_transport, "host", "peer-one")
 	_deliver(host_transport, guest_transport, "peer-one", "host")
 	assert_eq(guest_app.current_screen_id(), &"lobby")
-	assert_eq(host_app.presentation_state.private_state().players[0].avatar_id, "avatar_5")
-	assert_eq(guest_app.presentation_state.private_state().players[1].avatar_id, "avatar_3")
+	assert_eq(host_app.presentation_state.private_state().players[0].avatar_id, "avatar_11")
+	assert_eq(guest_app.presentation_state.private_state().players[1].avatar_id, "avatar_8")
 	for app in [host_app, guest_app]:
 		var roster: Control = app.get_node_or_null("SafeArea/ScreenHost/LobbyScreen/Layout/Body/Roster/Scroll/Players")
 		assert_true(roster != null, "The lobby displays a scrollable roster")
 		if roster == null:
 			continue
 		assert_eq(roster.get_child_count(), 2)
-		var expected := [["Mira", "avatar_5_front.png"], ["Noah", "avatar_front_3.png"]]
+		var expected := [["Mira", "avatar_11_front.png"], ["Noah", "mascot.tres"]]
 		for index in expected.size():
 			var entry: Control = roster.get_child(index)
 			var portrait := entry.find_child("Avatar", true, false) as TextureRect
@@ -82,7 +311,7 @@ func test_guest_ready_toggle_updates_both_lobbies_with_latest_choice() -> void:
 				assert_eq(portrait.texture.resource_path.get_file(), expected[index][1])
 				assert_eq(name_label.text, expected[index][0])
 	var restored := MatchState.from_dict(host._controller.state.to_dict())
-	assert_eq(restored.players[&"peer-one"].avatar_id, "avatar_3")
+	assert_eq(restored.players[&"peer-one"].avatar_id, "avatar_8")
 	assert_eq(host_app.presentation_state.private_state().get("lobby_unready_guests", -1), 1)
 	assert_eq(host.start_match(), ERR_BUSY)
 	assert_eq(host_app.current_screen_id(), &"lobby")
@@ -110,7 +339,7 @@ func test_guest_ready_toggle_updates_both_lobbies_with_latest_choice() -> void:
 		_deliver(host_transport, guest_transport, "peer-one", "host")
 		assert_false(host_app.presentation_state.private_state().players[1].ready)
 		assert_false(guest_app.presentation_state.private_state().players[1].ready)
-		assert_eq(guest_app.presentation_state.private_state().players[1].avatar_id, "avatar_3")
+		assert_eq(guest_app.presentation_state.private_state().players[1].avatar_id, "avatar_8")
 		assert_false(ready.button_pressed)
 		assert_eq(host.start_match(), ERR_BUSY)
 		ready.button_pressed = true
@@ -131,6 +360,27 @@ func test_guest_ready_toggle_updates_both_lobbies_with_latest_choice() -> void:
 	host_app.queue_free()
 	guest_app.queue_free()
 	await Engine.get_main_loop().process_frame
+
+
+func test_legacy_pouting_mascot_uses_the_same_avatar_in_commands_and_saved_state() -> void:
+	var transport := RuntimeTransport.new()
+	var runtime := RuntimeGameSession.new(transport, Callable(self, "_now"))
+	assert_eq(runtime.start_host("ws://127.0.0.1:8080", "Mira"), OK)
+	transport.lobby_created.emit("ABC234")
+	_connect_peer(transport, "peer-one", "active")
+	var controller: MatchController = runtime._controller
+	var result := controller.submit(GameCommand.new(
+		&"legacy-avatar-command", &"peer-one", &"set_avatar", {"avatar_id": "avatar_8_2"}
+	), _now())
+	assert_true(result.accepted)
+	assert_eq(controller.state.players[&"peer-one"].avatar_id, "avatar_8")
+	var legacy := controller.state.to_dict()
+	for player: Dictionary in legacy.players:
+		if player.player_id == "peer-one":
+			player.avatar_id = "avatar_8_2"
+	var restored := MatchState.from_dict(legacy)
+	assert_eq(restored.players[&"peer-one"].avatar_id, "avatar_8")
+	runtime.close()
 
 
 func test_guest_disconnect_before_start_frees_seat_without_finishing_match() -> void:
@@ -477,9 +727,10 @@ func test_runtime_config_uses_recipe_with_all_four_ability_categories() -> void:
 	assert_eq(contexts_by_id.rise_12.priority, 101)
 	assert_eq(contexts_by_id.rise_12.multiplier.numerator, 11)
 	assert_eq(contexts_by_id.rise_12.multiplier.denominator, 4)
-	assert_eq(contexts.filter(func(definition):
-		return definition.multiplier.numerator == 1 and definition.multiplier.denominator == 1
-	).size(), 3)
+	assert_eq(contexts_by_id.rise_5.multiplier.numerator, 5)
+	assert_eq(contexts_by_id.rise_5.multiplier.denominator, 4)
+	assert_eq(contexts_by_id.rise_flourish_5.multiplier.numerator, 19)
+	assert_eq(contexts_by_id.rise_flourish_5.multiplier.denominator, 8)
 	var normals: Array = runtime._controller.state.config.normal_definitions
 	var normals_by_id := {}
 	var normal_categories := {}
@@ -801,6 +1052,73 @@ func test_direct_failure_reports_whether_relay_fallback_was_available() -> void:
 	transport.transport_failed.emit("direct_connection_failed")
 	assert_eq(failures, ["direct_connection_failed"])
 	runtime.close()
+
+
+func test_joining_the_same_room_from_a_fresh_session_reclaims_the_guest_seat() -> void:
+	var store := ReconnectStore.new("user://runtime-rejoin-from-menu-test.json")
+	store.clear()
+	assert_eq(store.save("ABC234", &"original-guest", "saved-seat-token", 31_000), OK)
+	var transport := RuntimeTransport.new()
+	var runtime := RuntimeGameSession.new(transport, Callable(self, "_now"), store)
+	var states: Array[String] = []
+	var snapshots: Array[Dictionary] = []
+	runtime.connection_state_changed.connect(func(state: Dictionary): states.append(str(state.status)))
+	runtime.snapshot_applied.connect(func(snapshot: Dictionary, _sequence: int): snapshots.append(snapshot))
+	assert_eq(runtime.start_join("ws://127.0.0.1:8080", "abc234", "active", "Noah", "avatar_5"), OK)
+	assert_eq(states[-1], "reconnecting")
+	assert_eq(transport.joined.reconnect_player_id, "original-guest")
+	assert_true(store.verify("ABC234", &"original-guest", "saved-seat-token", _now()))
+	transport.join_status.emit("approved", {
+		"peer_id": "replacement-route", "role": "active", "reconnect_player_id": "original-guest",
+	})
+	transport.peer_connected.emit("host")
+	if transport.sent.is_empty():
+		assert_true(false, "The guest should send its saved token before using the new route")
+		runtime.close()
+		store.clear()
+		return
+	var reconnect := GameProtocol.decode(transport.sent[-1].bytes).envelope
+	assert_eq(reconnect.sender_id, "original-guest")
+	assert_eq(reconnect.payload.kind, "reconnect")
+	assert_eq(reconnect.payload.payload.token, "saved-seat-token")
+	transport.inject_message("host", GameProtocol.encode({
+		"v": 1, "kind": "command_result", "message_id": "reclaim-result",
+		"match_id": "shift-match", "sender_id": "host",
+		"payload": {"request_message_id": "runtime-reconnect-message", "accepted": true, "error_code": ""},
+	}))
+	assert_eq(states[-1], "connected")
+	transport.clear_sent()
+	transport.inject_message("host", GameProtocol.encode({
+		"v": 1, "kind": "snapshot", "message_id": "reclaimed-match",
+		"match_id": "shift-match", "sender_id": "host",
+		"payload": {"sequence": 12, "state": {
+			"screen_id": "match", "match_started": true, "private_player_id": "original-guest",
+			"phase": GameTypes.Phase.HAND_PLAY, "round_number": 4,
+			"private_connection": {"reconnect_token": "rotated-token"},
+			"lobby_settings": {"match_started": true, "reconnect_grace_msec": 30_000},
+		}},
+	}))
+	assert_eq(snapshots[-1].screen_id, "match")
+	assert_eq(snapshots[-1].private_player_id, "original-guest")
+	assert_eq(snapshots[-1].round_number, 4)
+	assert_true(transport.sent.is_empty(), "Reclaiming an existing seat keeps its avatar")
+	assert_true(store.verify("ABC234", &"original-guest", "rotated-token", _now()))
+	runtime.close()
+	store.clear()
+
+
+func test_spectator_another_room_and_expired_records_join_without_reclaiming_a_seat() -> void:
+	var store := ReconnectStore.new("user://runtime-rejoin-fresh-join-test.json")
+	for entry in [
+		["ABC234", "spectator", 31_000], ["XYZ789", "active", 31_000], ["ABC234", "active", 500],
+	]:
+		assert_eq(store.save("ABC234", &"original-guest", "saved-seat-token", entry[2]), OK)
+		var transport := RuntimeTransport.new()
+		var runtime := RuntimeGameSession.new(transport, Callable(self, "_now"), store)
+		assert_eq(runtime.start_join("ws://127.0.0.1:8080", entry[0], entry[1], "Noah"), OK)
+		assert_eq(transport.joined.reconnect_player_id, "")
+		runtime.close()
+	store.clear()
 
 
 func test_retry_uses_saved_player_identity_and_reconnect_token() -> void:

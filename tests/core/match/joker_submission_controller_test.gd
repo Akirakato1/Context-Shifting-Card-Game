@@ -19,6 +19,7 @@ const SnapshotProjector = preload("res://src/core/match/snapshot_projector.gd")
 
 func test_joker_staging_lock_and_reveal_use_sanitized_resolved_faces() -> void:
 	var state := _hand_play_state(71)
+	state.active_context = GameTypes.Context.FALL
 	var joker := _joker_card(&"fixture-joker", state.active_context)
 	state.players[&"one"].hand[0] = joker
 	var controller := MatchController.new(state)
@@ -93,10 +94,18 @@ func test_invalid_joker_replacement_preserves_previous_draft_and_missing_default
 	), 3)
 	assert_eq(invalid.error_code, &"invalid_joker_suit")
 	assert_eq(state.players[&"one"].staged_submission, before)
+	var inactive := controller.submit(_stage(
+		&"inactive", &"one", [_selection(joker.card_id, 0, [{
+			"half_index": 0, "context": GameTypes.Context.FALL, "suit": GameTypes.Suit.MOUNTAIN,
+		}])]
+	), 4)
+	assert_eq(inactive.error_code, &"joker_context_not_active")
+	assert_eq(state.players[&"one"].staged_submission, before)
 
 
 func test_double_joker_lock_resolves_independent_choices() -> void:
 	var state := _hand_play_state(73)
+	_enable_fall_resonance(state)
 	var card := FullCardState.new(
 		&"double-joker",
 		_joker_half(&"joker-a", GameTypes.Context.RISE),
@@ -125,6 +134,7 @@ func test_double_joker_lock_resolves_independent_choices() -> void:
 
 func test_replacing_or_passing_clears_staged_joker_choices() -> void:
 	var state := _hand_play_state(74)
+	state.active_context = GameTypes.Context.FLOURISH
 	var joker := _joker_card(&"fixture-joker", state.active_context)
 	var ordinary := _normal_card(&"ordinary", state.active_context)
 	state.players[&"one"].hand[0] = joker
@@ -153,12 +163,15 @@ func test_replacing_or_passing_clears_staged_joker_choices() -> void:
 
 func test_unstaged_joker_configuration_is_private_and_survives_round_trip() -> void:
 	var state := _hand_play_state(74)
+	state.active_context = GameTypes.Context.FALL
 	var joker := _joker_card(&"flexible-joker", state.active_context)
 	state.players[&"one"].hand[0] = joker
 	var controller := MatchController.new(state)
 	var payload := {"card_id": joker.card_id, "half_index": 0, "context": 2, "suit": 1, "rank": 6}
 	var kind := &"configure_joker"
 	assert_false(controller.submit(GameCommand.new(&"foreign", &"two", kind, payload), 1).accepted)
+	var inactive := payload.merged({"context": GameTypes.Context.RISE}, true)
+	assert_eq(controller.submit(GameCommand.new(&"inactive", &"one", kind, inactive), 1).error_code, &"joker_context_not_active")
 	assert_true(controller.submit(GameCommand.new(&"configure", &"one", kind, payload), 2).accepted)
 	assert_true(state.players[&"one"].staged_submission.is_empty())
 	payload.suit = 2
@@ -280,6 +293,7 @@ func test_explicit_lock_preserves_invalid_draft_but_timeout_defaults_it_to_pass(
 
 func test_double_joker_choices_are_stored_in_half_index_order() -> void:
 	var state := _hand_play_state(79)
+	_enable_fall_resonance(state)
 	var card := FullCardState.new(
 		&"double-joker",
 		_joker_half(&"joker-a", GameTypes.Context.RISE),
@@ -298,6 +312,15 @@ func test_double_joker_choices_are_stored_in_half_index_order() -> void:
 	var stored: Array = state.players[&"one"].staged_submission[0].joker_choices
 	assert_eq(stored[0].half_index, 0)
 	assert_eq(stored[1].half_index, 1)
+
+
+func _enable_fall_resonance(state: MatchState) -> void:
+	for definition in AbilityCatalog.field_designs():
+		if definition.id == &"fall_resonance":
+			var ability := AbilityState.new(&"fall-resonance-test-copy", definition)
+			ability.move_to(AbilityState.Zone.HAND, &"one")
+			state.ability_deck.play_field(ability, &"one")
+			return
 
 
 func _hand_play_state(seed_value: int) -> MatchState:

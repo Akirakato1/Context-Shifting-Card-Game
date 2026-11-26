@@ -12,6 +12,7 @@ const GameProtocol = preload("res://src/network/game_protocol.gd")
 const SnapshotProjector = preload("res://src/core/match/snapshot_projector.gd")
 const PeerTransport = preload("res://src/network/peer_transport.gd")
 const NetworkDiagnostics = preload("res://src/network/network_diagnostics.gd")
+const SpectatorView := preload("res://src/core/match/spectator_view.gd")
 
 const MAX_QUEUED_MESSAGES := 32
 const DEFAULT_HEARTBEAT_INTERVAL_MSEC := 2000
@@ -33,6 +34,9 @@ var _heartbeat_interval_msec: int
 var _heartbeat_timeout_msec: int
 var _token_provider: Callable
 var _snapshot_decorator: Callable
+var _live_views := {}
+var _queued_views := {}
+var _view_revision := 0
 
 
 func _init(
@@ -164,6 +168,7 @@ func admit_peer(peer_id: String, player_id: StringName, requested_role: String) 
 func unregister_peer(peer_id: String) -> void:
 	_peers.erase(peer_id)
 	_outbound_queues.erase(peer_id)
+	_queued_views.erase(peer_id)
 
 
 func publish_events(events: Array) -> void:
@@ -176,7 +181,8 @@ func publish_events(events: Array) -> void:
 			continue
 		var registration: Dictionary = _peers[peer_id]
 		var projected := DomainEvent.for_recipient(
-			events, registration["player_id"], registration["role"]
+			events, registration["player_id"], registration["role"],
+			SpectatorView.can_watch(_controller.state, registration["player_id"])
 		)
 		if projected.is_empty():
 			continue
@@ -204,6 +210,8 @@ func send_snapshot(peer_id: String) -> Error:
 	var snapshot := SnapshotProjector.for_recipient(
 		_controller.state, player_id, registration["role"]
 	)
+	if registration["role"] == GameTypes.RecipientRole.SPECTATOR and SpectatorView.can_watch(_controller.state, player_id):
+		snapshot["spectator_views"] = _current_views(_live_views)
 	snapshot["lobby_settings"] = _controller.state.config.to_dict()
 	snapshot["server_now_msec"] = _now_msec()
 	snapshot["now_msec"] = snapshot["server_now_msec"]
@@ -220,6 +228,51 @@ func send_snapshot(peer_id: String) -> Error:
 		"sequence": int(_recipient_sequences.get(player_id, 0)),
 		"state": snapshot,
 	}))
+
+
+func update_player_view(player_id: StringName, payload: Dictionary) -> void:
+	var view := SpectatorView.from_player(_controller.state, player_id, payload)
+	if view.is_empty():
+		return
+	var key := str(player_id)
+	var previous: Dictionary = _live_views.get(key, {}).duplicate()
+	previous.erase("revision")
+	if view == previous:
+		return
+	_view_revision += 1
+	view["revision"] = _view_revision
+	_live_views[key] = view
+	for peer_id: String in _peers.keys():
+		var registration: Dictionary = _peers[peer_id]
+		if registration.role == GameTypes.RecipientRole.SPECTATOR and SpectatorView.can_watch(
+			_controller.state, registration.player_id
+		):
+			if not _queued_views.has(peer_id):
+				_queued_views[peer_id] = {}
+			_queued_views[peer_id][key] = view
+
+
+func _current_views(views: Dictionary) -> Dictionary:
+	var result := {}
+	for id: String in views:
+		var player: PlayerState = _controller.state.players.get(StringName(id))
+		if player != null and player.active and player.connected and SpectatorView.is_current(_controller.state, views[id]):
+			result[id] = views[id]
+	return result
+
+
+func _flush_view_updates() -> void:
+	for peer_id: String in _queued_views.keys():
+		if not _peers.has(peer_id) or not _outbound_queues[peer_id].is_empty():
+			continue
+		var views := _current_views(_queued_views[peer_id])
+		if views.is_empty():
+			_queued_views.erase(peer_id)
+			continue
+		var bytes := GameProtocol.encode(_envelope("view_update", {"views": views}))
+		var result := _transport.send(peer_id, bytes)
+		if result != ERR_BUSY:
+			_queued_views.erase(peer_id)
 
 
 func poll() -> void:
@@ -256,6 +309,7 @@ func poll() -> void:
 	var controller_events: Array = _controller.tick(now_msec)
 	if not controller_events.is_empty():
 		publish_state_change(controller_events)
+	_flush_view_updates()
 
 
 func close() -> void:
@@ -265,6 +319,8 @@ func close() -> void:
 		_transport.peer_disconnected.disconnect(_on_peer_disconnected)
 	_peers.clear()
 	_outbound_queues.clear()
+	_live_views.clear()
+	_queued_views.clear()
 
 
 func _on_message_received(peer_id: String, bytes: PackedByteArray) -> void:
@@ -300,6 +356,13 @@ func _on_message_received(peer_id: String, bytes: PackedByteArray) -> void:
 		_send_envelope(peer_id, _envelope("heartbeat_ack", {
 			"timestamp_msec": envelope["payload"]["timestamp_msec"],
 		}))
+		return
+	if envelope["kind"] == "view_update":
+		if (
+			registration["role"] == GameTypes.RecipientRole.ACTIVE_PLAYER
+			and envelope["sender_id"] == str(player_id) and bytes.size() <= 8192
+		):
+			update_player_view(player_id, envelope["payload"])
 		return
 	if envelope["kind"] != "command":
 		_disconnect(peer_id, "protocol_violation")

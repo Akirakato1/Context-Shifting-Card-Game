@@ -254,6 +254,7 @@ func test_pending_completed_and_modified_manipulation_state_round_trips() -> voi
 
 func test_joker_draft_and_resolved_views_survive_canonical_round_trip() -> void:
 	var state := _hand_play_state(112)
+	state.active_context = GameTypes.Context.FALL
 	var joker := FullCardState.new(
 		&"roundtrip-joker",
 		HalfCardState.new(

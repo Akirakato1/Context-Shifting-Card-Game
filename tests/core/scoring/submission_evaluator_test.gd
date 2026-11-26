@@ -18,7 +18,7 @@ func test_selected_joker_is_valid_in_every_active_context_and_uses_submission_ch
 		var card := _joker_card(StringName("joker-%d" % active_context), GameTypes.Context.FLOURISH)
 		var choices := [{
 			"half_index": 0,
-			"context": (active_context + 1) % 3,
+			"context": active_context,
 			"suit": GameTypes.Suit.SEA,
 		}]
 		var result := SubmissionEvaluator.evaluate(
@@ -37,6 +37,28 @@ func test_selected_joker_is_valid_in_every_active_context_and_uses_submission_ch
 		assert_eq(result.score_breakdown.base_value, 0)
 
 
+func test_inactive_joker_context_is_rejected_on_both_halves_until_resonance() -> void:
+	var card := FullCardState.new(
+		&"double-joker", _joker_half(&"first-joker", GameTypes.Context.RISE),
+		_joker_half(&"second-joker", GameTypes.Context.FLOURISH)
+	)
+	var choices := [
+		{"half_index": 0, "context": GameTypes.Context.RISE, "suit": GameTypes.Suit.MOUNTAIN},
+		{"half_index": 1, "context": GameTypes.Context.FALL, "suit": GameTypes.Suit.CLOUD},
+	]
+	for top_half in [0, 1]:
+		var selection := _selection(card.card_id, top_half, choices)
+		var rejected := SubmissionEvaluator.evaluate(
+			[card], [selection], GameTypes.Context.RISE, _normal_definitions(), _context_definitions(), []
+		)
+		assert_eq(rejected.error_code, &"joker_context_not_active")
+		var resonant := SubmissionEvaluator.evaluate(
+			[card], [selection], GameTypes.Context.RISE, _normal_definitions(), _context_definitions(), [],
+			[_field_state(&"fall_resonance")]
+		)
+		assert_true(resonant.is_valid)
+
+
 func test_double_joker_choices_resolve_independently_and_both_count_for_context() -> void:
 	var card := FullCardState.new(
 		&"double-joker",
@@ -49,8 +71,8 @@ func test_double_joker_choices_resolve_independently_and_both_count_for_context(
 	]
 
 	var result := SubmissionEvaluator.evaluate(
-		[card], [_selection(card.card_id, 1, choices)], GameTypes.Context.FLOURISH,
-		_normal_definitions(), _context_definitions(), []
+		[card], [_selection(card.card_id, 1, choices)], GameTypes.Context.RISE,
+		_normal_definitions(), _context_definitions(), [], [_field_state(&"fall_resonance")]
 	)
 
 	assert_true(result.is_valid)
@@ -113,7 +135,7 @@ func test_mixed_overridden_and_joker_submission_scores_without_mutating_inputs()
 
 	var result := SubmissionEvaluator.evaluate(
 		hand, selections, GameTypes.Context.RISE,
-		_normal_definitions(), _context_definitions(), []
+		_normal_definitions(), _context_definitions(), [], [_field_state(&"fall_resonance")]
 	)
 
 	assert_true(result.is_valid)

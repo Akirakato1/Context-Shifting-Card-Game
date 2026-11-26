@@ -20,6 +20,8 @@ var _store
 var _state := "starting"
 var _command_accepted := false
 var _saw_ready_event := false
+var _saw_view_update := false
+var _sent_view := false
 var _private_leak := false
 var _submitted := false
 var _disconnect_started_msec := -1
@@ -82,6 +84,19 @@ func _process(_delta: float) -> bool:
 	else:
 		_transport.poll()
 
+	if _player_id == "player-2" and _mode == "join" and _saw_ready_event and not _sent_view:
+		var snapshot: Dictionary = _session.latest_snapshot
+		var hand: Array = snapshot.get("private_hand", [])
+		if not hand.is_empty():
+			var card_id := str(hand[0].card_id)
+			var error: Error = _session.send_view_update({
+				"round_number": snapshot.round_number, "phase": snapshot.phase,
+				"hand_order": [card_id], "flipped": [card_id],
+			})
+			if error != OK and error != ERR_BUSY:
+				_fail("view update send failed: %d" % error)
+			_sent_view = error == OK
+
 	if (
 		_mode == "join" and _player_id == "player-2" and _state == "ready"
 		and not _submitted
@@ -127,6 +142,7 @@ func _on_peer_connected(peer_id: String) -> void:
 	_session.command_result_received.connect(_on_command_result)
 	_session.events_applied.connect(_on_events_applied)
 	_session.snapshot_applied.connect(_on_snapshot_applied)
+	_session.spectator_views_received.connect(_on_views_received)
 	_session.session_failed.connect(_on_session_failed)
 	print("DIRECT_PEER_READY player=%s role=%s" % [_player_id, _role])
 	if _mode == "reconnect":
@@ -173,6 +189,17 @@ func _on_snapshot_applied(snapshot: Dictionary, _sequence: int) -> void:
 	_write_status()
 
 
+func _on_views_received(views: Dictionary) -> void:
+	if _role != "spectator":
+		_fail("active player unexpectedly received a spectator update")
+		return
+	var view: Dictionary = views.get("player-2", {})
+	var flipped: Array = view.get("flipped", [])
+	if not flipped.is_empty() and view.get("hand_order") == flipped:
+		_saw_view_update = true
+		_write_status()
+
+
 func _on_session_failed(reason: String) -> void:
 	if _disconnect_started_msec >= 0:
 		return
@@ -206,6 +233,7 @@ func _write_status(state_override: String = "") -> void:
 		"role": _role,
 		"command_accepted": _command_accepted,
 		"saw_ready_event": _saw_ready_event,
+		"saw_view_update": _saw_view_update,
 		"private_leak": _private_leak,
 		"last_error": _last_error,
 	}))

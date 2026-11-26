@@ -64,7 +64,7 @@ func test_cockpit_preview_matches_host_after_snapshot_decoration_and_network_rou
 	var selections := [
 		{"card_id": "a", "half_index": 0, "joker_choices": []},
 		{"card_id": "b", "half_index": 0, "joker_choices": []},
-		{"card_id": "c", "half_index": 0, "joker_choices": [{"half_index": 0, "context": 2, "suit": 2}]},
+		{"card_id": "c", "half_index": 0, "joker_choices": [{"half_index": 0, "context": state.active_context, "suit": 2}]},
 	]
 	player.staged_submission.assign(selections)
 	player.has_staged_submission = true

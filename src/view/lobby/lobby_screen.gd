@@ -2,6 +2,11 @@ class_name LobbyScreen
 extends Control
 
 signal setting_change_requested(key: StringName, value: Variant)
+signal add_bot_requested
+signal remove_bot_requested(bot_id: StringName)
+signal bot_difficulty_requested(bot_id: StringName, difficulty: int)
+signal bot_avatar_requested(bot_id: StringName, avatar: String)
+signal practice_avatar_requested(avatar: String)
 signal ready_requested(ready: bool)
 signal start_requested
 signal leave_requested
@@ -9,6 +14,7 @@ signal retry_requested
 
 const MatchButtonArt := preload("res://src/view/match/match_button_art.gd")
 const AvatarCatalog := preload("res://src/view/common/avatar_catalog.gd")
+const BOT_DIFFICULTIES := ["Easy", "Standard", "Hard"]
 
 var _model: Dictionary = {}
 var _rendering := false
@@ -18,6 +24,7 @@ var _settings_open := false
 @onready var _room_code: Label = $Layout/Header/RoomCode
 @onready var _copy_code: Button = $Layout/Header/CopyCode
 @onready var _counts: Label = $Layout/Body/Roster/Counts
+@onready var _add_bot: Button = $Layout/Body/Roster/Header/AddBotButton
 @onready var _players: VBoxContainer = $Layout/Body/Roster/Scroll/Players
 @onready var _victory_mode: OptionButton = $Layout/Body/Settings/VictoryMode
 @onready var _victory_target: SpinBox = $Layout/Body/Settings/VictoryTarget
@@ -41,7 +48,7 @@ var _settings_open := false
 
 func _ready() -> void:
 	for button: Button in [
-		_copy_code, _victory_mode, _visibility, _no_time_limit, _retry,
+		_copy_code, _add_bot, _victory_mode, _visibility, _no_time_limit, _retry,
 		$Layout/StatusPanel/DetailsButton, $Layout/Footer/LeaveButton, _settings_button, _start_button,
 	]:
 		MatchButtonArt.skin(button, MatchButtonArt.ACTION)
@@ -75,12 +82,19 @@ func render(model: Dictionary) -> void:
 	_rendering = true
 	_action_pending = false
 	var is_host := bool(_model.get("is_host", false))
+	var is_practice := bool(_model.get("is_practice", false))
 	var started := bool(_model.get("match_started", false))
 	var active_count := int(_model.get("active_player_count", 0))
 	var spectator_count := int(_model.get("spectator_count", 0))
 	_room_code.text = "ROOM  %s" % String(_model.get("room_code", "------"))
 	_copy_code.disabled = str(_model.get("room_code", "")).length() != 6
-	_counts.text = "%d / 4 players   •   %d / 4 spectators" % [active_count, spectator_count]
+	_counts.text = "%d / 4 players" % active_count
+	if not is_practice:
+		_counts.text += "   •   %d / 4 spectators" % spectator_count
+	_add_bot.disabled = not bool(_model.get("can_add_bot", false))
+	_add_bot.tooltip_text = (
+		"The player seats are full" if _add_bot.disabled else "Add a computer-controlled opponent"
+	)
 	_render_players(_model.get("players", []))
 	var settings: Dictionary = _model.get("settings", {})
 	var victory_mode := int(settings.get("victory_mode", GameTypes.VictoryMode.SCORE_RACE))
@@ -119,6 +133,8 @@ func render(model: Dictionary) -> void:
 	var connection: Dictionary = _model.get("connection", _model.get("connection_state", {}))
 	if connection.get("status", "connected") == "connected":
 		_status.text = "Waiting for another player to join." if active_count < 2 else ""
+		if is_practice and active_count < 2:
+			_status.text = "Add a bot to start a practice match."
 		if is_host and active_count >= 2 and not started:
 			var waiting := int(_model.get("lobby_unready_guests", active_count - 1))
 			if waiting > 0:
@@ -144,8 +160,18 @@ func show_error(reason: StringName) -> void:
 		&"players_not_ready": "Wait for all players to ready up before starting.",
 		&"ready_update_failed": "Your Ready status could not be updated. Try again.",
 		&"invalid_ability_deck_recipe": "That ability deck recipe could not be applied.",
+		&"config_locked": "The match has started. Player slots and settings are locked.",
+		&"host_only": "Only the host can edit player slots and settings.",
+		&"invalid_bot_difficulty": "Choose Easy, Standard, or Hard for this bot.",
+		&"practice_only": "This avatar picker is available in Practice.",
+		&"invalid_avatar": "Choose an avatar from the list.",
+		&"avatar_in_use": "That avatar is already in use at this table.",
+		&"unknown_bot": "That bot is no longer in the lobby.",
+		&"lobby_unavailable": "The lobby is unavailable. Return to the menu and try again.",
 	}
 	_status.text = messages.get(reason, "The room could not continue. Try again.")
+	if reason == &"active_seats_full" and _can_edit_settings():
+		_status.text = "The player seats are full."
 	_status.modulate = Color("ff9a9a")
 	_retry.visible = reason in [
 		&"direct_connection_failed", &"relay_unavailable",
@@ -188,30 +214,125 @@ func _render_players(player_models: Array) -> void:
 		name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		name_label.add_theme_font_size_override("font_size", 28)
-		var seat := Label.new()
-		var spectator := str(player.get("role", "active")) == "spectator"
-		seat.text = "Ready" if player.get("ready", false) else "Waiting"
-		if spectator:
-			seat.text = "Spectator"
-		elif player.get("is_host", false):
-			seat.text = "Host"
-		if not bool(player.get("connected", true)):
-			seat.text = "Connecting…"
-		seat.add_theme_font_size_override("font_size", 21)
-		seat.add_theme_color_override("font_color", Color("a7d8c4") if seat.text == "Ready" else Color("adbac9"))
 		var margin := MarginContainer.new()
 		margin.add_theme_constant_override("margin_left", 18)
 		margin.add_theme_constant_override("margin_right", 18)
 		row.add_child(portrait)
 		row.add_child(name_label)
-		row.add_child(seat)
+		if player.get("is_bot", false):
+			_render_bot_controls(row, player)
+		else:
+			_render_human_controls(row, player)
 		margin.add_child(row)
 		surface.add_child(margin)
 		_players.add_child(surface)
 
 
+func _render_human_controls(row: HBoxContainer, player: Dictionary) -> void:
+	var status := Label.new()
+	status.text = "Ready" if player.get("ready", false) else "Waiting"
+	if str(player.get("role", "active")) == "spectator":
+		status.text = "Spectator"
+	elif player.get("is_host", false):
+		status.text = "Host"
+	if not bool(player.get("connected", true)):
+		status.text = "Connecting…"
+	status.add_theme_font_size_override("font_size", 21)
+	status.add_theme_color_override("font_color", Color("a7d8c4") if status.text == "Ready" else Color("adbac9"))
+	row.add_child(status)
+	if not _can_edit_settings() or not bool(_model.get("is_practice", false)):
+		return
+	if str(player.get("player_id", "")) != str(_model.get("private_player_id", "")):
+		return
+	var picker := _avatar_picker("PlayerAvatar", "Choose your Practice portrait", player, GameTypes.AVATAR_IDS)
+	picker.get_popup().id_pressed.connect(func(index: int):
+		if _can_request_roster_change():
+			practice_avatar_requested.emit(GameTypes.AVATAR_IDS[index])
+	)
+	row.add_child(picker)
+
+
+func _render_bot_controls(row: HBoxContainer, player: Dictionary) -> void:
+	var difficulty := clampi(int(player.get("bot_difficulty", 1)), 0, BOT_DIFFICULTIES.size() - 1)
+	var editable := _can_edit_settings()
+	var status := Label.new()
+	status.name = "BotStatus"
+	status.text = "Bot" if editable else "Bot · %s" % BOT_DIFFICULTIES[difficulty]
+	status.add_theme_font_size_override("font_size", 21)
+	status.add_theme_color_override("font_color", Color("adbac9"))
+	row.add_child(status)
+	if not editable:
+		return
+	var bot_id := StringName(player.get("player_id", ""))
+	var options := OptionButton.new()
+	options.name = "BotDifficulty"
+	options.tooltip_text = "Difficulty for %s" % str(player.get("name", "this bot"))
+	options.custom_minimum_size.y = 40
+	options.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	options.add_theme_font_size_override("font_size", 21)
+	for label: String in BOT_DIFFICULTIES:
+		options.add_item(label)
+	options.select(difficulty)
+	options.item_selected.connect(func(level: int):
+		if _can_request_roster_change():
+			bot_difficulty_requested.emit(bot_id, level)
+	)
+	MatchButtonArt.skin(options, MatchButtonArt.ACTION)
+	row.add_child(options)
+	var available: Array = player.get("bot_available_avatars", GameTypes.AVATAR_IDS)
+	var picker := _avatar_picker("BotAvatar", "Choose a portrait for this bot", player, available)
+	picker.get_popup().id_pressed.connect(func(index: int):
+		if _can_request_roster_change():
+			bot_avatar_requested.emit(bot_id, GameTypes.AVATAR_IDS[index])
+	)
+	row.add_child(picker)
+	var remove := Button.new()
+	remove.name = "RemoveBotButton"
+	remove.text = "Remove"
+	remove.tooltip_text = "Remove %s" % str(player.get("name", "this bot"))
+	remove.custom_minimum_size.y = 40
+	remove.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	remove.add_theme_font_size_override("font_size", 21)
+	remove.pressed.connect(func():
+		if _can_request_roster_change():
+			remove_bot_requested.emit(bot_id)
+	)
+	MatchButtonArt.skin(remove, MatchButtonArt.ACTION)
+	row.add_child(remove)
+
+
+func _avatar_picker(node_name: String, help_text: String, player: Dictionary, available: Array) -> MenuButton:
+	var picker := MenuButton.new()
+	picker.name = node_name
+	picker.text = "Avatar"
+	picker.tooltip_text = help_text
+	picker.custom_minimum_size.y = 40
+	picker.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	picker.add_theme_font_size_override("font_size", 21)
+	MatchButtonArt.skin(picker, MatchButtonArt.ACTION)
+	var avatars := picker.get_popup()
+	avatars.add_theme_constant_override("icon_max_width", 32)
+	var selected := GameTypes.canonical_avatar_id(str(player.get("avatar_id", "")))
+	for index in GameTypes.AVATAR_IDS.size():
+		var avatar: String = GameTypes.AVATAR_IDS[index]
+		avatars.add_radio_check_item(AvatarCatalog.display_name(avatar), index)
+		avatars.set_item_icon(index, AvatarCatalog.front_texture(avatar))
+		avatars.set_item_checked(index, avatar == selected)
+		avatars.set_item_disabled(index, avatar not in available)
+	return picker
+
+
 func _can_edit_settings() -> bool:
 	return bool(_model.get("is_host", false)) and not bool(_model.get("match_started", false))
+
+
+func _can_request_roster_change() -> bool:
+	return not _rendering and not _settings_open and _can_edit_settings()
+
+
+func _on_add_bot_pressed() -> void:
+	if _can_request_roster_change() and not _add_bot.disabled:
+		add_bot_requested.emit()
 
 
 func _can_start_match() -> bool:
@@ -228,11 +349,20 @@ func _toggle_settings() -> void:
 
 func _update_page() -> void:
 	var is_host := bool(_model.get("is_host", false))
+	var is_practice := bool(_model.get("is_practice", false))
+	var settings_title := "Practice Settings" if is_practice else "Lobby Settings"
+	var roster_title := "Practice" if is_practice else "Table Lobby"
 	$Layout/Body/Roster.visible = not _settings_open
 	$Layout/Body/Settings.visible = _settings_open
-	$Layout/Header/Title.text = "Lobby Settings" if _settings_open else "Table Lobby"
+	$Layout/Header/Title.text = settings_title if _settings_open else roster_title
+	_room_code.visible = not is_practice
+	_copy_code.visible = not is_practice
+	$Layout/Body/Settings/ReconnectTimerLabel.visible = not is_practice
+	_reconnect_timer.visible = not is_practice
 	$Layout/Body/Settings/Heading.text = "Match rules" if _can_edit_settings() else "Match rules · view only"
-	_settings_button.text = "Back to Lobby" if _settings_open else "Lobby Settings"
+	$Layout/Footer/LeaveButton.text = "Leave Practice" if is_practice else "Leave Lobby"
+	_settings_button.text = ("Back to Practice" if is_practice else "Back to Lobby") if _settings_open else settings_title
+	_add_bot.visible = not _settings_open and _can_edit_settings()
 	_ready_button.visible = not _settings_open and not is_host and str(_model.get("local_role", "active")) == "active"
 	_start_button.visible = not _settings_open and is_host
 

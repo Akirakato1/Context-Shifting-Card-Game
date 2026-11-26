@@ -1,6 +1,171 @@
 extends "res://tests/test_case.gd"
 
 
+func test_practice_companion_shows_progress_then_the_hand_and_play_sequence() -> void:
+	var model := _hand_drag_model()
+	model["is_practice"] = true
+	model["practice_hint"] = {"status": "calculating"}
+	model["private_abilities"] = [{"copy_id": "imprint", "ability_id": "suit_imprint", "legal": true}]
+	model["ability_catalog"] = AbilityCatalog.public_catalog(AbilityCatalog.provisional_deck_recipe())
+	var table := _open_hand_drag_table(model)
+	var companion := table.get_node("PracticeCompanion") as Control
+	var button := companion.get_node("Ask") as Button
+	var bubble := companion.get_node("Bubble") as Control
+	var title := bubble.get_node("Content/Title") as Label
+	var body := bubble.get_node("Content/Body") as RichTextLabel
+	assert_true(companion.visible and not bubble.visible)
+	button.pressed.emit()
+	assert_true(bubble.visible)
+	assert_eq(title.text, "Still calculating…")
+	model.practice_hint = {"status": "ready", "plan": {
+		"score": 12, "hand_type": "high_card", "context_type": "no_context",
+		"hand_play": [{"copy_id": "imprint", "choices": {"cards": [&"c"], "suit": [0]}}],
+		"faces": [{"card_id": "c", "selected_half_index": 0,
+			"halves": [{"rank": 6, "suit": 0, "context": 0}]}],
+	}}
+	table.render(model)
+	assert_true(title.text.contains("12 points"))
+	button.pressed.emit()
+	assert_eq(title.text, "Play sequence")
+	assert_true(body.get_parsed_text().contains("Suit Imprint"))
+	assert_true(body.get_parsed_text().contains("Right-click a Manipulation card, then choose its targets."))
+	assert_true(body.get_parsed_text().contains("Submit Hand"))
+	model["is_practice"] = false
+	table.render(model)
+	assert_false(companion.visible)
+	table.queue_free()
+	await Engine.get_main_loop().process_frame
+
+
+func test_zetty_card_sets_follow_sort_drag_and_flip() -> void:
+	var model := _hand_drag_model()
+	model.private_hand[1].second = {"kind": GameTypes.HalfKind.JOKER, "base_context": 1}
+	model.private_hand.append_array([
+		{"card_id": "d", "first": _half(0, 8), "second": _half(1, 9)},
+		{"card_id": "e", "first": _half(0, 10), "second": _half(1, 10)},
+	])
+	model["is_practice"] = true
+	model["ability_catalog"] = AbilityCatalog.public_catalog(AbilityCatalog.provisional_deck_recipe())
+	model["private_abilities"] = [
+		{"copy_id": "cycle", "ability_id": "ride_the_cycle", "legal": true},
+		{"copy_id": "exchange", "ability_id": "suit_exchange", "legal": true},
+		{"copy_id": "imprint", "ability_id": "suit_imprint", "legal": true},
+		{"copy_id": "converge", "ability_id": "context_convergence", "legal": true},
+	]
+	model["practice_hint"] = {"status": "ready", "plan": {
+		"score": 20, "hand_type": "high_card", "context_type": "no_context",
+		"faces": [
+			{"card_id": "e", "selected_half_index": 0, "halves": [{"rank": 10, "suit": 0, "context": 0}]},
+			{"card_id": "c", "selected_half_index": 1, "halves": [{}, {"rank": 7, "suit": 0, "context": 1}]},
+			{"card_id": "a", "selected_half_index": 0, "halves": [{"rank": 2, "suit": 0, "context": 0}]},
+			{"card_id": "b", "selected_half_index": 0, "halves": [{"rank": 4, "suit": 2, "context": 0}]},
+		],
+		"submission": [{"card_id": &"b", "half_index": 0, "joker_choices": [
+			{"half_index": 1, "rank": 0, "suit": GameTypes.Suit.CLOUD, "context": GameTypes.Context.FLOURISH},
+		]}],
+		"hand_play": [
+			{"copy_id": "cycle", "choices": {"cards": [&"e", &"a"]}},
+			{"copy_id": "exchange", "choices": {"halves": [
+				{"card_id": &"c", "half_index": 1}, {"card_id": &"a", "half_index": 0},
+			]}},
+			{"copy_id": "imprint", "choices": {"cards": [&"b"], "suit": [GameTypes.Suit.SEA]}},
+			{"copy_id": "converge", "choices": {"cards": [&"d"], "half_index": [1]}},
+		],
+	}}
+	var table := _open_hand_drag_table(model)
+	var controls = table.get_node("PhaseControls")
+	var ask := table.get_node("PracticeCompanion/Ask") as Button
+	var body := table.get_node("PracticeCompanion/Bubble/Content/Body") as RichTextLabel
+	ask.pressed.emit()
+	assert_true(body.get_parsed_text().contains("Select cards [1,2,3,5]"))
+	assert_true(body.get_parsed_text().contains("Flip cards [3]"))
+	assert_false(body.get_parsed_text().contains("card 5 ("))
+	table.get_node("SortControls/Rank").pressed.emit()
+	assert_eq(controls.local_hand_order(), [&"e", &"d", &"c", &"b", &"a"])
+	assert_true(body.get_parsed_text().contains("Select cards [1,3,4,5]"))
+	ask.pressed.emit()
+	assert_true(body.get_parsed_text().contains("Ride the Cycle. Select cards [1,5]"))
+	assert_true(body.get_parsed_text().contains("Suit Exchange. Select cards [3,5]"))
+	assert_true(body.get_parsed_text().contains("top half for [5] and the bottom half for [3]"))
+	assert_true(body.tooltip_text.contains("Suit Imprint. Select cards [4]. Choose Sea as the suit."))
+	assert_true(body.tooltip_text.contains("Joker on the bottom half of card [4] to no rank, suit Cloud, and context Flourish."))
+	assert_true(body.get_parsed_text().contains("Context Convergence. Select cards [2]. Use the bottom half for [2]"))
+	controls.right_click_card(&"c")
+	assert_true(body.get_parsed_text().contains("top half for [3,5]"))
+	assert_false(body.get_parsed_text().contains("Flip cards [3]"))
+	await Engine.get_main_loop().process_frame
+	var view := table.get_viewport()
+	var source: Vector2 = controls.card_widget(&"d").get_global_rect().get_center()
+	var destination: Vector2 = controls.card_widget(&"a").get_global_rect().get_center()
+	_push_hand_click(view, source, true)
+	_push_hand_motion(view, source, source + Vector2(18, 0))
+	_push_hand_motion(view, source + Vector2(18, 0), destination)
+	_push_hand_click(view, destination, false)
+	assert_eq(controls.local_hand_order(), [&"e", &"c", &"b", &"a", &"d"])
+	assert_true(body.get_parsed_text().contains("Ride the Cycle. Select cards [1,4]"))
+	assert_true(body.get_parsed_text().contains("Select cards [1,2,3,4]"))
+	table.queue_free()
+	await Engine.get_main_loop().process_frame
+
+
+func test_zetty_jumps_on_click_and_drags_without_opening_a_hint() -> void:
+	var model := _hand_drag_model()
+	model["is_practice"] = true
+	model["practice_hint"] = {"status": "calculating"}
+	var table := _open_hand_drag_table(model)
+	var zetty := table.get_node("PracticeCompanion") as Control
+	var sprite := zetty.get_node_or_null("Sprite") as AnimatedSprite2D
+	assert_true(sprite != null, "Zetty should play the supplied sprite animations")
+	if sprite == null:
+		table.queue_free()
+		return
+	var bubble := zetty.get_node("Bubble") as Control
+	var shadow := zetty.get_node("Shadow") as TextureRect
+	await Engine.get_main_loop().process_frame
+	var view := zetty.get_viewport()
+	var origin := zetty.position
+	var score: Control = table.get_node("MatchScore")
+	assert_true(is_equal_approx(zetty.get_rect().get_center().x, score.get_rect().get_center().x))
+	assert_true(is_equal_approx(score.position.y - zetty.get_rect().end.y, 24.0))
+	var hit_area := zetty.get_node("Ask") as Button
+	var click := zetty.get_global_transform_with_canvas() * hit_area.get_rect().get_center()
+	var outside := view.get_visible_rect().end + Vector2(100, 100)
+	_push_hand_click(view, click, true)
+	_push_hand_motion(view, click, outside)
+	_push_hand_click(view, outside, false)
+	assert_false(bubble.visible)
+	assert_eq(sprite.animation, &"idle")
+	assert_true(zetty.position != origin)
+	assert_true(Rect2(Vector2.ZERO, table.size).encloses(zetty.get_rect()))
+	assert_eq(zetty.position + zetty.size, table.size)
+
+	click = zetty.get_global_transform_with_canvas() * hit_area.get_rect().get_center()
+	_push_hand_click(view, click, true)
+	_push_hand_click(view, click, false)
+	assert_true(bubble.visible)
+	assert_eq(sprite.animation, &"jump")
+	assert_true(sprite.is_playing())
+	var shadow_center := shadow.get_rect().get_center()
+	var width_at_rest := shadow.scale.x
+	sprite.frame = 18
+	assert_eq(shadow.get_rect().get_center(), shadow_center)
+	assert_true(shadow.scale.x < width_at_rest)
+	await Engine.get_main_loop().process_frame
+	assert_true(Rect2(Vector2.ZERO, table.size).encloses(Rect2(zetty.position + bubble.position, bubble.size)))
+	sprite.animation_finished.emit()
+	assert_eq(sprite.animation, &"idle")
+	assert_true(bubble.visible)
+
+	var dropped_position := zetty.position
+	model.phase = GameTypes.Phase.MAIN_2
+	model.erase("practice_hint")
+	table.render(model)
+	assert_true(zetty.visible and not bubble.visible)
+	assert_eq(zetty.position, dropped_position)
+	table.queue_free()
+	await Engine.get_main_loop().process_frame
+
+
 func test_cockpit_keeps_card_rectangles_between_phases() -> void:
 	var scene := load("res://src/view/match/match_screen.tscn") as PackedScene
 	var table: Control = scene.instantiate()
@@ -118,7 +283,8 @@ func test_table_art_covers_the_hotbar_seam_and_uses_context_shades() -> void:
 	var round_badge: PhaseSign = table.get_node("RoundBadge")
 	assert_true(round_badge.get_node("UpperChains").position.y + round_badge.resting_y <= 0.0)
 	assert_true(round_badge.get_index() < table.get_node("PhaseBadge").get_index())
-	assert_eq(menu.get_theme_stylebox("panel").texture.resource_path.get_file(), "button_5.png")
+	var menu_surface := menu.get_theme_stylebox("panel") as StyleBoxFlat
+	assert_true(menu_surface != null and menu_surface.bg_color.a == 1.0 and menu_surface.get_border_width_min() == 0)
 	table.queue_free()
 	await Engine.get_main_loop().process_frame
 
@@ -204,6 +370,7 @@ func test_context_sort_groups_cards_with_the_matching_half_facing_up() -> void:
 	assert_true(controls.card_widget(&"flip").orientation_flipped)
 	controls.click_card(&"flip")
 	assert_false(controls.has_staged_card(&"flip"))
+	model.active_contexts = [0, 1]
 	model.private_hand.append({
 		"card_id": "joker", "first": _half(0, 4),
 		"second": {"kind": 1, "base_context": 2, "joker_context": 1, "joker_suit": 2},
@@ -341,6 +508,10 @@ func test_practice_menu_uses_the_live_controller_through_hand_reveal() -> void:
 	var app = scene.instantiate()
 	Engine.get_main_loop().root.add_child(app)
 	app.start_practice()
+	assert_eq(app.current_screen_id(), &"lobby")
+	# Keep this presentation test independent of manipulation search time.
+	assert_eq(app._session.update_lobby_setting(&"ability_deck_recipe", {"high_card_buff": 12}), &"")
+	app.get_node("SafeArea/ScreenHost/LobbyScreen/Layout/Footer/StartButton").pressed.emit()
 	var opening: Dictionary = app.presentation_state.private_state()
 	assert_eq(opening.get("victory_mode"), 1)
 	assert_eq(opening.get("local_role"), "active")
@@ -393,16 +564,23 @@ func test_practice_non_winning_end_waits_for_bots_when_the_host_is_done() -> voi
 	Engine.get_main_loop().root.add_child(app)
 	app.start_practice()
 	var session = app._session
+	assert_eq(session.start_match(), OK)
 	var state: MatchState = session._controller.state
 	state.phase = GameTypes.Phase.END
-	state.players[&"host"].round_wins = 2
+	var host: PlayerState = state.players[&"host"]
+	host.round_wins = 2
+	# The host played a card this round and must replenish before Main 1.
+	var submitted_card: FullCardState = host.hand.pop_back()
+	submitted_card.leave_hand()
+	for half: HalfCardState in [submitted_card.first, submitted_card.second]:
+		state.piles[half.base_context].discard(half)
 	for player_id in state.seat_order:
 		var player = state.players[player_id]
 		state.ability_deck.discard(player.ability_hand.pop_back())
 		if player_id != &"host":
 			player.ability_hand.append_array(state.ability_deck.draw(player_id, 3, state.rng))
 		player.end_discard_complete = player.ability_hand.size() <= state.ability_deck.end_hand_limit
-	session._publish()
+	session._publish_authority([])
 
 	assert_eq(app.current_screen_id(), &"match")
 	assert_eq(state.players[&"host"].ability_hand.size(), 2)
@@ -411,7 +589,6 @@ func test_practice_non_winning_end_waits_for_bots_when_the_host_is_done() -> voi
 	assert_false(controls.get_node("EndControls/AbilityChoices").is_visible_in_tree())
 	assert_false(controls.get_node("EndControls/ConfirmButton").is_visible_in_tree())
 
-	session._next_bot_move = 0
 	session.poll()
 	assert_eq(state.phase, GameTypes.Phase.START)
 	assert_eq(app.current_screen_id(), &"match")

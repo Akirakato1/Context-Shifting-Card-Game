@@ -1,0 +1,97 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://src/view/match/practice_companion.gd" id="1_script"]
+[ext_resource type="SpriteFrames" path="res://assets/artwork/companion/zetty_frames.tres" id="2_frames"]
+
+[sub_resource type="Gradient" id="Gradient_shadow"]
+offsets = PackedFloat32Array(0, 0.42, 1)
+colors = PackedColorArray(0.02, 0.015, 0.015, 0.64, 0.02, 0.015, 0.015, 0.38, 0.02, 0.015, 0.015, 0)
+
+[sub_resource type="GradientTexture2D" id="Texture_shadow"]
+gradient = SubResource("Gradient_shadow")
+width = 64
+height = 20
+fill = 1
+fill_from = Vector2(0.5, 0.5)
+fill_to = Vector2(1, 0.5)
+
+[sub_resource type="StyleBoxFlat" id="Style_bubble"]
+content_margin_left = 18.0
+content_margin_top = 12.0
+content_margin_right = 18.0
+content_margin_bottom = 12.0
+bg_color = Color(0.118, 0.153, 0.188, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.259, 0.325, 0.384, 1)
+corner_radius_top_left = 16
+corner_radius_top_right = 16
+corner_radius_bottom_left = 16
+corner_radius_bottom_right = 16
+
+[node name="PracticeCompanion" type="Control"]
+visible = false
+z_index = 12
+layout_mode = 0
+offset_left = 28.0
+offset_top = 181.0
+offset_right = 118.0
+offset_bottom = 357.0
+mouse_default_cursor_shape = 2
+tooltip_text = "Zetty · Click for a Practice hint or drag to move"
+script = ExtResource("1_script")
+
+[node name="Shadow" type="TextureRect" parent="."]
+layout_mode = 0
+offset_left = 11.0
+offset_top = 162.0
+offset_right = 69.0
+offset_bottom = 176.0
+pivot_offset = Vector2(29, 7)
+mouse_filter = 2
+texture = SubResource("Texture_shadow")
+expand_mode = 1
+
+[node name="Sprite" type="AnimatedSprite2D" parent="."]
+position = Vector2(45, 86)
+scale = Vector2(0.5, 0.5)
+sprite_frames = ExtResource("2_frames")
+animation = &"idle"
+
+[node name="Ask" type="Button" parent="."]
+layout_mode = 0
+offset_left = 4.0
+offset_top = 51.0
+offset_right = 87.0
+offset_bottom = 172.0
+mouse_filter = 2
+accessibility_name = "Ask Zetty for a Practice hint"
+flat = true
+
+[node name="Bubble" type="PanelContainer" parent="."]
+visible = false
+custom_minimum_size = Vector2(570, 0)
+layout_mode = 0
+theme_override_styles/panel = SubResource("Style_bubble")
+
+[node name="Content" type="VBoxContainer" parent="Bubble"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Title" type="Label" parent="Bubble/Content"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.83, 0.53, 1)
+theme_override_font_sizes/font_size = 25
+
+[node name="Body" type="RichTextLabel" parent="Bubble/Content"]
+custom_minimum_size = Vector2(0, 92)
+layout_mode = 2
+theme_override_font_sizes/normal_font_size = 19
+theme_override_constants/line_separation = 6
+
+[node name="Prompt" type="Label" parent="Bubble/Content"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.71, 0.79, 0.88, 1)
+theme_override_font_sizes/font_size = 17

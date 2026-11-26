@@ -195,8 +195,11 @@ func _set_avatar(command: GameCommand) -> CommandResult:
 	if not error.is_empty():
 		return CommandResult.new(false, error)
 	var player: PlayerState = state.players[command.player_id]
-	var avatar: Variant = command.payload.get("avatar_id")
-	if not avatar is String or avatar not in GameTypes.AVATAR_IDS:
+	var requested_avatar: Variant = command.payload.get("avatar_id")
+	if not requested_avatar is String:
+		return CommandResult.new(false, &"invalid_avatar")
+	var avatar := GameTypes.canonical_avatar_id(requested_avatar)
+	if avatar not in GameTypes.AVATAR_IDS:
 		return CommandResult.new(false, &"invalid_avatar")
 	if not player.avatar_id.is_empty():
 		return CommandResult.new(false, &"avatar_already_set")
@@ -774,6 +777,10 @@ func _apply_disconnect(player_id: StringName, now_msec: int) -> void:
 	if not state.frozen:
 		state.frozen = true
 		state.freeze_started_msec = now_msec
+		if state.phase == GameTypes.Phase.HAND_PLAY:
+			# The pause closes targeting for every player. Keep uncommitted abilities available.
+			for active_id in state.seat_order:
+				state.players[active_id].pending_manipulation.clear()
 
 
 func _new_reconnect_token(player_id: StringName) -> String:
@@ -1128,6 +1135,8 @@ func _configure_joker(command: GameCommand) -> CommandResult:
 	var error := HalfCardState.joker_choice_error(context, suit, rank)
 	if not error.is_empty():
 		return CommandResult.new(false, error)
+	if context not in FieldEffectResolver.active_contexts(state.active_context, state.ability_deck.active_fields()):
+		return CommandResult.new(false, &"joker_context_not_active")
 	half.set_joker_choice(context, suit, rank)
 	for selection in player.staged_submission:
 		if selection.card_id == card.card_id:

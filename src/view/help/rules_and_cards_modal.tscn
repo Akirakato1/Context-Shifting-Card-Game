@@ -74,6 +74,6 @@ tooltip_text = "Close rules and cards (Esc)"
 layout_mode = 2
 size_flags_vertical = 3
 tabs_position = 0
-clip_tabs = false
+clip_tabs = true
 
 [connection signal="pressed" from="Panel/Layout/Header/Close" to="." method="close"]

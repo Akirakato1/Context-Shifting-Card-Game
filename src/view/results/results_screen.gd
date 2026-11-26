@@ -54,12 +54,14 @@ func render(model: Dictionary) -> void:
 	var host := bool(_model.get("is_host", false))
 	var host_loss := reason == "host_disconnect"
 	var practice := bool(_model.get("is_practice", false))
+	var tutorial := bool(_model.get("is_tutorial", false))
 	_room.visible = not practice and not host_loss
 	_rematch.text = "Play Again" if practice else "Rematch"
-	if bool(_model.get("is_tutorial", false)):
+	if tutorial:
 		_rematch.text = "Replay Tutorial"
 	_rematch.visible = practice or (host and not host_loss)
-	_lobby.visible = host and not host_loss and not practice
+	_lobby.text = "Return to Practice" if practice else "Return to Lobby"
+	_lobby.visible = host and not host_loss and not tutorial
 	_menu.visible = true
 	_rematch.disabled = false
 	_lobby.disabled = false

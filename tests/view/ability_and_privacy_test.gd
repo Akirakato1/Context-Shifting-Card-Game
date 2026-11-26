@@ -43,6 +43,31 @@ func test_pending_ability_draw_targets_the_visible_copy_or_collapsed_toggle() ->
 	await _unmount(panel)
 
 
+func test_opening_deal_releases_manipulation_as_soon_as_hand_play_starts() -> void:
+	var screen = await _mount(MATCH_SCREEN_PATH)
+	var model := _active_model(GameTypes.Phase.MAIN_1)
+	model["round_number"] = 1
+	model["server_now_msec"] = 100
+	model["phase_started_msec"] = 100
+	model.private_abilities = [{"copy_id": "mirror-copy", "ability_id": "mirror_rank", "legal": false}]
+	model.ability_catalog = AbilityCatalog.public_catalog({})
+	screen.render(model)
+	var tray: AbilityPanel = screen.get_node("AbilityPanel")
+	var card: Control = tray.get_node("Drawer/Layout/Scroll/Cards").get_child(0)
+	assert_eq(card.modulate.a, 0.0, "The opening deal reserves the ability's slot")
+	model.phase = GameTypes.Phase.HAND_PLAY
+	model.private_abilities[0].legal = true
+	screen.render(model)
+	var intents: Array[StringName] = []
+	screen.intent_requested.connect(func(kind: StringName, _payload: Dictionary): intents.append(kind))
+	await Engine.get_main_loop().process_frame
+	assert_eq(card.modulate.a, 1.0, "Hand Play exposes dealt abilities immediately")
+	_click_card(card, MOUSE_BUTTON_RIGHT)
+	assert_true(screen.get_node("TargetingOverlay").visible)
+	assert_true(&"stage_manipulation" in intents)
+	await _unmount(screen)
+
+
 func test_ability_draw_uses_toggle_for_a_copy_clipped_by_the_tray() -> void:
 	var panel = await _mount(ABILITY_PANEL_PATH)
 	if panel == null:

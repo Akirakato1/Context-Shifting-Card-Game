@@ -1,7 +1,19 @@
-[gd_scene load_steps=4 format=3]
+[gd_scene load_steps=6 format=3]
 
 [ext_resource type="Script" path="res://src/view/match/player_seat.gd" id="1_script"]
 [ext_resource type="Texture2D" path="res://assets/artwork/avatar/portrait_frame.png" id="2_frame"]
+
+[sub_resource type="Gradient" id="Gradient_ready"]
+offsets = PackedFloat32Array(0, 0.55, 0.74, 1)
+colors = PackedColorArray(0.27, 1, 0.51, 0.84, 0.22, 0.93, 0.43, 0.7, 0.15, 0.85, 0.36, 0.29, 0.15, 0.85, 0.36, 0)
+
+[sub_resource type="GradientTexture2D" id="Texture_ready"]
+gradient = SubResource("Gradient_ready")
+width = 256
+height = 256
+fill = 1
+fill_from = Vector2(0.5, 0.5)
+fill_to = Vector2(1, 0.5)
 
 [sub_resource type="StyleBoxFlat" id="Style_seat"]
 bg_color = Color(0.118, 0.153, 0.188, 1)
@@ -42,6 +54,20 @@ text = "OPEN SEAT"
 horizontal_alignment = 1
 text_overrun_behavior = 3
 
+[node name="ReadyCheck" type="Label" parent="Info/Name"]
+visible = false
+layout_mode = 1
+anchor_bottom = 1.0
+offset_right = 24.0
+mouse_filter = 2
+theme_override_colors/font_color = Color(0.47, 1, 0.65, 1)
+theme_override_colors/font_outline_color = Color(0.06, 0.13, 0.08, 1)
+theme_override_constants/outline_size = 4
+theme_override_font_sizes/font_size = 25
+text = "✓"
+horizontal_alignment = 1
+vertical_alignment = 1
+
 [node name="Avatar" type="TextureRect" parent="."]
 visible = false
 custom_minimum_size = Vector2(138, 138)
@@ -49,6 +75,21 @@ layout_mode = 2
 size_flags_horizontal = 4
 mouse_filter = 2
 texture = ExtResource("2_frame")
+expand_mode = 1
+
+[node name="ReadyAura" type="TextureRect" parent="Avatar"]
+visible = false
+show_behind_parent = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -33.0
+offset_top = -33.0
+offset_right = 33.0
+offset_bottom = 33.0
+mouse_filter = 2
+texture = SubResource("Texture_ready")
 expand_mode = 1
 
 [node name="Portrait" type="TextureRect" parent="Avatar"]

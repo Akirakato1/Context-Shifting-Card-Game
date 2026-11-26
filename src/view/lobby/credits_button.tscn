@@ -29,7 +29,7 @@ script = ExtResource("1_script")
 
 [node name="CreditsDialog" type="AcceptDialog" parent="."]
 title = "Credits"
-size = Vector2i(660, 465)
+size = Vector2i(660, 530)
 visible = false
 transient = true
 exclusive = true
@@ -54,6 +54,9 @@ theme_override_font_sizes/bold_font_size = 25
 bbcode_enabled = true
 text = "[b]Zeitklus: The Cycle of Ages[/b]
 Made by anarchira and akts625
+
+[b]Music[/b]
+[url=https://www.youtube.com/watch?v=6wMNM0BjJGM]The Epic Hero[/url] by [url=https://www.youtube.com/@KeysofMoonMusic]Serjo De Lua (Keys of Moon Music)[/url]
 
 [b]Sound and ambience[/b]
 [url=https://willosuna.itch.io/card-game-sfx-lite]Card Game SFX Lite[/url] by Willosuna

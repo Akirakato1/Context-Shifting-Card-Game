@@ -103,8 +103,9 @@ func present(events: Array, model: Dictionary) -> void:
 			Events.MANIPULATION_RESOLVED:
 				if not local_id.is_empty() and source == local_id:
 					var changes: Array = payload.get("card_changes", [])
+					var subject := "%s’s cards" % source_name if model.get("watching", false) else "Your cards"
 					cue = {"kind": "manipulation", "title": name,
-						"detail": "Your cards changed" if not changes.is_empty() else "Your cards stayed the same",
+						"detail": subject + (" changed" if not changes.is_empty() else " stayed the same"),
 						"target": source, "color": Color("d4bbff"), "changes": changes}
 		if not cue.is_empty():
 			_pending.append(cue)
@@ -365,6 +366,13 @@ func _ignore_input(node: Control) -> void:
 	for child in node.get_children():
 		if child is Control:
 			_ignore_input(child)
+
+
+func clear() -> void:
+	_pending.clear()
+	if _timeline != null and _timeline.is_valid():
+		_timeline.kill()
+	_finish()
 
 
 func _finish() -> void:

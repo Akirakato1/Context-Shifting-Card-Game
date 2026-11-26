@@ -128,6 +128,37 @@ func test_cancel_and_timeout_keep_uncommitted_ability() -> void:
 	assert_true(timed_state.players[&"one"].pending_manipulation.is_empty())
 
 
+func test_paused_targeting_does_not_block_a_new_manipulation_after_reconnect() -> void:
+	var state := _state(222)
+	var controller := MatchController.new(state)
+	var host_ability = _set_ability(state, &"one", &"mirror_rank")
+	var guest_ability = _set_ability(state, &"two", &"mirror_rank")
+	assert_true(controller.submit(_begin(&"host-begin", host_ability.copy_id), 10).accepted)
+	assert_true(controller.submit(GameCommand.new(
+		&"guest-begin", &"two", CommandKinds.STAGE_MANIPULATION, {"copy_id": guest_ability.copy_id}
+	), 11).accepted)
+	controller.notify_player_disconnected(&"two", 20)
+	assert_true(state.frozen)
+	assert_true(state.players[&"one"].pending_manipulation.is_empty())
+	assert_true(state.players[&"two"].pending_manipulation.is_empty())
+	assert_true(state.players[&"one"].ability_hand.has(host_ability))
+	assert_true(state.players[&"two"].ability_hand.has(guest_ability))
+	var token: String = state.players[&"two"].reconnect_token
+	assert_true(controller.submit(GameCommand.new(
+		&"guest-reconnect", &"two", CommandKinds.RECONNECT, {"token": token}
+	), 30).accepted)
+	assert_false(state.frozen)
+	var restart := controller.submit(_begin(&"host-retry", host_ability.copy_id), 31)
+	assert_true(restart.accepted, "Host can start targeting again after the pause: %s" % restart.error_code)
+	if restart.accepted:
+		var card: FullCardState = _ordinary_card(state.players[&"one"].hand)
+		assert_true(controller.submit(_commit(&"host-commit", {"cards": [str(card.card_id)]}), 32).accepted)
+	var guest_restart := controller.submit(GameCommand.new(
+		&"guest-retry", &"two", CommandKinds.STAGE_MANIPULATION, {"copy_id": guest_ability.copy_id}
+	), 33)
+	assert_true(guest_restart.accepted, "Guest can start targeting after reconnect: %s" % guest_restart.error_code)
+
+
 func test_commit_after_hand_play_deadline_rejects_without_mutation() -> void:
 	var state := _state(221)
 	var controller := MatchController.new(state)

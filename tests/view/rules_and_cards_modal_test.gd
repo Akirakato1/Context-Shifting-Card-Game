@@ -171,6 +171,38 @@ func test_ability_search_updates_across_categories_with_name_and_rules_terms() -
 	modal.free()
 
 
+func test_filters_stay_above_the_scrolling_rows_and_search_fits_smaller_widths() -> void:
+	var modal := _create_modal()
+	modal.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
+	modal.size = Vector2(900, 720)
+	modal.open()
+	var tabs := modal.find_child("RulesTabs", true, false) as TabContainer
+	tabs.current_tab = 1
+	await Engine.get_main_loop().process_frame
+	await Engine.get_main_loop().process_frame
+	var scoring := tabs.get_tab_control(1)
+	var scroll := scoring.find_child("ScoringScroll", true, false) as ScrollContainer
+	var sort := scoring.find_child("HandSort", true, false) as OptionButton
+	assert_false(scroll.is_ancestor_of(sort))
+	assert_true(sort.get_global_rect().end.y <= scroll.get_global_rect().position.y)
+	tabs.current_tab = 3
+	var search := modal.find_child("AbilitySearch", true, false) as LineEdit
+	search.text = "suit"
+	search.text_changed.emit(search.text)
+	await Engine.get_main_loop().process_frame
+	await Engine.get_main_loop().process_frame
+	var results := modal.find_child("AbilitySearchResults", true, false) as ScrollContainer
+	var grid := results.find_children("*", "GridContainer", true, false)[0] as GridContainer
+	assert_eq(grid.columns, 1)
+	assert_true(search.get_global_rect().end.y <= results.get_global_rect().position.y)
+	assert_true(modal.get_global_rect().encloses(search.get_global_rect()))
+	modal.size = Vector2(1920, 1080)
+	await Engine.get_main_loop().process_frame
+	await Engine.get_main_loop().process_frame
+	assert_eq(grid.columns, 2)
+	modal.free()
+
+
 func _create_modal() -> Control:
 	if not ResourceLoader.exists(MODAL_PATH):
 		assert_true(false, "The in-match help modal scene is missing")

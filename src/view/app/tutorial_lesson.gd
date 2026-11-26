@@ -66,7 +66,7 @@ const STEPS := [
 	},
 	{
 		"round": 2, "phase": Types.Phase.HAND_PLAY, "title": "Change a rank",
-		"body": "Prime and play Mirror Rank, then click the card with Flourish 8 Sea. Both ranks mirror around 11, turning the 8 into a 3. Escape cancels an unfinished target selection.",
+		"body": "Right-click Mirror Rank, then click the card with Flourish 8 Sea. Both ranks mirror around 11, turning the 8 into a 3. Escape cancels an unfinished target selection.",
 		"command": Kinds.COMMIT_MANIPULATION, "ability": &"mirror_rank", "card": 2,
 	},
 	{
@@ -105,14 +105,14 @@ const STEPS := [
 	},
 	{
 		"round": 3, "phase": Types.Phase.HAND_PLAY, "title": "Change a context",
-		"body": "Prime and play Ride the Cycle. Select only the Flourish 9 Mountain card, then click Activate. Flourish 9 becomes Fall 9, and the other half becomes Rise. Flip Fall 9 to the top if needed.",
+		"body": "Right-click Ride the Cycle. Select only the Flourish 9 Mountain card, then click Activate. Flourish 9 becomes Fall 9, and the other half becomes Rise. Flip Fall 9 to the top if needed.",
 		"command": Kinds.COMMIT_MANIPULATION, "ability": &"ride_the_cycle", "card": 5,
 	},
 	{
 		"round": 3, "phase": Types.Phase.HAND_PLAY, "title": "Submit a flush",
-		"body": "Set the Joker on Fall 4 Mountain to Rise and Mountain. Select Fall 4, 7, and 9, plus the fresh Fall Mountain card with a Rise bottom. Submit those four Mountain tops. Four Fall and four Rise halves make Four Upheaval.",
+		"body": "Set the Joker on Fall 4 Mountain to Fall and Mountain. Fall is the active context this round. Select Fall 4, 7, and 9, plus the fresh Fall Mountain card with a Rise bottom. Submit those four Mountain tops. Five Fall and three Rise halves make Three Upheaval.",
 		"command": Kinds.LOCK_HAND, "hand_size": 4, "opening_cards": [3, 4, 5],
-		"suit": Types.Suit.MOUNTAIN, "bottom_context": Types.Context.RISE,
+		"suit": Types.Suit.MOUNTAIN, "bottom_context": Types.Context.RISE, "joker_context": Types.Context.FALL,
 	},
 	{
 		"round": 3, "phase": Types.Phase.MAIN_2, "title": "Buff a revealed hand",

@@ -261,6 +261,7 @@ func test_player_lists_follow_seat_order_before_spectators() -> void:
 
 func test_joker_draft_is_owner_only_and_resolved_view_is_public() -> void:
 	var state := _state(GameTypes.InformationVisibility.PUBLIC)
+	state.active_context = GameTypes.Context.FALL
 	state.phase = GameTypes.Phase.HAND_PLAY
 	state.phase_started_msec = -1
 	state.phase_deadline_msec = -1
@@ -306,15 +307,19 @@ func test_joker_draft_is_owner_only_and_resolved_view_is_public() -> void:
 		&"pass-two", &"two", CommandKinds.STAGE_HAND, {"cards": []}
 	), 1)
 	controller.submit(GameCommand.new(&"lock-one", &"one", CommandKinds.LOCK_HAND), 2)
+	# Connection readiness can reset while the submitted hand remains locked.
+	state.players[&"one"].ready = false
 	var submitted := SnapshotProjector.for_recipient(
 		state, &"one", GameTypes.RecipientRole.ACTIVE_PLAYER
 	)
+	assert_true(_player_view(submitted.players, &"one").ready)
 	assert_eq(submitted.private_hand.size(), owner.private_hand.size() - 1)
 	assert_false(submitted.private_hand.any(func(card: Dictionary): return card.card_id == str(joker.card_id)))
 	assert_eq(submitted.private_staging.get("submitted_score", {}).get("base_value", -1), 0)
 	var between_locks := SnapshotProjector.for_recipient(
 		state, &"watcher", GameTypes.RecipientRole.SPECTATOR
 	)
+	assert_true(_player_view(between_locks.players, &"one").ready)
 	assert_false(
 		_player_view(between_locks.players, &"one").has("revealed_submission"),
 		"a locked hand must remain private until every hand resolves"

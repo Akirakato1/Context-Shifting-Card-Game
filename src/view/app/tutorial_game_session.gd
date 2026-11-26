@@ -118,10 +118,10 @@ func _matches_hand(player: PlayerState, lesson: Dictionary) -> bool:
 			return false
 		if lesson.has("bottom_context"):
 			var bottom = card.half_at(1 - pick.half_index)
-			var context: int = bottom.joker_context if bottom.is_joker() else bottom.effective_context()
-			if context != lesson.bottom_context:
-				return false
-			if bottom.is_joker() and bottom.joker_suit != MOUNTAIN:
+			if bottom.is_joker():
+				if bottom.joker_context != lesson.joker_context or bottom.joker_suit != MOUNTAIN:
+					return false
+			elif bottom.effective_context() != lesson.bottom_context:
 				return false
 	return true
 

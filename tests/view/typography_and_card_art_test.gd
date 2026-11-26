@@ -67,7 +67,7 @@ func test_joker_rank_uses_zero_art_and_assigned_suit() -> void:
 	if widget == null: return
 	widget.theme = load("res://themes/placeholder_theme.tres")
 	widget.custom_minimum_size = Vector2(175, 279)
-	widget.render({"card_id": "joker", "first": _joker(), "second": _half(1, 7, 2)}, 0, false, {
+	widget.render({"card_id": "joker", "first": _joker(), "second": _half(1, 7, 2)}, 1, false, {
 		"select_in_place": true,
 		"staged": true,
 		"joker_choices": [{"half_index": 0, "context": 1, "suit": 2}],

@@ -6,6 +6,7 @@ signal events_applied(events: Array, sequence: int)
 signal snapshot_applied(snapshot: Dictionary, sequence: int)
 signal snapshot_resync_requested(expected_sequence: int, received_sequence: int)
 signal session_failed(reason: String)
+signal spectator_views_received(views: Dictionary)
 
 const GameProtocol = preload("res://src/network/game_protocol.gd")
 const PeerTransport = preload("res://src/network/peer_transport.gd")
@@ -95,6 +96,17 @@ func submit_command(message_id: String, command: Dictionary) -> Error:
 	return result
 
 
+func send_view_update(payload: Dictionary) -> Error:
+	var envelope := {
+		"v": GameProtocol.VERSION, "kind": "view_update",
+		"message_id": "client-view-%d" % _next_message_id, "match_id": _match_id,
+		"sender_id": str(_player_id), "payload": payload,
+	}
+	_next_message_id += 1
+	var bytes := GameProtocol.encode(envelope)
+	return ERR_INVALID_DATA if bytes.is_empty() else _transport.send(_host_peer_id, bytes)
+
+
 func poll() -> void:
 	_transport.poll()
 	if not _failed and _now_msec() - _last_host_message_msec > _heartbeat_timeout_msec:
@@ -130,6 +142,10 @@ func _on_message_received(peer_id: String, bytes: PackedByteArray) -> void:
 			_handle_event_batch(envelope["payload"])
 		"snapshot":
 			_handle_snapshot(envelope["payload"])
+		"view_update":
+			var views: Variant = envelope["payload"].get("views", {})
+			if latest_snapshot.has("spectator_views") and views is Dictionary:
+				spectator_views_received.emit(views)
 		"heartbeat":
 			_handle_heartbeat(envelope["payload"])
 		"heartbeat_ack":

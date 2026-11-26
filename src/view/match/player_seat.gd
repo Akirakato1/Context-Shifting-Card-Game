@@ -2,6 +2,7 @@ class_name PlayerSeat
 extends VBoxContainer
 
 signal ability_target_requested(player_id: String)
+signal view_requested(player_id: String)
 
 const CARD_SCENE := preload("res://src/view/match/card_widget.tscn")
 const AvatarCatalog := preload("res://src/view/common/avatar_catalog.gd")
@@ -27,7 +28,10 @@ var _target_glow := TARGET_AURA.duplicate() as StyleBoxFlat
 var _shadow_light := Vector2.INF
 
 @onready var _name: Label = $Info/Name
+@onready var _ready_check: Label = $Info/Name/ReadyCheck
 @onready var _avatar_frame: TextureRect = $Avatar
+@onready var _ready_aura: TextureRect = $Avatar/ReadyAura
+var _view_selectable := false
 @onready var _avatar: TextureRect = $Avatar/Portrait
 @onready var _summary: VBoxContainer = $Summary
 @onready var _ready_status: Label = $Summary/ReadyStatus
@@ -41,6 +45,8 @@ func _ready() -> void:
 	resized.connect(queue_redraw)
 	minimum_size_changed.connect(queue_redraw)
 	_avatar_frame.item_rect_changed.connect(queue_redraw)
+	_name.resized.connect(_position_ready_check)
+	_ready_check.add_theme_font_override("font", ThemeDB.fallback_font)
 	set_notify_transform(true)
 	mouse_entered.connect(_set_target_hovered.bind(true))
 	mouse_exited.connect(_set_target_hovered.bind(false))
@@ -104,17 +110,43 @@ func player_id() -> String:
 	return _player_id
 
 
+func hand_submitted() -> bool:
+	return _ready_check.visible
+
+
+func _position_ready_check() -> void:
+	if not hand_submitted():
+		return
+	var font := _name.get_theme_font("font")
+	var text_width := font.get_string_size(_name.text, HORIZONTAL_ALIGNMENT_LEFT, -1, _name.get_theme_font_size("font_size")).x
+	var text_left := maxf((_name.size.x - text_width) * 0.5, 0)
+	_ready_check.position.x = text_left - _ready_check.size.x - 6.0
+
+
 func set_ability_target(eligible: bool, selected := false, interactive := false) -> void:
 	_target_eligible = eligible and not _player_id.is_empty()
 	_target_selected = _target_eligible and selected
 	_target_interactive = _target_eligible and interactive
-	mouse_filter = Control.MOUSE_FILTER_STOP if _target_interactive else Control.MOUSE_FILTER_IGNORE
-	mouse_default_cursor_shape = Control.CURSOR_CROSS if _target_interactive else Control.CURSOR_ARROW
-	focus_mode = Control.FOCUS_ALL if _target_interactive else Control.FOCUS_NONE
+	_update_pointer()
 	if not _target_interactive:
-		release_focus()
 		_target_hovered = false
 	queue_redraw()
+
+
+func set_view_selectable(enabled: bool) -> void:
+	_view_selectable = enabled and not _player_id.is_empty()
+	_update_pointer()
+
+
+func _update_pointer() -> void:
+	var interactive := _target_interactive or _view_selectable
+	mouse_filter = Control.MOUSE_FILTER_STOP if interactive else Control.MOUSE_FILTER_IGNORE
+	mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND if _view_selectable else Control.CURSOR_ARROW
+	if _target_interactive:
+		mouse_default_cursor_shape = Control.CURSOR_CROSS
+	focus_mode = Control.FOCUS_ALL if interactive else Control.FOCUS_NONE
+	if not interactive:
+		release_focus()
 
 
 func ability_target_rect() -> Rect2:
@@ -132,21 +164,26 @@ func _ability_target_local_rect() -> Rect2:
 
 
 func _has_point(point: Vector2) -> bool:
-	return _target_interactive and _ability_target_local_rect().has_point(point)
+	return (_target_interactive and _ability_target_local_rect().has_point(point)) or (
+		_view_selectable and _avatar_frame.visible and _avatar_frame.get_rect().has_point(point)
+	)
 
 
 func _gui_input(event: InputEvent) -> void:
-	if not _target_interactive:
+	if not _target_interactive and not _view_selectable:
 		return
 	if event is InputEventMouseButton:
 		if event.button_index != MOUSE_BUTTON_LEFT or not event.pressed:
 			return
-		if not _ability_target_local_rect().has_point(event.position):
+		if not _has_point(event.position):
 			return
 	elif not event.is_action_pressed(&"ui_accept"):
 		return
 	accept_event()
-	ability_target_requested.emit(_player_id)
+	if _target_interactive:
+		ability_target_requested.emit(_player_id)
+	else:
+		view_requested.emit(_player_id)
 
 
 func _set_target_hovered(hovered: bool) -> void:
@@ -169,19 +206,26 @@ func render(
 		_player_id = next_player_id
 		set_ability_target(false)
 	var occupied := not player.is_empty()
+	var active := occupied and bool(player.get("active", false)) and not bool(player.get("pending", false))
+	var ready := bool(player.get("ready", false))
+	var submitted := active and phase == GameTypes.Phase.HAND_PLAY and ready
 	var display_name := str(player.get("name", player.get("player_id", "OPEN SEAT")))
 	_name.text = ("YOU  ·  " + display_name) if is_local else display_name
 	_name.tooltip_text = display_name if occupied else ""
+	if submitted:
+		_name.tooltip_text += " · Hand submitted"
+	_ready_check.visible = submitted
+	_ready_aura.visible = submitted
+	_position_ready_check()
 	var avatar_id := str(player.get("avatar_id", AvatarCatalog.default_avatar_id(int(player.get("seat_index", 0)))))
 	_avatar.texture = AvatarCatalog.seat_texture(avatar_id, seat_position) if occupied else null
 	_avatar.flip_h = occupied and seat_position == &"left" and AvatarCatalog.has_side(avatar_id)
 	_avatar_frame.visible = occupied
 	queue_redraw()
 	_ready_status.visible = (
-		occupied and bool(player.get("active", false)) and not bool(player.get("pending", false))
+		active
 		and phase in [GameTypes.Phase.START, GameTypes.Phase.MAIN_1, GameTypes.Phase.MAIN_2]
 	)
-	var ready := bool(player.get("ready", false))
 	_ready_status.text = "READY" if ready else "DECIDING"
 	_ready_status.modulate = Color("8fedc2") if ready else Color("f4ca8b")
 	_summary.visible = occupied

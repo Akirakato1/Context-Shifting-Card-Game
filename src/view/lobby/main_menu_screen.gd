@@ -92,16 +92,15 @@ func _start_slideshow() -> void:
 func _build_avatar_picker() -> void:
 	var choices := _avatar_picker.get_node("Choices")
 	var group := ButtonGroup.new()
-	for index in GameTypes.AVATAR_IDS.size():
-		var id: String = GameTypes.AVATAR_IDS[index]
+	for id: String in GameTypes.AVATAR_IDS:
 		var option := Button.new()
 		option.name = id
-		option.tooltip_text = "Avatar %d" % (index + 1)
+		option.tooltip_text = AvatarCatalog.display_name(id)
 		option.icon = AvatarCatalog.front_texture(id)
 		option.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		option.expand_icon = true
-		option.add_theme_constant_override("icon_max_width", 92)
-		option.custom_minimum_size.y = 98
+		option.add_theme_constant_override("icon_max_width", 76)
+		option.custom_minimum_size.y = 84
 		option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		option.toggle_mode = true
 		option.button_group = group
@@ -111,6 +110,7 @@ func _build_avatar_picker() -> void:
 
 
 func _select_avatar(id: String) -> void:
+	id = GameTypes.canonical_avatar_id(id)
 	_avatar_id = id if id in GameTypes.AVATAR_IDS else GameTypes.default_avatar_id(0)
 	for option_id in _avatar_buttons:
 		_avatar_buttons[option_id].set_pressed_no_signal(option_id == _avatar_id)

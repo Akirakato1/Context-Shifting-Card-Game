@@ -99,6 +99,28 @@ func test_non_host_sees_waiting_rematch_state() -> void:
 	await _unmount(results)
 
 
+func test_practice_results_offer_a_rematch_or_return_to_setup() -> void:
+	var results = await _mount()
+	var model := _result_model()
+	model["is_practice"] = true
+	results.render(model)
+	var setup: Button = results.get_node("Layout/Actions/LobbyButton")
+	assert_true(setup.visible)
+	assert_eq(setup.text, "Return to Practice")
+	var returns: Array[Dictionary] = []
+	results.return_to_lobby_requested.connect(func(payload: Dictionary): returns.append(payload))
+	setup.pressed.emit()
+	assert_eq(returns.size(), 1)
+	if not returns.is_empty():
+		assert_true(returns[0].is_practice)
+
+	model["is_tutorial"] = true
+	results.render(model)
+	assert_false(setup.visible)
+	assert_eq(results.get_node("Layout/Actions/RematchButton").text, "Replay Tutorial")
+	await _unmount(results)
+
+
 func _result_model() -> Dictionary:
 	return {
 		"match_complete": true,

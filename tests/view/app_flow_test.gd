@@ -15,6 +15,7 @@ class FakeSession extends RefCounted:
 	var submissions: Array[Dictionary] = []
 	var start_calls := 0
 	var retry_result := OK
+	var closed := false
 
 	func submit_command(message_id: String, command: Dictionary) -> Error:
 		submissions.append({"message_id": message_id, "command": command.duplicate(true)})
@@ -29,6 +30,17 @@ class FakeSession extends RefCounted:
 
 	func retry_connection() -> Error:
 		return retry_result
+
+	func close() -> void:
+		closed = true
+
+
+func test_app_closes_an_active_session_when_it_leaves_the_tree() -> void:
+	var app = await _mount_app()
+	var session := FakeSession.new()
+	app.bind_session(session)
+	await _unmount(app)
+	assert_true(session.closed)
 
 
 func test_menu_opens_separate_create_and_join_forms_and_returns() -> void:
@@ -50,9 +62,25 @@ func test_menu_opens_separate_create_and_join_forms_and_returns() -> void:
 		assert_false(host.get_child(0).get_node("Content/JoinPanel").visible)
 		var picker: Control = host.get_child(0).get_node("Content/AvatarPicker")
 		assert_true(picker.is_visible_in_tree())
-		assert_eq(picker.get_node("Choices").get_child_count(), 5)
-		picker.get_node("Choices/avatar_5").pressed.emit()
-		assert_eq(host.get_child(0).avatar_id(), "avatar_5")
+		var choices := picker.get_node("Choices") as GridContainer
+		assert_true(choices != null, "The avatar picker uses a two-row grid")
+		if choices != null:
+			assert_eq(choices.columns, 6)
+		var portraits := {
+			"avatar_6": "avatar_6_front.png", "avatar_7": "avatars_7_front.png",
+			"avatar_9": "avatar_9_front.png", "avatar_10": "avatar_10_front.png",
+			"avatar_11": "avatar_11_front.png",
+		}
+		assert_eq(picker.get_node("Choices").get_child_count(), 11)
+		for id: String in portraits:
+			var avatar := picker.get_node_or_null("Choices/" + id) as Button
+			assert_true(avatar != null, "%s is selectable" % id)
+			if avatar != null:
+				assert_eq(avatar.icon.resource_path.get_file(), portraits[id])
+		var newest := picker.get_node_or_null("Choices/avatar_11") as Button
+		if newest != null:
+			newest.pressed.emit()
+		assert_eq(host.get_child(0).avatar_id(), "avatar_11")
 		var back: Button = host.get_child(0).get_node("Content/BackButton")
 		back.pressed.emit()
 		assert_eq(app.current_screen_id(), &"menu")
@@ -60,7 +88,36 @@ func test_menu_opens_separate_create_and_join_forms_and_returns() -> void:
 		assert_eq(app.current_screen_id(), &"join_lobby")
 		assert_true(host.get_child(0).get_node("Content/JoinPanel").visible)
 		assert_false(host.get_child(0).get_node("Content/HostButton").visible)
-		assert_true(host.get_child(0).get_node("Content/AvatarPicker/Choices/avatar_5").button_pressed)
+		var selected := host.get_child(0).get_node_or_null("Content/AvatarPicker/Choices/avatar_11") as Button
+		assert_true(selected != null and selected.button_pressed)
+	await _unmount(app)
+
+
+func test_avatar_picker_combines_mascot_frames_and_shows_portrait_names() -> void:
+	var app = await _mount_app()
+	var menu: Control = app.get_node("SafeArea/ScreenHost/MainMenuScreen")
+	menu.set_page(&"create_lobby", "Guest", "avatar_8_2")
+	var choices := menu.get_node("Content/AvatarPicker/Choices") as GridContainer
+	assert_false(choices.has_node("avatar_8_2"))
+	assert_eq(choices.get_node("avatar_5").tooltip_text, "Traveler")
+	assert_eq(choices.get_node("avatar_9").tooltip_text, "Max Planck")
+	assert_eq(menu.avatar_id(), "avatar_8")
+	var mascot := choices.get_node("avatar_8") as Button
+	assert_true(mascot.button_pressed)
+	assert_eq(mascot.tooltip_text, "Aldoro Einstein")
+	var animation := mascot.icon as AnimatedTexture
+	assert_true(animation != null, "The shared Mascot portrait should animate")
+	if animation != null:
+		assert_eq(animation.frames, 2)
+		assert_false(animation.one_shot)
+		assert_false(animation.pause)
+		var frames := ["avatar_8_1.png", "avatar_8_2.png"]
+		for index in frames.size():
+			assert_eq(animation.get_frame_texture(index).resource_path.get_file(), frames[index])
+			assert_true(is_equal_approx(animation.get_frame_duration(index) / animation.speed_scale, 0.2))
+		var catalog := preload("res://src/view/common/avatar_catalog.gd")
+		assert_eq(catalog.seat_texture("avatar_8", &"left"), animation)
+		assert_eq(catalog.front_texture("avatar_8_2"), animation)
 	await _unmount(app)
 
 
@@ -76,12 +133,30 @@ func test_main_menu_credits_open_and_close_from_the_corner() -> void:
 		var dialog := credits.get_node("CreditsDialog") as AcceptDialog
 		assert_true(dialog.visible)
 		var attribution := dialog.get_node("Margin/Attribution") as RichTextLabel
-		for name in ["anarchira", "akts625", "Willosuna", "JDSherbert", "Michael W. Moss"]:
+		for name in ["anarchira", "akts625", "Willosuna", "JDSherbert", "Michael W. Moss", "The Epic Hero", "Serjo De Lua"]:
 			assert_true(name in attribution.text, "Credits include %s" % name)
+		assert_true(attribution.text.contains("https://www.youtube.com/@KeysofMoonMusic"))
 		dialog.get_ok_button().pressed.emit()
 		assert_false(dialog.visible)
 		menu.get_node("Content/CreateLobbyButton").pressed.emit()
 		assert_false(credits.is_visible_in_tree())
+	await _unmount(app)
+
+
+func test_background_music_loops_on_the_music_bus_across_screens() -> void:
+	var app = await _mount_app()
+	var player := app.get_node_or_null("BackgroundMusic") as AudioStreamPlayer
+	assert_true(player != null, "The soundtrack belongs to the app so it continues across screens")
+	if player != null:
+		assert_eq(player.bus, &"Music")
+		var track := player.stream as AudioStreamMP3
+		assert_true(track != null and track.loop)
+		if track != null:
+			assert_eq(track.resource_path.get_file(), "the_epic_hero.mp3")
+		assert_true(player.playing)
+		app.show_screen(&"lobby")
+		assert_eq(app.get_node_or_null("BackgroundMusic"), player)
+		assert_true(player.playing)
 	await _unmount(app)
 
 
@@ -204,22 +279,56 @@ func test_app_starts_on_menu_and_can_present_each_mock_screen() -> void:
 	await _unmount(app)
 
 
-func test_practice_button_starts_a_match_and_can_open_settings_or_return() -> void:
+func test_practice_button_opens_setup_then_starts_the_configured_match() -> void:
 	var app = await _mount_app()
 	var host: Control = app.get_node("SafeArea/ScreenHost")
 	host.get_child(0).get_node("Content/PracticeButton").pressed.emit()
+	assert_eq(app.current_screen_id(), &"lobby")
+	if app.current_screen_id() != &"lobby":
+		await _unmount(app)
+		return
+	var lobby := host.get_child(0)
+	var initial: Dictionary = app.presentation_state.private_state()
+	assert_true(initial.is_practice)
+	assert_eq(initial.players.size(), 4)
+	var names: Dictionary = {}
+	var bots: Dictionary = {}
+	for player: Dictionary in initial.players:
+		assert_false(names.has(player.name))
+		names[player.name] = true
+		if player.get("is_bot", false):
+			assert_false(bots.has(player.player_id))
+			bots[player.player_id] = player.name
+	assert_eq(bots.size(), 3)
+	var difficulty := lobby.find_child("BotDifficulty", true, false) as OptionButton
+	var remove := lobby.find_child("RemoveBotButton", true, false) as Button
+	var add := lobby.find_child("AddBotButton", true, false) as Button
+	assert_true(difficulty != null and remove != null and add != null)
+	if difficulty == null or remove == null or add == null:
+		await _unmount(app)
+		return
+	difficulty.item_selected.emit(2)
+	var updated: Dictionary = app.presentation_state.private_state()
+	assert_true(updated.players.any(func(player: Dictionary): return player.get("bot_difficulty") == 2))
+	assert_true(add.disabled)
+	# Each accepted edit rerenders the roster with new controls.
+	lobby.find_children("RemoveBotButton", "Button", true, false)[1].pressed.emit()
+	assert_eq(app.presentation_state.private_state().players.size(), 3)
+	assert_false(add.disabled)
+	add.pressed.emit()
+	var configured: Dictionary = app.presentation_state.private_state()
+	assert_eq(configured.players.size(), 4)
+	var opponent_names: Array = []
+	for player: Dictionary in configured.players:
+		if player.get("is_bot", false):
+			opponent_names.append(player.name)
+	lobby.get_node("Layout/Footer/StartButton").pressed.emit()
 	assert_eq(app.current_screen_id(), &"match")
 	if app.current_screen_id() == &"match":
 		var table := host.get_child(0)
-		var opponents := {
-			"TopSeat": ["Bernhard Riemann", "avatar_2_front.png"],
-			"LeftSeat": ["Levent Alpöge", "avatar_front_3.png"],
-			"RightSeat": ["Claude-Louis Navier", "avatar_4_front.png"],
-		}
-		for seat_name: String in opponents:
-			var seat := table.get_node("TableLayer/" + seat_name)
-			assert_eq(seat.get_node("Info/Name").text, opponents[seat_name][0])
-			assert_eq(seat.get_node("Avatar/Portrait").texture.resource_path.get_file(), opponents[seat_name][1])
+		assert_true(app.presentation_state.private_state().is_practice)
+		for seat_name in ["TopSeat", "LeftSeat", "RightSeat"]:
+			assert_true(table.get_node("TableLayer/%s/Info/Name" % seat_name).text in opponent_names)
 		table.settings_requested.emit()
 		assert_eq(host.get_child(0), table)
 		assert_true(host.has_node("GeneralSettingsScreen"))
@@ -228,6 +337,73 @@ func test_practice_button_starts_a_match_and_can_open_settings_or_return() -> vo
 		assert_eq(app.current_screen_id(), &"menu")
 		assert_false(host.has_node("GeneralSettingsScreen"))
 	await _unmount(app)
+
+
+func test_practice_results_return_to_setup_or_rematch_with_the_same_configuration() -> void:
+	var app = await _mount_app()
+	var host: Control = app.get_node("SafeArea/ScreenHost")
+	host.get_child(0).get_node("Content/PracticeButton").pressed.emit()
+	assert_eq(app.current_screen_id(), &"lobby")
+	if app.current_screen_id() != &"lobby":
+		await _unmount(app)
+		return
+	var lobby := host.get_child(0)
+	lobby.get_node("Layout/Body/Settings/VictoryTarget").value = 5
+	lobby.find_child("BotDifficulty", true, false).item_selected.emit(2)
+	var configured := _bot_difficulties(app.presentation_state.private_state())
+	assert_true(2 in configured.values())
+	var before: Array = app.presentation_state.private_state().players
+	var original_avatar := str(before[0].avatar_id)
+	var chosen_avatar := str(before[1].avatar_id)
+	var picker := lobby.find_child("PlayerAvatar", true, false) as MenuButton
+	assert_true(picker != null, "The player can choose their own portrait from the Practice roster")
+	if picker != null:
+		var popup := picker.get_popup()
+		assert_eq(popup.item_count, GameTypes.AVATAR_IDS.size())
+		popup.id_pressed.emit(GameTypes.AVATAR_IDS.find(chosen_avatar))
+	var avatars: Array = app.presentation_state.private_state().players
+	assert_eq(avatars[0].avatar_id, chosen_avatar)
+	assert_eq(avatars[1].avatar_id, original_avatar, "Choosing an occupied avatar swaps it with the bot")
+	lobby.get_node("Layout/Footer/StartButton").pressed.emit()
+	assert_eq(app.presentation_state.private_state().players[0].avatar_id, chosen_avatar)
+	var session: Variant = app.get("_session")
+	_complete_practice_match(session)
+	assert_eq(app.current_screen_id(), &"results")
+	host.get_node("ResultsScreen/Layout/Actions/LobbyButton").pressed.emit()
+	assert_eq(app.current_screen_id(), &"lobby")
+	if app.current_screen_id() == &"lobby":
+		lobby = host.get_child(0)
+		assert_eq(lobby.get_node("Layout/Body/Settings/VictoryTarget").value, 5.0)
+		assert_eq(_bot_difficulties(app.presentation_state.private_state()), configured)
+		var restored_picker := lobby.find_child("PlayerAvatar", true, false) as MenuButton
+		assert_true(restored_picker != null and restored_picker.get_popup().is_item_checked(GameTypes.AVATAR_IDS.find(chosen_avatar)))
+		lobby.get_node("Layout/Footer/StartButton").pressed.emit()
+		_complete_practice_match(session)
+		host.get_node("ResultsScreen/Layout/Actions/RematchButton").pressed.emit()
+		assert_eq(app.current_screen_id(), &"match")
+		var rematch: Dictionary = app.presentation_state.private_state()
+		assert_eq(rematch.victory_target, 5)
+		assert_eq(_bot_difficulties(rematch), configured)
+		assert_eq(rematch.players[0].avatar_id, chosen_avatar)
+		host.get_child(0).leave_requested.emit()
+		host.get_child(0).get_node("Content/PracticeButton").pressed.emit()
+		assert_eq(app.presentation_state.private_state().players[0].avatar_id, chosen_avatar)
+	await _unmount(app)
+
+
+func _complete_practice_match(session: Variant) -> void:
+	var state: Variant = session.get("_controller").state
+	state.match_complete = true
+	state.phase = GameTypes.Phase.COMPLETE
+	session._publish_authority([])
+
+
+func _bot_difficulties(snapshot: Dictionary) -> Dictionary:
+	var bots: Dictionary = {}
+	for player: Dictionary in snapshot.players:
+		if player.get("is_bot", false):
+			bots[player.player_id] = player.bot_difficulty
+	return bots
 
 
 func test_tutorial_button_opens_lessons_and_leaving_resets_progress() -> void:
@@ -310,6 +486,12 @@ func test_live_sabotage_projects_a_different_animation_for_each_audience() -> vo
 func test_practice_public_field_uses_the_live_clock_animation() -> void:
 	var app = await _mount_app()
 	app.start_practice()
+	var screen_host: Control = app.get_node("SafeArea/ScreenHost")
+	assert_eq(app.current_screen_id(), &"lobby")
+	if app.current_screen_id() != &"lobby":
+		await _unmount(app)
+		return
+	screen_host.get_child(0).get_node("Layout/Footer/StartButton").pressed.emit()
 	var practice: Variant = app.get("_session")
 	var state: Variant = practice.get("_controller").state
 	var host: Variant = state.players[&"host"]
@@ -327,7 +509,7 @@ func test_practice_public_field_uses_the_live_clock_animation() -> void:
 		host.ability_hand.append(field)
 		var screen: Control = app.get_node("SafeArea/ScreenHost").get_child(0)
 		var effects: Control = screen.get_node("AbilityEffects")
-		practice._submit_local("field", {"command_id": "field", "kind": "play_public_ability",
+		practice.submit_command("field", {"command_id": "field", "kind": "play_public_ability",
 			"payload": {"copy_id": str(field.copy_id), "choices": {}}})
 		assert_eq(state.context_direction, -1)
 		assert_eq(effects.get_node("EffectTitle").text, "Reverse Cycle")

@@ -144,6 +144,77 @@ func test_mid_phase_spectator_gets_public_snapshot_and_never_private_or_ready() 
 	assert_eq(_event_kinds(fixture.transport, "peer-watch"), ["public_update"])
 
 
+func test_spectator_receives_sanitized_view_updates_only_from_the_owning_player() -> void:
+	var fixture := _session([&"one", &"two"], [])
+	fixture.state.phase = GameTypes.Phase.HAND_PLAY
+	fixture.host.register_peer("peer-one", &"one", GameTypes.RecipientRole.ACTIVE_PLAYER)
+	fixture.host.register_peer("peer-two", &"two", GameTypes.RecipientRole.ACTIVE_PLAYER)
+	assert_true(fixture.host.admit_peer("peer-watch", &"watch", "spectator").accepted)
+	var watched: Dictionary = _last_kind(fixture.transport, "peer-watch", "snapshot").payload.state
+	var view: Dictionary = _player_view(watched, "one")
+	assert_eq(view.get("spectator_abilities", []).size(), fixture.state.players[&"one"].ability_hand.size())
+	var original := str(fixture.state.players[&"one"].hand[0].card_id)
+	var alias := str(view.spectator_hand[0].view_id)
+	var body := {
+		"round_number": fixture.state.round_number, "phase": GameTypes.Phase.HAND_PLAY,
+		"hand_order": [original, "unknown-card"], "flipped": [original],
+		"staged": [{"card_id": original, "half_index": 1, "joker_choices": []}],
+	}
+	var update := GameProtocol.encode(_peer_envelope("view_update", "look-1", "one", body))
+	assert_false(update.is_empty(), "Live spectator views have their own wire message")
+	if update.is_empty():
+		return
+	fixture.transport.clear_sent()
+	fixture.transport.inject_message("peer-one", update)
+	fixture.host.poll()
+	var message := _last_kind(fixture.transport, "peer-watch", "view_update")
+	if not message.is_empty():
+		var watched_update: Dictionary = message.payload.views.one
+		assert_eq(watched_update.hand_order, [alias])
+		assert_eq(watched_update.flipped, [alias])
+		assert_eq(watched_update.staged[0].view_id, alias)
+		assert_false(JSON.stringify(watched_update).contains(original))
+	assert_false(_received_view_update(fixture.transport, "peer-two"))
+	fixture.transport.clear_sent()
+	fixture.transport.inject_message("peer-watch", GameProtocol.encode(_peer_envelope("view_update", "looks-false", "watch", body)))
+	fixture.host.poll()
+	assert_false(_received_view_update(fixture.transport, "peer-watch"))
+
+	fixture.transport.clear_sent()
+	assert_true(fixture.host.admit_peer("peer-late", &"late", "spectator").accepted)
+	var late: Dictionary = _last_kind(fixture.transport, "peer-late", "snapshot").payload.state
+	assert_eq(late.spectator_views.one.hand_order, [alias])
+
+
+func test_spectator_gets_viewpoint_tagged_sabotage_and_bystanders_keep_public_cue() -> void:
+	var fixture := _session([&"one", &"two", &"three"], [])
+	for id in ["one", "two", "three"]:
+		fixture.host.register_peer("peer-" + id, StringName(id), GameTypes.RecipientRole.ACTIVE_PLAYER)
+	assert_true(fixture.host.admit_peer("peer-watch", &"watch", "spectator").accepted)
+	fixture.transport.clear_sent()
+	var common := {"ability_id": "rank_blackout", "source_player_id": "one", "target_player_id": "two"}
+	var card_id := str(fixture.state.players[&"two"].hand[0].card_id)
+	fixture.host.publish_events([
+		DomainEvent.new(&"sabotage_resolved", common),
+		DomainEvent.new(&"sabotage_resolved", common.merged({"success": true}), &"player", &"one"),
+		DomainEvent.new(&"sabotage_resolved", common.merged({
+			"card_changes": [{"card_id": card_id, "before": {"first": {"effective_rank": 2}},
+				"after": {"first": {"effective_rank": 9}}}],
+			"request": "owner-only metadata",
+		}), &"player", &"two"),
+	])
+	var watched: Array = _last_kind(fixture.transport, "peer-watch", "event_batch").payload.events
+	assert_eq(watched.size(), 3)
+	assert_eq(watched[1].observed_player_id, "one")
+	assert_eq(watched[2].observed_player_id, "two")
+	assert_eq(watched[2].payload.card_changes[0].after.first.effective_rank, 9)
+	assert_false(JSON.stringify(watched).contains(card_id))
+	assert_false(JSON.stringify(watched).contains("owner-only metadata"))
+	var bystander: Array = _last_kind(fixture.transport, "peer-three", "event_batch").payload.events
+	assert_eq(bystander.size(), 1)
+	assert_eq(bystander[0].payload, common)
+
+
 func test_late_spectator_and_active_resync_receive_same_authoritative_public_history() -> void:
 	var fixture := _session([&"one", &"two"], [])
 	fixture.state.record_public_events([
@@ -162,6 +233,7 @@ func test_late_spectator_and_active_resync_receive_same_authoritative_public_his
 
 func test_owner_resync_keeps_joker_choices_private() -> void:
 	var fixture := _session([&"one", &"two"], [&"watcher"])
+	fixture.state.active_context = GameTypes.Context.FALL
 	fixture.host.register_peer("peer-one", &"one", GameTypes.RecipientRole.ACTIVE_PLAYER)
 	fixture.host.register_peer("peer-two", &"two", GameTypes.RecipientRole.ACTIVE_PLAYER)
 	fixture.host.register_peer("peer-watch", &"watcher", GameTypes.RecipientRole.SPECTATOR)
@@ -181,7 +253,7 @@ func test_owner_resync_keeps_joker_choices_private() -> void:
 		"half_index": 0,
 		"joker_choices": [{
 			"half_index": 0,
-			"context": GameTypes.Context.RISE,
+			"context": GameTypes.Context.FALL,
 			"suit": GameTypes.Suit.CLOUD,
 		}],
 	}])
@@ -293,3 +365,9 @@ func _all_payload_text(transport: FakePeerTransport, peer_id: String) -> String:
 		if entry.peer_id == peer_id:
 			payloads.append(GameProtocol.decode(entry.bytes).envelope.payload)
 	return JSON.stringify(payloads)
+
+
+func _received_view_update(transport: FakePeerTransport, peer_id: String) -> bool:
+	return transport.sent.any(func(entry: Dictionary) -> bool:
+		return entry.peer_id == peer_id and GameProtocol.decode(entry.bytes).envelope.kind == "view_update"
+	)

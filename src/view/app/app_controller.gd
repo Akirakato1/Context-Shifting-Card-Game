@@ -14,7 +14,6 @@ const PresentationState = preload("res://src/view/common/presentation_state.gd")
 const PresentationQueue = preload("res://src/view/common/presentation_queue.gd")
 const UICommandGateway = preload("res://src/view/common/ui_command_gateway.gd")
 const RuntimeGameSession = preload("res://src/view/app/runtime_game_session.gd")
-const PracticeGameSession = preload("res://src/view/app/practice_game_session.gd")
 const TutorialGameSession = preload("res://src/view/app/tutorial_game_session.gd")
 const DisplayPreferences = preload("res://src/view/app/display_preferences.gd")
 const DisplayDiagnostics = preload("res://src/view/app/display_diagnostics.gd")
@@ -45,6 +44,7 @@ var _player_name := ""
 var _avatar_id := ""
 
 @onready var _screen_host: Control = $SafeArea/ScreenHost
+@onready var _background_music: AudioStreamPlayer = $BackgroundMusic
 @onready var _connection_banner: PanelContainer = $SafeArea/ConnectionBanner
 @onready var _connection_banner_label: Label = $SafeArea/ConnectionBanner/Label
 
@@ -58,6 +58,9 @@ func _ready() -> void:
 	if cursor_artwork != null:
 		cursor_artwork.apply()
 	gameplay_preferences.apply_audio()
+	var soundtrack := _background_music.stream as AudioStreamMP3
+	soundtrack.loop = true
+	_background_music.play()
 	gameplay_preferences.draw_speed_changed.connect(_apply_draw_speed)
 	show_screen(&"menu")
 	for argument in OS.get_cmdline_user_args():
@@ -73,6 +76,8 @@ func _ready() -> void:
 
 
 func _exit_tree() -> void:
+	if _session != null:
+		_close_current_session()
 	if cursor_artwork != null:
 		cursor_artwork.clear()
 
@@ -94,6 +99,7 @@ func _init() -> void:
 func bind_session(session: Variant) -> void:
 	if _session != null and _session != session:
 		_disconnect_if_present(_session, "snapshot_applied", _on_snapshot_applied)
+		_disconnect_if_present(_session, "spectator_views_received", _on_spectator_views_received)
 		_disconnect_if_present(_session, "events_applied", _on_events_applied)
 		_disconnect_if_present(_session, "session_failed", _on_session_failed)
 		_disconnect_if_present(_session, "connection_state_changed", _on_connection_state_changed)
@@ -105,6 +111,7 @@ func bind_session(session: Variant) -> void:
 		_set_connection("idle", "")
 		return
 	_connect_if_present(session, "snapshot_applied", _on_snapshot_applied)
+	_connect_if_present(session, "spectator_views_received", _on_spectator_views_received)
 	_connect_if_present(session, "events_applied", _on_events_applied)
 	_connect_if_present(session, "session_failed", _on_session_failed)
 	_connect_if_present(session, "connection_state_changed", _on_connection_state_changed)
@@ -215,6 +222,11 @@ func _on_snapshot_applied(snapshot: Dictionary, sequence: int) -> void:
 	presentation_state.apply_snapshot(snapshot, sequence)
 
 
+func _on_spectator_views_received(views: Dictionary) -> void:
+	if _current_screen_id == &"match" and is_instance_valid(_current_screen):
+		_current_screen.update_spectator_views(views)
+
+
 func _on_events_applied(events: Array, sequence: int) -> void:
 	# Live cues are consumed before the authoritative snapshot clears its event batch.
 	if _current_screen_id == &"match" and sequence > presentation_state.sequence():
@@ -222,6 +234,8 @@ func _on_events_applied(events: Array, sequence: int) -> void:
 	var queued: Array[Dictionary] = []
 	for event in events:
 		if event is Dictionary:
+			if event.has("observed_player_id"):
+				continue
 			var payload: Variant = event.get("payload", {})
 			if event.get("kind") == "manipulation_resolved" or (
 				event.get("kind") == "sabotage_resolved" and payload is Dictionary
@@ -302,6 +316,19 @@ func _wire_current_screen() -> void:
 			_current_screen.tutorial_requested.connect(start_tutorial)
 		&"lobby":
 			_current_screen.setting_change_requested.connect(func(key: StringName, value: Variant): _on_lobby_intent(&"setting", {"key": key, "value": value}))
+			_current_screen.add_bot_requested.connect(func(): _on_lobby_intent(&"add_bot", {}))
+			_current_screen.remove_bot_requested.connect(func(bot_id: StringName):
+				_on_lobby_intent(&"remove_bot", {"bot_id": bot_id})
+			)
+			_current_screen.bot_difficulty_requested.connect(func(bot_id: StringName, difficulty: int):
+				_on_lobby_intent(&"set_bot_difficulty", {"bot_id": bot_id, "difficulty": difficulty})
+			)
+			_current_screen.bot_avatar_requested.connect(func(bot_id: StringName, avatar: String):
+				_on_lobby_intent(&"set_bot_avatar", {"bot_id": bot_id, "avatar": avatar})
+			)
+			_current_screen.practice_avatar_requested.connect(func(avatar: String):
+				_on_lobby_intent(&"set_practice_avatar", {"avatar": avatar})
+			)
 			_current_screen.ready_requested.connect(func(ready: bool): _on_lobby_intent(&"ready", {"ready": ready}))
 			_current_screen.start_requested.connect(func(): _on_lobby_intent(&"start", {}))
 			_current_screen.leave_requested.connect(_return_to_menu)
@@ -309,6 +336,10 @@ func _wire_current_screen() -> void:
 		&"match":
 			_current_screen.set_draw_speed(gameplay_preferences.draw_speed)
 			_current_screen.intent_requested.connect(_on_match_intent)
+			_current_screen.view_update_requested.connect(func(view: Dictionary):
+				if _session != null and _session.has_method("update_match_view"):
+					_session.update_match_view(view)
+			)
 			_current_screen.connection_action_requested.connect(_on_connection_action)
 			_connect_if_present(_current_screen, "settings_requested", _open_general_settings)
 			_connect_if_present(_current_screen, "leave_requested", _on_match_leave_requested)
@@ -357,9 +388,11 @@ func _close_general_settings() -> void:
 
 
 func start_practice() -> void:
-	_close_current_session()
-	bind_session(PracticeGameSession.new())
-	_session.start()
+	_replace_runtime_session()
+	var error: Error = _session.start_practice(_avatar_id)
+	if error != OK:
+		_close_current_session()
+		_show_current_error("Could not open Practice. Try again.")
 
 
 func start_tutorial() -> void:
@@ -401,15 +434,28 @@ func _on_lobby_intent(kind: StringName, payload: Dictionary) -> void:
 	lobby_intent_requested.emit(kind, payload.duplicate(true))
 	if _session == null:
 		return
+	var error: StringName
 	match kind:
 		&"setting":
-			if not _session.has_method("update_lobby_setting"):
-				return
-			var error: StringName = _session.update_lobby_setting(
-				StringName(payload.get("key", "")), payload.get("value")
-			)
-			if not error.is_empty() and _current_screen.has_method("show_error"):
-				_current_screen.show_error(error)
+			if _session.has_method("update_lobby_setting"):
+				error = _session.update_lobby_setting(StringName(payload.key), payload.value)
+		&"add_bot":
+			if _session.has_method("add_bot"):
+				error = _session.add_bot()
+		&"remove_bot":
+			if _session.has_method("remove_bot"):
+				error = _session.remove_bot(payload.bot_id)
+		&"set_bot_difficulty":
+			if _session.has_method("set_bot_difficulty"):
+				error = _session.set_bot_difficulty(payload.bot_id, payload.difficulty)
+		&"set_bot_avatar":
+			if _session.has_method("set_bot_avatar"):
+				error = _session.set_bot_avatar(payload.bot_id, payload.avatar)
+		&"set_practice_avatar":
+			if _session.has_method("set_practice_avatar"):
+				error = _session.set_practice_avatar(payload.avatar)
+				if error.is_empty():
+					_avatar_id = GameTypes.canonical_avatar_id(payload.avatar)
 		&"ready":
 			command_gateway.send(&"set_lobby_ready", {"ready": bool(payload.get("ready", false))}, true)
 		&"start":
@@ -417,9 +463,9 @@ func _on_lobby_intent(kind: StringName, payload: Dictionary) -> void:
 				return
 			var result: Error = _session.start_match()
 			if result != OK:
-				if _current_screen.has_method("show_error"):
-					_current_screen.show_error(&"players_not_ready" if result == ERR_BUSY else &"not_enough_players")
-				return
+				error = &"players_not_ready" if result == ERR_BUSY else &"not_enough_players"
+	if not error.is_empty() and _current_screen.has_method("show_error"):
+		_current_screen.show_error(error)
 
 
 func _on_match_leave_requested() -> void:
@@ -473,6 +519,8 @@ func _connection_error_message(reason: String) -> String:
 
 
 func _on_match_intent(kind: StringName, payload: Dictionary) -> void:
+	if _last_presentation.get("local_role", "") == "spectator":
+		return
 	if kind in [&"tutorial_next", &"tutorial_flip"]:
 		if _session is TutorialGameSession:
 			if kind == &"tutorial_next":
@@ -502,8 +550,6 @@ func _on_rematch_requested(payload: Dictionary) -> void:
 	rematch_requested.emit(payload.duplicate(true))
 	if bool(payload.get("is_tutorial", false)):
 		start_tutorial()
-	elif bool(payload.get("is_practice", false)):
-		start_practice()
 	elif _session == null or not _session.has_method("start_rematch") or _session.start_rematch() != OK:
 		_show_current_error("Could not start a rematch. Try again.")
 

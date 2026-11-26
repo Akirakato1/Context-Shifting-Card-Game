@@ -4,6 +4,7 @@ extends RefCounted
 const GameTypes = preload("res://src/core/common/game_types.gd")
 const MatchState = preload("res://src/core/match/match_state.gd")
 const FieldEffectResolver = preload("res://src/core/abilities/field_effect_resolver.gd")
+const SpectatorView := preload("res://src/core/match/spectator_view.gd")
 
 
 static func for_recipient(
@@ -34,9 +35,10 @@ static func for_recipient(
 		return host_snapshot
 	var can_watch_hands: bool = (
 		role == GameTypes.RecipientRole.SPECTATOR
-		and state.players.has(recipient_id)
-		and state.players[recipient_id].spectator
-		and state.phase in [
+		and SpectatorView.can_watch(state, recipient_id)
+	)
+	var show_spectator_hands := can_watch_hands and (
+		state.phase in [
 			GameTypes.Phase.START, GameTypes.Phase.MAIN_1,
 			GameTypes.Phase.HAND_PLAY, GameTypes.Phase.MAIN_2,
 		]
@@ -53,7 +55,8 @@ static func for_recipient(
 			"connected": player.connected,
 			"hand_count": player.hand.size() - (player.submitted_cards.size() if player.submission_revealed else 0),
 			"ability_count": player.ability_hand.size(), "match_score": player.match_score,
-			"round_wins": player.round_wins, "ready": player.ready,
+			"round_wins": player.round_wins,
+			"ready": player.hand_locked if state.phase == GameTypes.Phase.HAND_PLAY else player.ready,
 		}
 		if state.phase == GameTypes.Phase.END and player.active and not player.pending:
 			projected_player["discard_complete"] = player.end_discard_complete
@@ -64,7 +67,11 @@ static func for_recipient(
 		):
 			projected_player["revealed_submission"] = _revealed_submission(player)
 		if can_watch_hands and player.active and not player.pending:
-			projected_player["spectator_hand"] = _spectator_hand(player)
+			if show_spectator_hands:
+				projected_player["spectator_hand"] = _spectator_hand(player, active_contexts)
+			projected_player["spectator_abilities"] = _spectator_abilities(player, state.phase)
+			projected_player["spectator_staging"] = _spectator_staging(player)
+			projected_player["spectator_abilities_disabled"] = player.abilities_disabled
 		players.append(projected_player)
 		# Played score modifiers are public. The projection omits the consumed copy ID.
 		if player.active and not player.pending:
@@ -174,27 +181,59 @@ static func _revealed_submission(player) -> Dictionary:
 	return result
 
 
-static func _spectator_hand(player) -> Array:
+static func _spectator_hand(player, active_contexts: PackedInt32Array) -> Array:
 	var result: Array = []
-	for index in player.hand.size():
-		var card = player.hand[index]
+	for card: FullCardState in player.hand:
 		if player.submission_revealed and card in player.submitted_cards:
 			continue
 		result.append({
-			"view_id": "%d-%d" % [player.seat_index, index],
+			"view_id": SpectatorView.view_id(card.card_id),
 			"first": _spectator_half(card.first),
 			"second": _spectator_half(card.second),
+			"eligible_half_indexes": Array(card.eligible_half_indexes_for_contexts(active_contexts)),
+			"locked": card.card_id in player.submission_locked_card_ids,
 		})
 	return result
 
 
 static func _spectator_half(half) -> Dictionary:
-	return {
+	var face := {
 		"effective_context": half.effective_context(),
 		"effective_rank": half.effective_rank(),
 		"effective_suit": half.effective_suit(),
 		"kind": half.effective_kind(),
 	}
+	if half.is_joker() and half.joker_suit >= 0:
+		face["mimic"] = {"context": half.joker_context, "suit": half.joker_suit, "rank": half.joker_rank}
+	return face
+
+
+static func _spectator_abilities(player, phase: int) -> Array:
+	var result: Array = []
+	for ability: AbilityState in player.ability_hand:
+		if ability.copy_id not in player.end_discard_copy_ids:
+			result.append({
+				"view_id": SpectatorView.view_id(ability.copy_id), "ability_id": str(ability.definition.id),
+				"legal": not player.abilities_disabled and ability.definition.allows_phase(phase),
+			})
+	return result
+
+
+static func _spectator_staging(player) -> Dictionary:
+	var cards := {}
+	for card: FullCardState in player.hand:
+		cards[str(card.card_id)] = card
+	var selections = player.staged_submission
+	if not player.hand_locked and player.deadline_submission is Array:
+		selections = player.deadline_submission
+	var pending := str(player.pending_manipulation.get("copy_id", ""))
+	var result := {
+		"locked": player.hand_locked, "selections": SpectatorView.selections(selections, cards),
+		"active_ability": SpectatorView.view_id(pending) if not pending.is_empty() else "",
+	}
+	if player.hand_locked and player.provisional_score != null:
+		result["score"] = score_breakdown(player.provisional_score, player.submitted_faces)
+	return result
 
 
 static func score_breakdown(value, selected_faces: Array = []) -> Dictionary:

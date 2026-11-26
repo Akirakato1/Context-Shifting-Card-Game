@@ -43,6 +43,76 @@ func test_lobby_settings_page_stays_open_when_roster_snapshot_updates() -> void:
 	await _unmount(lobby)
 
 
+func test_practice_lobby_hides_online_room_controls_and_keeps_match_settings() -> void:
+	var lobby = await _mount(LOBBY_PATH)
+	var model := _lobby_model(true, false, 2, 0)
+	model["is_practice"] = true
+	model["can_add_bot"] = true
+	lobby.render(model)
+	assert_eq(lobby.get_node("Layout/Header/Title").text, "Practice")
+	assert_false(lobby.get_node("Layout/Header/RoomCode").visible)
+	assert_false(lobby.get_node("Layout/Header/CopyCode").visible)
+	assert_eq(lobby.get_node("Layout/Body/Roster/Counts").text, "2 / 4 players")
+
+	lobby.get_node("Layout/Footer/SettingsButton").pressed.emit()
+	assert_eq(lobby.get_node("Layout/Header/Title").text, "Practice Settings")
+	var settings: Control = lobby.get_node("Layout/Body/Settings")
+	assert_false(settings.get_node("ReconnectTimer").visible)
+	assert_true(settings.get_node("VictoryTarget").editable)
+	assert_true(settings.get_node("AbilityDeckEditor").is_visible_in_tree())
+	await _unmount(lobby)
+
+
+func test_online_host_can_edit_bot_slots_and_guests_can_read_difficulty() -> void:
+	var lobby = await _mount(LOBBY_PATH)
+	var model := _lobby_model(true, false, 3, 0)
+	model["can_add_bot"] = true
+	model.players.append({"player_id": "bot-1", "name": "Ada", "role": "active",
+		"ready": true, "is_bot": true, "bot_difficulty": 2})
+	lobby.render(model)
+	var add := lobby.find_child("AddBotButton", true, false) as Button
+	var difficulty := lobby.find_child("BotDifficulty", true, false) as OptionButton
+	var remove := lobby.find_child("RemoveBotButton", true, false) as Button
+	var avatar := lobby.find_child("BotAvatar", true, false) as MenuButton
+	assert_true(add != null and difficulty != null and remove != null and avatar != null)
+	if add == null or difficulty == null or remove == null or avatar == null:
+		await _unmount(lobby)
+		return
+	assert_true(add.is_visible_in_tree())
+	assert_false(add.disabled)
+	assert_eq(difficulty.get_item_text(difficulty.selected), "Hard")
+	var intents: Array = []
+	lobby.add_bot_requested.connect(func(): intents.append(["add"]))
+	lobby.bot_difficulty_requested.connect(func(id: StringName, level: int): intents.append([id, level]))
+	lobby.bot_avatar_requested.connect(func(id: StringName, portrait: String): intents.append([id, portrait]))
+	lobby.remove_bot_requested.connect(func(id: StringName): intents.append([id]))
+	add.pressed.emit()
+	difficulty.item_selected.emit(0)
+	assert_eq(avatar.get_popup().item_count, GameTypes.AVATAR_IDS.size())
+	avatar.get_popup().id_pressed.emit(GameTypes.AVATAR_IDS.find("avatar_11"))
+	remove.pressed.emit()
+	assert_eq(intents, [["add"], [&"bot-1", 0], [&"bot-1", "avatar_11"], [&"bot-1"]])
+
+	model.can_add_bot = false
+	lobby.render(model)
+	assert_true(add.is_visible_in_tree() and add.disabled)
+	add.pressed.emit()
+	assert_eq(intents.size(), 4)
+	lobby.get_node("Layout/Footer/SettingsButton").pressed.emit()
+	assert_false(add.is_visible_in_tree())
+	lobby.get_node("Layout/Footer/SettingsButton").pressed.emit()
+
+	model.is_host = false
+	lobby.render(model)
+	assert_false(add.is_visible_in_tree())
+	assert_true(lobby.find_child("RemoveBotButton", true, false) == null)
+	assert_true(lobby.find_child("BotDifficulty", true, false) == null)
+	assert_true(lobby.find_child("BotAvatar", true, false) == null)
+	var bot_status := lobby.find_child("BotStatus", true, false) as Label
+	assert_true(bot_status != null and bot_status.text.contains("Hard"))
+	await _unmount(lobby)
+
+
 func test_main_menu_normalizes_join_code_and_blocks_duplicate_confirmation() -> void:
 	var menu = await _mount(MAIN_MENU_PATH)
 	if menu == null:

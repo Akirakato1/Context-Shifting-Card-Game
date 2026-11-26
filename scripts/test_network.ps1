@@ -260,8 +260,8 @@ try {
         -Condition { param($status) $status.command_accepted -eq $true } | Out-Null
     $spectatorStatusPath = Join-Path $runRoot 'client-spectator.json'
     $spectatorStatus = Wait-Status -Path $spectatorStatusPath `
-        -Description 'spectator public event projection' `
-        -Condition { param($status) $status.saw_ready_event -eq $true }
+        -Description 'spectator public event and live viewpoint projection' `
+        -Condition { param($status) $status.saw_ready_event -eq $true -and $status.saw_view_update -eq $true }
     if ($spectatorStatus.private_leak -eq $true) {
         throw 'Spectator received owner-private snapshot data.'
     }
@@ -311,7 +311,7 @@ try {
     Wait-CleanExit $signaling
 
     Write-Output 'PASS: join-code flow connected host + three remote players + spectator.'
-    Write-Output 'PASS: command/result and spectator-safe event traveled over direct WebRTC.'
+    Write-Output 'PASS: command/result, public event, and live spectator viewpoint traveled over direct WebRTC.'
     Write-Output 'PASS: relaunched player reclaimed its seat and all processes shut down cleanly.'
     Write-Output "NETWORK TEST LOGS: $runRoot"
 }

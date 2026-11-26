@@ -13,6 +13,9 @@ const MUTED := Color("afc3d4")
 const GOLD := Color("ffd166")
 const BLUE := Color("8edcf0")
 const ABILITY_TABS := ["Manipulation", "Field", "Buff/Nerf", "Sabotage"]
+const CARD_GRID_GAP := 15
+const CARD_COLUMN_WIDTH := 378
+const PAGE_SIDE_INSETS := 32
 const HAND_TYPES := {
 	"high_card": "High Card",
 	"family": "Family",
@@ -151,7 +154,7 @@ func _build_how_to_play() -> void:
 	_label(content, "Scoring", 27, GOLD)
 	_label(
 		content,
-		"Base Score adds the ranks of your selected scoring halves. Multiply that base by the Hand Shape, Context Hand, and Field factors, then round up. Choose a Joker half’s context, suit, and optional rank directly on the card. Its rank can form hand shapes and contributes zero to Base Score. A Joker keeps its choices while it stays in your hand.",
+		"Base Score adds the ranks of your selected scoring halves. Multiply that base by the Hand Shape, Context Hand, and Field factors, then round up. Choose a Joker half’s context, suit, and optional rank directly on the card. A Joker can use any currently active context, including one added by Resonance. If its choice becomes inactive, it uses the context on the clock. Its rank can form hand shapes and contributes zero to Base Score.",
 		20, INK
 	)
 	_label(
@@ -173,27 +176,48 @@ func _add_phase(parent: Control, title: String, description: String) -> void:
 
 
 func _build_scoring_page(key: String, title: String, intro: String) -> void:
-	var content := _new_page(_tabs, title)
-	_label(content, intro, 21, BLUE)
-	var filters := HBoxContainer.new()
-	filters.add_theme_constant_override("separation", 16)
-	content.add_child(filters)
-	_label(filters, "Sort by", 18, MUTED).vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	var page := VBoxContainer.new()
+	_tabs.add_child(page)
+	_tabs.set_tab_title(_tabs.get_tab_count() - 1, title)
+	var toolbar := _panel(page, Color("304556"), 13)
+	var header := VBoxContainer.new()
+	header.add_theme_constant_override("separation", 9)
+	toolbar.add_child(header)
+	_label(header, intro, 20, BLUE)
+	var filters := HFlowContainer.new()
+	filters.add_theme_constant_override("h_separation", 16)
+	filters.add_theme_constant_override("v_separation", 6)
+	header.add_child(filters)
+	var sort_label := _label(filters, "Sort by", 18, MUTED)
+	sort_label.autowrap_mode = TextServer.AUTOWRAP_OFF
+	sort_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	var sort := OptionButton.new()
 	sort.name = "HandSort"
 	sort.add_item("Priority", HandSort.PRIORITY)
-	sort.add_item("Multiplier (high to low)", HandSort.MULTIPLIER_HIGH)
-	sort.add_item("Multiplier (low to high)", HandSort.MULTIPLIER_LOW)
+	sort.add_item("Highest multiplier", HandSort.MULTIPLIER_HIGH)
+	sort.add_item("Lowest multiplier", HandSort.MULTIPLIER_LOW)
+	sort.custom_minimum_size.y = 38
+	sort.add_theme_font_override("font", ThemeDB.fallback_font)
 	sort.add_theme_font_size_override("font_size", 18)
+	sort.get_popup().add_theme_font_override("font", ThemeDB.fallback_font)
+	sort.get_popup().add_theme_font_size_override("font_size", 18)
 	filters.add_child(sort)
 	var group := CheckButton.new()
 	group.name = "GroupHandTypes"
 	group.text = "Group by hand type"
+	group.custom_minimum_size.y = 38
+	group.add_theme_font_override("font", ThemeDB.fallback_font)
 	group.add_theme_font_size_override("font_size", 18)
 	filters.add_child(group)
+	var scroll := ScrollContainer.new()
+	scroll.name = "ScoringScroll"
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	page.add_child(scroll)
+	_rules_pages.append(scroll)
+	var content := _scroll_content(scroll)
 	var column_labels := HBoxContainer.new()
 	column_labels.add_theme_constant_override("separation", 18)
-	content.add_child(column_labels)
+	_panel(content, Color("304556"), 9).add_child(column_labels)
 	var pattern := _label(column_labels, "Pattern and requirements", 18, MUTED)
 	pattern.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_centered_label(column_labels, "Multiplier", 18, MUTED, 102)
@@ -219,32 +243,48 @@ func _build_ability_tabs() -> void:
 	_ability_search.custom_minimum_size.y = 42
 	_ability_search.add_theme_font_override("font", ThemeDB.fallback_font)
 	_ability_search.add_theme_font_size_override("font_size", 20)
+	for state in ["normal", "focus"]:
+		var style := StyleBoxFlat.new()
+		style.bg_color = Color("152333")
+		style.border_color = BLUE if state == "focus" else Color("344c5e")
+		style.set_border_width_all(1)
+		style.set_corner_radius_all(5)
+		style.content_margin_left = 12
+		style.content_margin_right = 12
+		_ability_search.add_theme_stylebox_override(state, style)
 	_ability_search.text_changed.connect(_filter_abilities)
 	page.add_child(_ability_search)
 	_ability_tabs = TabContainer.new()
 	_ability_tabs.name = "AbilityTabs"
-	_ability_tabs.clip_tabs = false
+	_ability_tabs.clip_tabs = true
 	_ability_tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_style_tabs(_ability_tabs, 20)
 	page.add_child(_ability_tabs)
 	for category: String in ABILITY_TABS:
 		var content := _new_page(_ability_tabs, category)
-		_ability_grids.append(_ability_grid(content))
+		_ability_grids.append(_ability_grid(content, _ability_pages.back()))
 	_search_scroll = ScrollContainer.new()
 	_search_scroll.name = "AbilitySearchResults"
 	_search_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_search_scroll.hide()
 	page.add_child(_search_scroll)
-	_search_grid = _ability_grid(_scroll_content(_search_scroll))
+	_search_grid = _ability_grid(_scroll_content(_search_scroll), _search_scroll)
 
 
-func _ability_grid(content: VBoxContainer) -> GridContainer:
+func _ability_grid(content: VBoxContainer, scroll: ScrollContainer) -> GridContainer:
 	var grid := GridContainer.new()
 	grid.columns = 2
-	grid.add_theme_constant_override("h_separation", 15)
-	grid.add_theme_constant_override("v_separation", 15)
+	grid.add_theme_constant_override("h_separation", CARD_GRID_GAP)
+	grid.add_theme_constant_override("v_separation", CARD_GRID_GAP)
 	content.add_child(grid)
+	scroll.resized.connect(_fit_ability_grid.bind(scroll, grid))
+	scroll.visibility_changed.connect(_fit_ability_grid.bind(scroll, grid))
 	return grid
+
+
+func _fit_ability_grid(scroll: ScrollContainer, grid: GridContainer) -> void:
+	var usable := scroll.size.x - PAGE_SIDE_INSETS - scroll.get_v_scroll_bar().get_combined_minimum_size().x
+	grid.columns = 2 if usable >= 2 * CARD_COLUMN_WIDTH + CARD_GRID_GAP else 1
 
 
 func _style_tabs(tabs: TabContainer, font_size: int) -> void:

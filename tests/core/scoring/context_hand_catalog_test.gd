@@ -24,16 +24,16 @@ func test_catalog_has_40_unique_semantic_definitions_in_all_three_families() -> 
 		assert_true(by_id.has(id))
 
 
-func test_every_family_threshold_has_the_approved_priority_and_exact_multiplier() -> void:
+func test_every_family_threshold_has_the_configured_priority_and_exact_multiplier() -> void:
 	var by_id := _by_id(ContextHandCatalog.definitions())
 	var all_tiers := {
-		1: [10, 5, 4], 2: [20, 3, 2], 3: [40, 7, 4], 4: [90, 5, 2],
+		1: [10, 5, 4], 2: [20, 3, 2], 3: [40, 11, 4], 4: [90, 4, 1],
 	}
 	for threshold in all_tiers:
 		_assert_tier(by_id[StringName("all_contexts_%d" % threshold)], all_tiers[threshold])
 	var single_tiers := {
-		5: [1, 1, 1], 6: [5, 9, 8], 7: [9, 5, 4], 8: [19, 3, 2],
-		9: [39, 7, 4], 10: [59, 2, 1], 11: [89, 5, 2], 12: [101, 11, 4],
+		5: [1, 5, 4], 6: [5, 11, 8], 7: [9, 3, 2], 8: [19, 13, 8],
+		9: [39, 15, 8], 10: [59, 17, 8], 11: [89, 5, 2], 12: [101, 11, 4],
 	}
 	for context_name in ["rise", "flourish", "fall"]:
 		for threshold in single_tiers:
@@ -42,7 +42,7 @@ func test_every_family_threshold_has_the_approved_priority_and_exact_multiplier(
 				single_tiers[threshold]
 			)
 	var pair_tiers := {
-		3: [30, 3, 2], 4: [60, 2, 1], 5: [100, 5, 2], 6: [130, 7, 2],
+		3: [30, 11, 8], 4: [60, 15, 8], 5: [100, 19, 8], 6: [130, 13, 4],
 	}
 	for pair_name in ["rise_flourish", "rise_fall", "flourish_fall"]:
 		for threshold in pair_tiers:
@@ -55,7 +55,7 @@ func test_every_family_threshold_has_the_approved_priority_and_exact_multiplier(
 func test_priority_resolves_overlaps_in_favor_of_stronger_mixed_shapes() -> void:
 	var definitions := ContextHandCatalog.definitions()
 	assert_eq(
-		ContextHandEvaluator.evaluate_contexts(_contexts(5, 3, 3), definitions).category_id,
+		ContextHandEvaluator.evaluate_contexts(_contexts(6, 3, 3), definitions).category_id,
 		&"all_contexts_3"
 	)
 	assert_eq(
@@ -70,6 +70,27 @@ func test_priority_resolves_overlaps_in_favor_of_stronger_mixed_shapes() -> void
 		ContextHandEvaluator.evaluate_contexts(_contexts(5, 5, 2), definitions).category_id,
 		&"rise_flourish_5"
 	)
+
+
+func test_multiplier_strictly_increases_within_each_context_pattern() -> void:
+	var patterns := {}
+	for definition in ContextHandCatalog.definitions():
+		var contexts := definition.minimums.keys()
+		contexts.sort()
+		var key := str(contexts)
+		if not patterns.has(key):
+			patterns[key] = []
+		patterns[key].append(definition)
+	for pattern: Array in patterns.values():
+		pattern.sort_custom(func(a: ContextHandDefinition, b: ContextHandDefinition) -> bool:
+			var context: int = a.minimums.keys()[0]
+			return a.minimums[context] < b.minimums[context]
+		)
+		for index in range(1, pattern.size()):
+			var previous: ContextHandDefinition = pattern[index - 1]
+			var current: ContextHandDefinition = pattern[index]
+			assert_true(current.multiplier.compare_to(previous.multiplier) > 0,
+				"%s should pay more than %s" % [current.id, previous.id])
 
 
 func test_each_catalog_call_returns_fresh_array_definitions_and_minimums() -> void:

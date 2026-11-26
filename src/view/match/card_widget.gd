@@ -59,6 +59,7 @@ var targeting_half_selected: Array[bool] = [false, false]
 var _card: Dictionary = {}
 var _staged := false
 var _select_in_place := false
+var _joker_default_context := -1
 var _first_debug_text := ""
 var _second_debug_text := ""
 var _drag_hand: Control
@@ -95,13 +96,8 @@ var _hovered := false
 
 
 func _ready() -> void:
-	var context_names := [
-		GameTypes.context_name(GameTypes.Context.RISE),
-		GameTypes.context_name(GameTypes.Context.FLOURISH),
-		GameTypes.context_name(GameTypes.Context.FALL),
-	]
-	_populate_choices(_first_context, context_names, GameIcons.context)
-	_populate_choices(_second_context, context_names, GameIcons.context)
+	for button: OptionButton in [_first_context, _second_context]:
+		button.add_theme_constant_override("icon_max_width", 22)
 	var suit_names := _suit_names()
 	_populate_choices(_first_suit, suit_names, GameIcons.suit)
 	_populate_choices(_second_suit, suit_names, GameIcons.suit)
@@ -206,8 +202,11 @@ func render(
 	var edit_jokers := bool(view_state.get("joker_editable", _staged and not interaction_disabled))
 	var wait_for_host := bool(view_state.get("joker_edit_pending", false))
 	if edit_jokers:
-		_render_joker_selectors(first, _first_choices, _first_context, _first_suit, _first_rank, wait_for_host)
-		_render_joker_selectors(second, _second_choices, _second_context, _second_suit, _second_rank, wait_for_host)
+		_joker_default_context = active_context
+		if not active_contexts.is_empty() and active_context not in active_contexts:
+			_joker_default_context = int(active_contexts[0])
+		_render_joker_selectors(first, _first_choices, _first_context, _first_suit, _first_rank, active_contexts, wait_for_host)
+		_render_joker_selectors(second, _second_choices, _second_context, _second_suit, _second_rank, active_contexts, wait_for_host)
 	_render_suit(_first, first)
 	_render_suit(_second, second)
 	_apply_orientation(first, second)
@@ -506,14 +505,21 @@ func _apply_joker_choices(first: Dictionary, second: Dictionary, choices: Array)
 
 func _render_joker_selectors(
 	half: Dictionary, choices: Control, context: OptionButton, suit: OptionButton,
-	rank: OptionButton, disabled: bool
+	rank: OptionButton, active_contexts: Array, disabled: bool
 ) -> void:
 	if int(half.get("kind", 0)) != GameTypes.HalfKind.JOKER:
 		return
 	choices.show()
+	context.clear()
+	for context_id: int in active_contexts:
+		context.add_icon_item(GameIcons.context(context_id), GameTypes.context_name(context_id), context_id)
+		context.get_popup().set_item_icon_max_width(context.item_count - 1, 22)
 	var chosen_suit := _shown_suit(half)
 	var chosen_context := _shown_context(half)
-	context.select(chosen_context if chosen_suit >= 0 else -1)
+	if chosen_suit >= 0 and not active_contexts.is_empty() and chosen_context not in active_contexts:
+		chosen_context = _joker_default_context
+		half["joker_context"] = chosen_context
+	context.select(context.get_item_index(chosen_context) if chosen_suit >= 0 else -1)
 	suit.select(chosen_suit)
 	var chosen_rank := _half_rank(half)
 	rank.select(chosen_rank)
@@ -528,9 +534,9 @@ func _render_joker_selectors(
 	context.tooltip_text = "Joker context" if chosen_suit < 0 else "Joker context · " + GameTypes.context_name(chosen_context)
 	suit.tooltip_text = "Joker suit" if chosen_suit < 0 else "Joker suit · " + GameTypes.suit_name(chosen_suit)
 	rank.tooltip_text = "Joker rank · counts toward hand shapes"
-	context.disabled = disabled
-	suit.disabled = disabled
-	rank.disabled = disabled
+	context.disabled = disabled or active_contexts.is_empty()
+	suit.disabled = context.disabled
+	rank.disabled = context.disabled
 
 
 func _apply_orientation(first: Dictionary, second: Dictionary) -> void:
@@ -608,27 +614,31 @@ func _populate_choices(button: OptionButton, values: Array, icon_for: Callable) 
 
 
 func _on_first_context_selected(index: int) -> void:
-	joker_choice_changed.emit(StringName(card_id), 0, index, maxi(0, _first_suit.selected), _first_rank.selected)
+	joker_choice_changed.emit(StringName(card_id), 0, _first_context.get_item_id(index), maxi(0, _first_suit.selected), _first_rank.selected)
 
 
 func _on_first_suit_selected(index: int) -> void:
-	joker_choice_changed.emit(StringName(card_id), 0, maxi(0, _first_context.selected), index, _first_rank.selected)
+	joker_choice_changed.emit(StringName(card_id), 0, _selected_joker_context(_first_context), index, _first_rank.selected)
 
 
 func _on_first_rank_selected(index: int) -> void:
-	joker_choice_changed.emit(StringName(card_id), 0, maxi(0, _first_context.selected), maxi(0, _first_suit.selected), index)
+	joker_choice_changed.emit(StringName(card_id), 0, _selected_joker_context(_first_context), maxi(0, _first_suit.selected), index)
 
 
 func _on_second_context_selected(index: int) -> void:
-	joker_choice_changed.emit(StringName(card_id), 1, index, maxi(0, _second_suit.selected), _second_rank.selected)
+	joker_choice_changed.emit(StringName(card_id), 1, _second_context.get_item_id(index), maxi(0, _second_suit.selected), _second_rank.selected)
 
 
 func _on_second_suit_selected(index: int) -> void:
-	joker_choice_changed.emit(StringName(card_id), 1, maxi(0, _second_context.selected), index, _second_rank.selected)
+	joker_choice_changed.emit(StringName(card_id), 1, _selected_joker_context(_second_context), index, _second_rank.selected)
 
 
 func _on_second_rank_selected(index: int) -> void:
-	joker_choice_changed.emit(StringName(card_id), 1, maxi(0, _second_context.selected), maxi(0, _second_suit.selected), index)
+	joker_choice_changed.emit(StringName(card_id), 1, _selected_joker_context(_second_context), maxi(0, _second_suit.selected), index)
+
+
+func _selected_joker_context(context: OptionButton) -> int:
+	return context.get_selected_id() if context.selected >= 0 else _joker_default_context
 
 
 func _on_move_left_pressed() -> void:

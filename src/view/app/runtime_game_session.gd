@@ -4,6 +4,7 @@ extends RefCounted
 signal command_result_received(request_message_id: String, result: Dictionary)
 signal events_applied(events: Array, sequence: int)
 signal snapshot_applied(snapshot: Dictionary, sequence: int)
+signal spectator_views_received(views: Dictionary)
 signal session_failed(reason: String)
 signal connection_state_changed(state: Dictionary)
 signal leave_completed
@@ -25,6 +26,9 @@ const HostNetworkSession = preload("res://src/network/host_network_session.gd")
 const ClientNetworkSession = preload("res://src/network/client_network_session.gd")
 const ReconnectStore = preload("res://src/network/reconnect_store.gd")
 const NetworkDiagnostics = preload("res://src/network/network_diagnostics.gd")
+const BotMatchRunner = preload("res://src/core/match/bot_match_runner.gd")
+const AvatarCatalog := preload("res://src/view/common/avatar_catalog.gd")
+const PracticeHandHint := preload("res://src/view/app/practice_hand_hint.gd")
 
 const MATCH_ID := "shift-match"
 const HOST_PLAYER_ID := &"host"
@@ -57,6 +61,12 @@ var _reconnect_pending := false
 var _reconnect_token := ""
 var _transport_factory: Callable
 var _leave_deadline_msec := -1
+var _is_practice := false
+var _bots: Dictionary = {}
+var _next_bot_id := 0
+var _bot_runner := BotMatchRunner.new()
+var _practice_hint := PracticeHandHint.new()
+var _pending_view_update := {}
 
 
 func _init(
@@ -76,6 +86,7 @@ func _init(
 
 
 func start_host(signaling_url: String, display_name: String, avatar_id: String = "") -> Error:
+	avatar_id = GameTypes.canonical_avatar_id(avatar_id)
 	if (
 		not _mode.is_empty() or signaling_url.is_empty() or display_name.strip_edges().is_empty()
 		or (not avatar_id.is_empty() and avatar_id not in GameTypes.AVATAR_IDS)
@@ -94,6 +105,148 @@ func start_host(signaling_url: String, display_name: String, avatar_id: String =
 	return _transport.host_room(signaling_url)
 
 
+func start_practice(avatar_id: String = "") -> Error:
+	if _closed or not _mode.is_empty():
+		return ERR_ALREADY_IN_USE
+	avatar_id = GameTypes.canonical_avatar_id(avatar_id)
+	if not avatar_id.is_empty() and avatar_id not in GameTypes.AVATAR_IDS:
+		return ERR_INVALID_PARAMETER
+	_mode = "host"
+	_is_practice = true
+	_local_player_id = HOST_PLAYER_ID
+	_local_display_name = "You"
+	_local_avatar_id = avatar_id if not avatar_id.is_empty() else GameTypes.default_avatar_id(0)
+	_display_names[HOST_PLAYER_ID] = _local_display_name
+	_settings.victory_mode = GameTypes.VictoryMode.ROUND_WIN_RACE
+	_settings.victory_target = 3
+	_settings.information_visibility = GameTypes.InformationVisibility.PRIVATE
+	_create_authority([HOST_PLAYER_ID])
+	for _index in range(3):
+		_add_bot()
+	_emit_connection("connected", "")
+	_publish_authority([])
+	return OK
+
+
+func add_bot() -> StringName:
+	var error := _lobby_roster_error()
+	if not error.is_empty():
+		return error
+	if _controller == null:
+		_create_host_authority()
+	error = _add_bot()
+	if error.is_empty():
+		_publish_authority([])
+	return error
+
+
+func _add_bot() -> StringName:
+	var state: MatchState = _controller.state
+	if state.seat_order.size() >= 4 or _bots.size() >= 3:
+		return &"active_seats_full"
+	var avatars := _available_bot_avatars()
+	_next_bot_id += 1
+	var bot_id := StringName("bot-%d" % _next_bot_id)
+	var result: CommandResult = _controller.submit(GameCommand.new(
+		&"add-lobby-bot", bot_id, CommandKinds.JOIN_ACTIVE
+	), _now_msec())
+	if not result.accepted:
+		return result.error_code
+	var avatar: String = avatars.pick_random()
+	var bot: PlayerState = state.players[bot_id]
+	bot.avatar_id = avatar
+	bot.ready = true
+	_display_names[bot_id] = AvatarCatalog.display_name(avatar)
+	_bots[bot_id] = 1
+	return &""
+
+
+func remove_bot(bot_id: StringName) -> StringName:
+	var error := _lobby_roster_error()
+	if not error.is_empty():
+		return error
+	if not _bots.erase(bot_id):
+		return &"unknown_bot"
+	_display_names.erase(bot_id)
+	_publish_authority(_controller.remove_transient_participant(bot_id))
+	return &""
+
+
+func set_bot_difficulty(bot_id: StringName, difficulty: int) -> StringName:
+	var error := _lobby_roster_error()
+	if not error.is_empty():
+		return error
+	if not _bots.has(bot_id):
+		return &"unknown_bot"
+	if difficulty not in [0, 1, 2]:
+		return &"invalid_bot_difficulty"
+	_bots[bot_id] = difficulty
+	_publish_authority([])
+	return &""
+
+
+func set_bot_avatar(bot_id: StringName, avatar: String) -> StringName:
+	var error := _lobby_roster_error()
+	if not error.is_empty():
+		return error
+	if not _bots.has(bot_id):
+		return &"unknown_bot"
+	avatar = GameTypes.canonical_avatar_id(avatar)
+	if avatar not in GameTypes.AVATAR_IDS:
+		return &"invalid_avatar"
+	if avatar not in _available_bot_avatars(bot_id):
+		return &"avatar_in_use"
+	_controller.state.players[bot_id].avatar_id = avatar
+	_display_names[bot_id] = AvatarCatalog.display_name(avatar)
+	_publish_authority([])
+	return &""
+
+
+func set_practice_avatar(avatar: String) -> StringName:
+	if not _is_practice:
+		return &"practice_only"
+	var error := _lobby_roster_error()
+	if not error.is_empty():
+		return error
+	avatar = GameTypes.canonical_avatar_id(avatar)
+	if avatar not in GameTypes.AVATAR_IDS:
+		return &"invalid_avatar"
+	var player: PlayerState = _controller.state.players[HOST_PLAYER_ID]
+	if player.avatar_id == avatar:
+		return &""
+	for bot_id: StringName in _bots:
+		var bot: PlayerState = _controller.state.players[bot_id]
+		if bot.avatar_id == avatar:
+			bot.avatar_id = player.avatar_id
+			_display_names[bot_id] = AvatarCatalog.display_name(bot.avatar_id)
+			break
+	player.avatar_id = avatar
+	_local_avatar_id = avatar
+	_publish_authority([])
+	return &""
+
+
+func _available_bot_avatars(excluded_player := &"") -> Array:
+	var avatars := GameTypes.AVATAR_IDS.duplicate()
+	for player_id: StringName in _controller.state.seat_order:
+		if player_id == excluded_player:
+			continue
+		var player: PlayerState = _controller.state.players[player_id]
+		var avatar := player.avatar_id if not player.avatar_id.is_empty() else GameTypes.default_avatar_id(player.seat_index)
+		avatars.erase(avatar)
+	return avatars
+
+
+func _lobby_roster_error() -> StringName:
+	if _mode != "host":
+		return &"host_only"
+	if _closed or (not _is_practice and _room_code.is_empty()):
+		return &"lobby_unavailable"
+	if _controller != null and (_controller.state.config.match_started or _controller.state.phase != GameTypes.Phase.START):
+		return &"config_locked"
+	return &""
+
+
 func start_join(
 	signaling_url: String,
 	room_code: String,
@@ -101,6 +254,7 @@ func start_join(
 	display_name: String,
 	avatar_id: String = ""
 ) -> Error:
+	avatar_id = GameTypes.canonical_avatar_id(avatar_id)
 	if (
 		not _mode.is_empty() or signaling_url.is_empty() or room_code.is_empty()
 		or role not in ["active", "spectator"] or display_name.strip_edges().is_empty()
@@ -113,6 +267,10 @@ func start_join(
 	_room_code = room_code.to_upper()
 	_local_display_name = display_name.strip_edges().left(32)
 	_local_avatar_id = avatar_id
+	if _role == "active":
+		var record := _saved_seat_for_room()
+		if not record.is_empty():
+			return _join_saved_seat(record)
 	_reconnect_store.clear()
 	_ensure_transport()
 	_wire_transport()
@@ -128,7 +286,7 @@ func retry_connection() -> Error:
 		return ERR_UNCONFIGURED
 	if _reconnect_pending and not _failed:
 		return ERR_BUSY
-	var record := _reconnect_store.load_record(_reconnect_now_msec())
+	var record := _saved_seat_for_room()
 	if record.is_empty():
 		NetworkDiagnostics.log_event("client", "reconnect_record_missing_or_expired")
 		return ERR_DOES_NOT_EXIST
@@ -139,9 +297,19 @@ func retry_connection() -> Error:
 		_transport.close()
 	_client_session = null
 	_transport = null
+	return _join_saved_seat(record)
+
+
+func _saved_seat_for_room() -> Dictionary:
+	var record := _reconnect_store.load_record(_reconnect_now_msec())
+	return record if record.get("room_code", "") == _room_code else {}
+
+
+func _join_saved_seat(record: Dictionary) -> Error:
 	_local_player_id = StringName(record.player_id)
 	_reconnect_token = str(record.token)
 	_reconnect_pending = true
+	_sent_avatar = true
 	_failed = false
 	_ensure_transport()
 	_wire_transport()
@@ -198,7 +366,7 @@ func submit_command(message_id: String, command: Dictionary) -> Error:
 			_client_session.submit_command(message_id, command)
 			if _client_session != null else ERR_UNCONFIGURED
 		)
-	if _controller == null or _host_session == null:
+	if _controller == null:
 		return ERR_UNCONFIGURED
 	if (
 		message_id.is_empty() or typeof(command.get("command_id", null)) != TYPE_STRING
@@ -216,7 +384,7 @@ func submit_command(message_id: String, command: Dictionary) -> Error:
 		"error_code": str(result.error_code),
 	})
 	if result.accepted and game_command.kind != CommandKinds.UPDATE_HAND_DRAFT:
-		_host_session.publish_state_change(result.events)
+		_publish_authority(result.events)
 	return OK
 
 
@@ -271,14 +439,21 @@ func _update_ability_deck_recipe(value: Variant) -> StringName:
 
 
 func _publish_lobby_settings() -> void:
-	if _host_session != null:
-		_host_session.publish_state_change([])
+	if _controller != null:
+		_publish_authority([])
 	else:
 		_emit_lobby_snapshot()
 
 
+func _publish_authority(events: Array) -> void:
+	if _host_session != null:
+		_host_session.publish_state_change(events)
+	else:
+		_on_authoritative_state_changed(events)
+
+
 func start_match() -> Error:
-	if _mode != "host" or _controller == null or _host_session == null:
+	if _mode != "host" or _controller == null:
 		return ERR_UNCONFIGURED
 	var state: MatchState = _controller.state
 	if state.config.match_started:
@@ -292,7 +467,7 @@ func start_match() -> Error:
 	var events: Array = _controller.begin_match(_now_msec())
 	if events.is_empty():
 		return ERR_INVALID_DATA
-	_host_session.publish_state_change(events)
+	_publish_authority(events)
 	return OK
 
 
@@ -301,7 +476,7 @@ func _unready_lobby_guest_count() -> int:
 	for player_id in _controller.state.seat_order:
 		var player: PlayerState = _controller.state.players[player_id]
 		if (
-			player_id != HOST_PLAYER_ID and player.active and not player.pending
+			player_id != HOST_PLAYER_ID and not _bots.has(player_id) and player.active and not player.pending
 			and (not player.connected or not player.ready)
 		):
 			waiting += 1
@@ -313,7 +488,7 @@ func start_rematch() -> Error:
 
 
 func reset_for_rematch(start_immediately: bool = false) -> Error:
-	if _mode != "host" or _controller == null or _host_session == null:
+	if _mode != "host" or _controller == null:
 		return ERR_UNCONFIGURED
 	var state: MatchState = _controller.state
 	if (
@@ -323,21 +498,43 @@ func reset_for_rematch(start_immediately: bool = false) -> Error:
 		return ERR_UNAVAILABLE
 	_controller.reset_for_rematch(Time.get_ticks_usec(), GameTypes.Phase.START)
 	var events: Array = _controller.begin_match(_now_msec()) if start_immediately else []
-	_host_session.publish_state_change(events)
+	_publish_authority(events)
 	return OK
 
 
+func update_match_view(view: Dictionary) -> void:
+	if _closed or _role != "active" or _is_practice:
+		return
+	if _mode == "host" and _host_session != null:
+		_host_session.update_player_view(_local_player_id, view)
+	elif _mode == "client" and _client_session != null and not _reconnect_pending:
+		_pending_view_update = view.duplicate(true)
+
+
 func poll() -> void:
-	if _closed or _transport == null:
+	if _closed:
 		return
 	if _leave_deadline_msec >= 0 and _now_msec() >= _leave_deadline_msec:
 		_finish_requested_leave()
 		return
-	if _mode == "host" and _host_session != null:
+	if _controller != null and not _bots.is_empty():
+		var updates := _bot_runner.poll(_controller, _bots, _now_msec())
+		if updates.changed:
+			_publish_authority(updates.events)
+	if _closed:
+		return
+	if _is_practice:
+		var events: Array = _controller.tick(_now_msec())
+		if _practice_hint.refresh(_controller.state, _local_player_id) or not events.is_empty():
+			_publish_authority(events)
+	elif _mode == "host" and _host_session != null:
 		_host_session.poll()
 	elif _mode == "client" and _client_session != null:
 		_client_session.poll()
-	else:
+		if _client_session != null and not _pending_view_update.is_empty() and not _reconnect_pending:
+			if _client_session.send_view_update(_pending_view_update) != ERR_BUSY:
+				_pending_view_update.clear()
+	elif _transport != null:
 		_transport.poll()
 
 
@@ -345,6 +542,9 @@ func close() -> void:
 	if _closed:
 		return
 	_closed = true
+	_pending_view_update.clear()
+	_bot_runner.close()
+	_practice_hint.close()
 	if _host_session != null:
 		_host_session.close()
 	if _client_session != null:
@@ -416,11 +616,8 @@ func _on_join_status(status: String, details: Dictionary) -> void:
 	}
 	if _mode == "host":
 		_peer_assignments[peer_id] = assignment
-		var named_player_id := StringName(
-			assignment.reconnect_player_id if not assignment.reconnect_player_id.is_empty()
-			else peer_id
-		)
-		_display_names[named_player_id] = assignment.display_name
+		if assignment.reconnect_player_id.is_empty():
+			_display_names[StringName(peer_id)] = assignment.display_name
 		if _controller == null:
 			_emit_lobby_snapshot()
 	else:
@@ -457,6 +654,10 @@ func _on_peer_connected(peer_id: String) -> void:
 				events_applied.emit(events.duplicate(true), sequence)
 		)
 		_client_session.snapshot_applied.connect(_on_client_snapshot)
+		_client_session.spectator_views_received.connect(func(views: Dictionary):
+			if _role == "spectator":
+				spectator_views_received.emit(views)
+		)
 		_client_session.session_failed.connect(_fail)
 		if _reconnect_pending:
 			NetworkDiagnostics.log_event("client", "reconnect_data_channel_open")
@@ -494,12 +695,19 @@ func _on_peer_connected(peer_id: String) -> void:
 		_transport.disconnect_peer(peer_id, str(admission.error_code))
 
 
-func _create_host_authority(first_peer_id: String) -> void:
-	var config := _build_config([HOST_PLAYER_ID, StringName(first_peer_id)])
-	var state := MatchState.create(config, int(Time.get_unix_time_from_system()))
+func _create_authority(ids: Array) -> void:
+	var config := _build_config(ids)
+	var state := MatchState.create(config, Time.get_ticks_usec(), true)
 	state.players[HOST_PLAYER_ID].avatar_id = _local_avatar_id
 	state.config.match_started = false
 	_controller = MatchController.new(state)
+
+
+func _create_host_authority(first_peer_id: String = "") -> void:
+	var ids := [HOST_PLAYER_ID]
+	if not first_peer_id.is_empty():
+		ids.append(StringName(first_peer_id))
+	_create_authority(ids)
 	_host_session = HostNetworkSession.new(
 		_controller, _transport, MATCH_ID, HOST_PLAYER_ID, _now,
 		HostNetworkSession.DEFAULT_HEARTBEAT_INTERVAL_MSEC,
@@ -507,13 +715,14 @@ func _create_host_authority(first_peer_id: String) -> void:
 		Callable(), Callable(self, "_decorate_network_snapshot")
 	)
 	_host_session.authoritative_state_changed.connect(_on_authoritative_state_changed)
-	var registration: Error = _host_session.register_peer(
-		first_peer_id, StringName(first_peer_id), GameTypes.RecipientRole.ACTIVE_PLAYER
-	)
-	if registration != OK:
-		_fail("peer_registration_failed")
-		return
-	_host_session.send_snapshot(first_peer_id)
+	if not first_peer_id.is_empty():
+		var registration: Error = _host_session.register_peer(
+			first_peer_id, StringName(first_peer_id), GameTypes.RecipientRole.ACTIVE_PLAYER
+		)
+		if registration != OK:
+			_fail("peer_registration_failed")
+			return
+		_host_session.send_snapshot(first_peer_id)
 	for queued_peer_variant in _peer_assignments.keys():
 		var queued_peer := String(queued_peer_variant)
 		if queued_peer == first_peer_id:
@@ -545,6 +754,10 @@ func _emit_host_snapshot() -> void:
 	snapshot["lobby_settings"] = _controller.state.config.to_dict()
 	snapshot["server_now_msec"] = _now_msec()
 	snapshot["now_msec"] = snapshot.server_now_msec
+	if _is_practice:
+		_practice_hint.refresh(_controller.state, _local_player_id)
+		if not _practice_hint.view.is_empty():
+			snapshot["practice_hint"] = _practice_hint.view.duplicate(true)
 	snapshot_applied.emit(
 		_decorate_snapshot(snapshot, _local_player_id, GameTypes.RecipientRole.ACTIVE_PLAYER),
 		_local_sequence
@@ -595,6 +808,13 @@ func _decorate_snapshot(
 		player["name"] = str(_display_names.get(player_id, _fallback_name(player)))
 		player["is_host"] = player_id == HOST_PLAYER_ID
 		player["role"] = "spectator" if bool(player.get("spectator", false)) else "active"
+		if _bots.has(player_id):
+			player["is_bot"] = true
+			player["bot_difficulty"] = _bots[player_id]
+			if not started:
+				player["ready"] = true
+				if recipient_id == HOST_PLAYER_ID:
+					player["bot_available_avatars"] = _available_bot_avatars(player_id)
 		if bool(player.get("spectator", false)):
 			spectator_count += 1
 		elif bool(player.get("active", false)):
@@ -602,6 +822,8 @@ func _decorate_snapshot(
 	snapshot["players"] = players
 	snapshot["room_code"] = _room_code
 	snapshot["is_host"] = recipient_id == HOST_PLAYER_ID
+	snapshot["is_practice"] = _is_practice
+	snapshot["can_add_bot"] = not started and recipient_id == HOST_PLAYER_ID and active_count < 4
 	snapshot["local_role"] = (
 		"spectator" if recipient_role == GameTypes.RecipientRole.SPECTATOR else "active"
 	)
@@ -657,6 +879,7 @@ func _emit_lobby_snapshot() -> void:
 	var spectator_count := players.filter(func(player): return player.spectator).size()
 	snapshot_applied.emit({
 		"screen_id": "lobby", "room_code": _room_code, "is_host": true,
+		"can_add_bot": true,
 		"match_started": false, "players": players,
 		"active_player_count": active_count, "spectator_count": spectator_count,
 		"lobby_unready_guests": maxi(active_count - 1, 0),

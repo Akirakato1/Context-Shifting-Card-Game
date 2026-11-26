@@ -1,4 +1,4 @@
-[gd_scene load_steps=8 format=3]
+[gd_scene load_steps=9 format=3]
 
 [ext_resource type="Script" path="res://src/view/app/app_controller.gd" id="1_controller"]
 [ext_resource type="Theme" path="res://themes/placeholder_theme.tres" id="2_theme"]
@@ -6,6 +6,7 @@
 [ext_resource type="Texture2D" path="res://assets/artwork/cursor_default.png" id="4_pointer"]
 [ext_resource type="Texture2D" path="res://assets/artwork/cursor_select.png" id="5_select"]
 [ext_resource type="Texture2D" path="res://assets/artwork/cursor_target.png" id="6_target"]
+[ext_resource type="AudioStream" path="res://assets/music/the_epic_hero.mp3" id="7_music"]
 
 [sub_resource type="Resource" id="CursorArtwork"]
 script = ExtResource("3_cursors")
@@ -30,6 +31,11 @@ grow_vertical = 2
 theme = ExtResource("2_theme")
 script = ExtResource("1_controller")
 cursor_artwork = SubResource("CursorArtwork")
+
+[node name="BackgroundMusic" type="AudioStreamPlayer" parent="."]
+stream = ExtResource("7_music")
+volume_db = -14.0
+bus = &"Music"
 
 [node name="Backdrop" type="ColorRect" parent="."]
 layout_mode = 1

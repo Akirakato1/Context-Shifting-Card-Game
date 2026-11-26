@@ -2,6 +2,7 @@ class_name MatchScreen
 extends Control
 
 signal intent_requested(kind: StringName, payload: Dictionary)
+signal view_update_requested(view: Dictionary)
 signal connection_action_requested(action: StringName)
 signal settings_requested
 signal leave_requested
@@ -12,7 +13,6 @@ const Rules := preload("res://src/view/help/rules_and_cards_modal.tscn")
 const AbilityDefinition := preload("res://src/core/abilities/ability_definition.gd")
 const TableScenery := preload("res://src/view/match/table_scenery.gd")
 const MatchButtonArt := preload("res://src/view/match/match_button_art.gd")
-const CornerAlpha := preload("res://src/view/match/art_corner_alpha.tres")
 const TableAbilityTargets := preload("res://src/view/match/table_ability_targets.gd")
 const CardInteractionAudio := preload("res://src/view/match/card_interaction_audio.gd")
 const GameplayPreferences := preload("res://src/view/app/gameplay_preferences.gd")
@@ -20,6 +20,9 @@ const AbilityFocusShader := preload("res://src/view/match/ability_focus.gdshader
 const GameIcons := preload("res://src/view/common/game_icons.gd")
 const AbilityEffectAnimation := preload("res://src/view/match/ability_effect_animation.gd")
 const EventKinds := preload("res://src/core/events/event_kinds.gd")
+const SpectatorCockpit := preload("res://src/view/match/spectator_cockpit.gd")
+const SpectatorSwitcher := preload("res://src/view/match/spectator_switcher.gd")
+const VIEW_UPDATE_INTERVAL_MSEC := 100
 const MAX_FOCUS_REGIONS := 6
 const PHASE_NAMES := ["SETUP", "START", "MAIN PHASE 1", "HAND PLAY", "MAIN PHASE 2", "END", "COMPLETE"]
 const OPENING_DRAW_WINDOW_MSEC := 2000
@@ -57,6 +60,12 @@ var _history_items: Dictionary[int, Array] = {}
 var _field_detail_text: RichTextLabel
 var _draw_generation := 0
 var _draw_speed := GameplayPreferences.DRAW_NORMAL
+var _spectator_switcher := SpectatorSwitcher.new()
+var _spectator_model: Dictionary = {}
+var _spectator_views: Dictionary = {}
+var _watched_player_id := ""
+var _last_view_sent: Dictionary = {}
+var _next_view_update_msec := 0
 
 @export_group("Artwork")
 @export var show_placeholder_guides := true
@@ -94,6 +103,16 @@ var _draw_speed := GameplayPreferences.DRAW_NORMAL
 
 
 func _ready() -> void:
+	_spectator_switcher.name = "SpectatorSwitcher"
+	_spectator_switcher.position = Vector2(68, 181)
+	add_child(_spectator_switcher)
+	move_child(_spectator_switcher, $MatchMenuDimmer.get_index())
+	_spectator_switcher.player_selected.connect(_select_spectator_player)
+	for seat in [_top_seat, _left_seat, _right_seat, _bottom_seat]:
+		seat.view_requested.connect(_select_spectator_player)
+	$PracticeCompanion.set_body_font(_phase_controls.score_font)
+	_phase_controls.hand_reordered_manually.connect($PracticeCompanion.refresh_bubble)
+	_phase_controls.hand_card_flipped.connect(func(_card: StringName, _half: int): $PracticeCompanion.refresh_bubble())
 	$Tutorial/Margin/Content/Body.add_theme_font_override("normal_font", _phase_controls.score_font)
 	$Tutorial/Margin/Content/Next.pressed.connect(func(): intent_requested.emit(&"tutorial_next", {}))
 	_configure_artwork()
@@ -240,27 +259,101 @@ func _configure_artwork() -> void:
 	]:
 		MatchButtonArt.skin(button, MatchButtonArt.ACTION)
 	MatchButtonArt.skin($HelpButton, MatchButtonArt.ROUND)
-	var menu_frame := MatchButtonArt.surface(MatchButtonArt.MENU)
-	menu_frame.content_margin_left = 16.0
-	menu_frame.content_margin_right = 16.0
-	menu_frame.content_margin_top = 13.0
-	menu_frame.content_margin_bottom = 13.0
-	$MatchMenu.add_theme_stylebox_override("panel", menu_frame)
-	$MatchMenu.material = CornerAlpha
 
 
 func render(model: Dictionary) -> void:
+	var players := SpectatorCockpit.players(model)
+	if players.is_empty():
+		_spectator_model.clear()
+		_spectator_views.clear()
+		_watched_player_id = ""
+		_spectator_switcher.hide()
+		_render_match(model)
+		return
+	if model.get("phase") != _spectator_model.get("phase") or model.get("round_number") != _spectator_model.get("round_number"):
+		_spectator_views.clear()
+	_spectator_model = model.duplicate()
+	_merge_spectator_views(model.get("spectator_views", {}))
+	var player := _spectator_player(players, _watched_player_id)
+	if player.is_empty():
+		player = players[0]
+	_watched_player_id = str(player.player_id)
+	_render_match(SpectatorCockpit.project(model, player, _spectator_views.get(_watched_player_id, {})))
+	_render_spectator_switcher(players)
+
+
+func update_spectator_views(views: Dictionary) -> void:
+	if _spectator_model.is_empty() or not _merge_spectator_views(views):
+		return
+	var players := SpectatorCockpit.players(_spectator_model)
+	var player := _spectator_player(players, _watched_player_id)
+	if player.is_empty():
+		return
+	_model = SpectatorCockpit.project(_spectator_model, player, _spectator_views.get(_watched_player_id, {}))
+	_render_phase_controls()
+	_render_abilities(false, false)
+	_render_spectator_switcher(players)
+
+
+func _merge_spectator_views(views: Dictionary) -> bool:
+	var watched_changed := false
+	for player_id: String in views:
+		var view: Dictionary = views[player_id]
+		var previous: Dictionary = _spectator_views.get(player_id, {})
+		if (
+			view.get("phase") != _spectator_model.get("phase")
+			or view.get("round_number") != _spectator_model.get("round_number")
+			or int(view.get("revision", -1)) <= int(previous.get("revision", -2))
+		):
+			continue
+		_spectator_views[player_id] = view
+		watched_changed = watched_changed or player_id == _watched_player_id
+	return watched_changed
+
+
+func _spectator_player(players: Array, player_id: String) -> Dictionary:
+	for player: Dictionary in players:
+		if str(player.player_id) == player_id:
+			return player
+	return {}
+
+
+func _select_spectator_player(player_id: String) -> void:
+	var players := SpectatorCockpit.players(_spectator_model)
+	var player := _spectator_player(players, player_id)
+	if player.is_empty():
+		return
+	_spectator_switcher.dismiss_notice()
+	if _watched_player_id != player_id:
+		_ability_effects.clear()
+		_watched_player_id = player_id
+		_render_match(SpectatorCockpit.project(_spectator_model, player, _spectator_views.get(player_id, {})))
+	_render_spectator_switcher(players)
+
+
+func _render_spectator_switcher(players: Array) -> void:
+	_spectator_switcher.render(players, _watched_player_id,
+		str(_model.get("watch_ability", {}).get("display_name", "")),
+		bool(_model.get("watch_layout", {}).get("targeting", false)))
+
+
+func _render_match(model: Dictionary) -> void:
+	var entered_hand_play: bool = (
+		int(model.get("phase", -1)) == GameTypes.Phase.HAND_PLAY
+		and (_model.get("phase") != model.get("phase") or _model.get("round_number") != model.get("round_number"))
+	)
 	var entered_main_one: bool = int(model.get("phase", -1)) == GameTypes.Phase.MAIN_1 and (
 		_model.get("phase") != model.get("phase")
 		or _model.get("round_number") != model.get("round_number")
 		or _model.get("private_player_id") != model.get("private_player_id")
 	)
 	if not _model.is_empty() and (
-		_model.get("private_player_id") != model.get("private_player_id")
+		entered_hand_play or _model.get("private_player_id") != model.get("private_player_id")
 		or (bool(model.get("frozen", false)) and not bool(_model.get("frozen", false)))
 	):
 		_cancel_draws()
-	var draws := _incoming_draws(model)
+	var switched_view: bool = model.get("watching", false) and _model.get("private_player_id") != model.get("private_player_id")
+	var draws := {} if switched_view or entered_hand_play else _incoming_draws(model)
 	var origins: Array[Vector2] = []
 	if not draws.is_empty() and not _model.is_empty():
 		origins = _pile_origins()
@@ -276,6 +369,7 @@ func render(model: Dictionary) -> void:
 	_active_effects.render(_model, _phase_controls.score_font)
 	_render_seats()
 	_render_phase_controls()
+	$PracticeCompanion.render(_model, _phase_controls)
 	_render_abilities(entered_main_one)
 	_render_connection_state()
 	_render_tutorial()
@@ -461,6 +555,32 @@ func _process(_delta: float) -> void:
 		_update_timer(maxi(0, _timer_local_deadline_msec - Time.get_ticks_msec()))
 	if _ability_focus.visible:
 		_update_focus_regions()
+	_publish_view_changes()
+
+
+func _publish_view_changes() -> void:
+	if (
+		int(_model.get("spectator_count", 0)) == 0 or _model.get("local_role") == "spectator"
+		or bool(_model.get("is_practice", false)) or bool(_model.get("frozen", false))
+		or str(_model.get("private_player_id", "")).is_empty()
+	):
+		_last_view_sent.clear()
+		return
+	var now := Time.get_ticks_msec()
+	if now < _next_view_update_msec:
+		return
+	_next_view_update_msec = now + VIEW_UPDATE_INTERVAL_MSEC
+	var view: Dictionary = _phase_controls.observation_state()
+	view.merge({
+		"round_number": _model.get("round_number"), "phase": _model.get("phase"),
+		"rank_ascending": _phase_controls.rank_sort_ascending(), "sort_context": _selected_sort,
+		"ability_order": _ability_panel.observation_order(),
+		"focus": str(_primed_copy_id) if _active_copy_id.is_empty() else str(_active_copy_id),
+		"targeting": _targeting_overlay.visible,
+	})
+	if view != _last_view_sent:
+		_last_view_sent = view
+		view_update_requested.emit(view)
 
 
 func handle_command_result(
@@ -528,7 +648,7 @@ func _render_header() -> void:
 
 
 func _update_timer(remaining_msec: int) -> void:
-	var untimed := bool(_model.get("is_practice", false)) or bool(_lobby_setting("no_time_limit", false))
+	var untimed := bool(_lobby_setting("no_time_limit", false))
 	_timer.show_remaining(remaining_msec if _timer_local_deadline_msec >= 0 else -1,
 		untimed, not bool(_model.get("frozen", false)))
 
@@ -585,18 +705,26 @@ func _render_seats() -> void:
 	for seat in [_left_seat, _right_seat]:
 		seat.offset_top = _side_seat_offsets.x + side_seat_shift
 		seat.offset_bottom = _side_seat_offsets.y + side_seat_shift
-	_bottom_seat.visible = viewing_as_spectator or phase in [GameTypes.Phase.MAIN_2, GameTypes.Phase.END]
-	_bottom_seat.offset_top = 42.0 if phase == GameTypes.Phase.MAIN_2 else -16.0
-	_bottom_seat.offset_bottom = _bottom_seat.offset_top + 53.0
 	_bottom_seat.render(
-		local_player, phase, viewing_as_spectator, not viewing_as_spectator,
+		local_player, phase, viewing_as_spectator, not viewing_as_spectator and not bool(_model.get("watching", false)),
 		victory_mode, _request_for(requests, local_player), context_catalog
 	)
+	_bottom_seat.visible = (
+		viewing_as_spectator or phase in [GameTypes.Phase.MAIN_2, GameTypes.Phase.END]
+		or _bottom_seat.hand_submitted()
+	)
+	if viewing_as_spectator or not _bottom_seat.hand_submitted():
+		_bottom_seat.scale = Vector2.ONE
+		_bottom_seat.offset_top = 42.0 if phase == GameTypes.Phase.MAIN_2 else -16.0
+		_bottom_seat.offset_bottom = _bottom_seat.offset_top + 53.0
 	var opponent_seats := [_top_seat, _left_seat, _right_seat]
 	for index in opponent_seats.size():
 		var player: Dictionary = opponents[index] if index < opponents.size() else {}
 		opponent_seats[index].render(
 			player, phase, viewing_as_spectator, false, victory_mode, _request_for(requests, player), context_catalog
+		)
+		opponent_seats[index].set_view_selectable(
+			bool(_model.get("watching", false)) and bool(player.get("connected", false))
 		)
 
 
@@ -608,6 +736,10 @@ func _active_contexts() -> Array:
 
 
 func present_ability_events(events: Array) -> void:
+	var viewpoint: String = str(_model.get("private_player_id", ""))
+	events = events.filter(func(event: Variant) -> bool:
+		return event is Dictionary and (not event.has("observed_player_id") or event.observed_player_id == viewpoint)
+	)
 	_mark_sabotaged_hand(events)
 	for event in events:
 		if not event is Dictionary or StringName(event.get("kind", "")) != EventKinds.HAND_REPLENISHED:
@@ -669,7 +801,12 @@ func _render_phase_controls() -> void:
 	if not has_private_player:
 		return
 	_phase_controls.render(_model)
-	_phase_controls.set_inputs_locked(bool(_model.get("frozen", false)))
+	var watching := bool(_model.get("watching", false))
+	_phase_controls.set_inputs_locked(watching or bool(_model.get("frozen", false)))
+	for button: Button in $SortControls.get_children():
+		button.disabled = watching
+	if watching:
+		_refresh_sort_buttons()
 
 
 func _position_cockpit() -> void:
@@ -686,6 +823,8 @@ func _position_cockpit() -> void:
 		seat.set_shadow_light(table_light)
 	var tray := TableScenery.HAND_TRAY_RECT
 	_phase_controls.position = Vector2(tray.position.x, TableScenery.SCORE_BAR_TOP) * view_scale
+	if _bottom_seat.hand_submitted() and not str(_model.get("private_player_id", "")).is_empty():
+		_position_submitted_portrait(_phase_controls.position.y, ui_scale)
 	_phase_controls.scale = Vector2.ONE * ui_scale
 	_phase_controls.size = Vector2(tray.size.x * view_scale.x / ui_scale, 410)
 	_phase_controls.position_start_keypads()
@@ -701,12 +840,28 @@ func _position_cockpit() -> void:
 	_ability_panel.set_drawer_bounds(Rect2(drawer_position, drawer_size))
 
 
+func _position_submitted_portrait(score_bar_y: float, ui_scale: float) -> void:
+	var center: Control = $Center
+	var piles: Control = $Center/Piles
+	var gap := 12.0 * ui_scale
+	var available := maxf(score_bar_y - center.position.y - piles.position.y - piles.size.y - gap * 2.0, 1.0)
+	var height: float = _bottom_seat.get_combined_minimum_size().y
+	var portrait_scale := minf(0.78 * ui_scale, available / maxf(1.0, height))
+	_bottom_seat.pivot_offset = Vector2(_bottom_seat.size.x * 0.5, 0)
+	_bottom_seat.scale = Vector2.ONE * portrait_scale
+	var layer: Control = $TableLayer
+	var anchor_y: float = layer.position.y + layer.size.y * _bottom_seat.anchor_top
+	_bottom_seat.offset_top = score_bar_y - gap - height * portrait_scale - anchor_y
+	_bottom_seat.offset_bottom = _bottom_seat.offset_top + 53.0
+
+
 func _on_sort_pressed(index: int) -> void:
 	if _phase_controls.sort_hand(index):
 		_selected_sort = index
 	else:
 		_card_audio.play(&"invalid")
 	_refresh_sort_buttons()
+	$PracticeCompanion.refresh_bubble()
 
 
 func _clear_context_sort() -> void:
@@ -721,39 +876,49 @@ func _on_rank_sort_pressed() -> void:
 		_card_audio.play(&"invalid")
 		return
 	_refresh_sort_buttons()
+	$PracticeCompanion.refresh_bubble()
 
 
 func _refresh_sort_buttons() -> void:
-	var ascending: bool = _phase_controls.rank_sort_ascending()
+	var layout: Dictionary = _model.get("watch_layout", {})
+	var ascending: bool = layout.get("rank_ascending", _phase_controls.rank_sort_ascending())
+	var selected_sort := int(layout.get("sort_context", -1 if _model.get("watching", false) else _selected_sort))
 	var arrow := "↑" if ascending else "↓"
 	var order := "low to high" if ascending else "high to low"
 	$SortControls/Rank.text = "RANK " + arrow
 	$SortControls/Rank.tooltip_text = "Top-half rank: " + order
 	for i in 3:
 		var button: Button = $SortControls.get_child(i)
-		button.set_pressed_no_signal(i == _selected_sort)
-		button.text = arrow if i == _selected_sort else "↕"
+		button.set_pressed_no_signal(i == selected_sort)
+		button.text = arrow if i == selected_sort else "↕"
 		button.tooltip_text = "%s facing up · rank %s" % [_context_name(i), order]
 
 
-func _render_abilities(entered_main_one: bool) -> void:
+func _render_abilities(entered_main_one: bool, refresh_history := true) -> void:
 	var has_private_player := not str(_model.get("private_player_id", "")).is_empty()
 	var phase := int(_model.get("phase", 0))
 	var frozen := bool(_model.get("frozen", false))
+	var watching := bool(_model.get("watching", false))
 	var hand_locked := phase == GameTypes.Phase.HAND_PLAY and bool(_model.get("private_staging", {}).get("hand_locked", false))
 	var required_discards := int(_model.get("required_ability_discards", 0)) if phase == GameTypes.Phase.END else 0
 	_ability_panel.visible = has_private_player
 	if has_private_player:
 		_ability_panel.render(
 			_model.get("private_abilities", []), phase,
-			_model.get("ability_catalog", {}), frozen or hand_locked, required_discards
+			_model.get("ability_catalog", {}), watching or frozen or hand_locked, required_discards, watching
 		)
-		if entered_main_one:
+		_ability_panel.set_play_status(_ability_play_status(phase, frozen, hand_locked))
+		if watching:
+			_ability_panel.set_watched_presentation(
+				_model.get("watch_layout", {}).get("ability_order", []), StringName(_model.get("watch_focus", ""))
+			)
+		elif entered_main_one:
 			_ability_panel.open_drawer()
 	_discard_notice.visible = has_private_player and required_discards > 0
 	if _discard_notice.visible:
 		_discard_notice_title.text = "Select %d cards to keep" % _ability_panel.discard_keep_limit()
-	_render_ability_history()
+	if refresh_history:
+		_render_ability_history()
 	if not _active_ability.is_empty() and (
 		not has_private_player or frozen or phase != _active_ability_phase
 		or (not _ability_commit_pending and not _active_ability_still_legal())
@@ -763,6 +928,26 @@ func _render_abilities(entered_main_one: bool) -> void:
 		else:
 			_clear_active_ability()
 	_refresh_ability_focus()
+
+
+func _ability_play_status(phase: int, frozen: bool, hand_locked: bool) -> String:
+	if frozen or phase not in [GameTypes.Phase.MAIN_1, GameTypes.Phase.HAND_PLAY, GameTypes.Phase.MAIN_2]:
+		return ""
+	if _model.get("private_abilities_disabled", false):
+		return "Ability Seal blocks play for the rest of this round."
+	if _model.get("private_abilities", []).is_empty():
+		return ""
+	if hand_locked:
+		return "Hand submitted." if _model.get("watching", false) else "Submission locked. Undo Submit to use abilities."
+	if _ability_panel.legal_ability_ids().is_empty():
+		match phase:
+			GameTypes.Phase.MAIN_1:
+				return "Manipulation cards become playable in Hand Play."
+			GameTypes.Phase.HAND_PLAY:
+				return "Only Manipulation cards play in Hand Play."
+			_:
+				return "No abilities for Main Phase 2."
+	return ""
 
 
 func _render_ability_history() -> void:
@@ -1064,14 +1249,13 @@ func _clear_active_ability() -> void:
 
 
 func _refresh_ability_focus() -> void:
-	var ability := _active_ability if not _active_ability.is_empty() else _primed_ability
+	var ability := _focused_ability()
 	_phase_instruction.text = ""
-	if bool(_model.get("private_abilities_disabled", false)):
-		_phase_instruction.text = "Ability Seal is active until the end of this round."
-	elif _active_ability.is_empty() and not _primed_ability.is_empty():
+	if _active_ability.is_empty() and not _primed_ability.is_empty():
 		_phase_instruction.text = "Left-click the highlighted ability to play it."
 	_phase_instruction.visible = (
 		not _phase_instruction.text.is_empty() and not str(_model.get("private_player_id", "")).is_empty()
+		and not bool(_model.get("watching", false))
 		and int(_model.get("phase", 0)) in [GameTypes.Phase.MAIN_1, GameTypes.Phase.HAND_PLAY, GameTypes.Phase.MAIN_2]
 	)
 	var timing := int(ability.get("timing", -1))
@@ -1104,8 +1288,8 @@ func _refresh_ability_focus() -> void:
 func _update_focus_regions() -> void:
 	if _ability_focus.size.x <= 0.0 or _ability_focus.size.y <= 0.0:
 		return
-	var ability := _active_ability if not _active_ability.is_empty() else _primed_ability
-	var copy_id := _active_copy_id if not _active_copy_id.is_empty() else _primed_copy_id
+	var ability := _focused_ability()
+	var copy_id := StringName(_model.get("watch_focus", _active_copy_id if not _active_copy_id.is_empty() else _primed_copy_id))
 	var regions: Array[Rect2] = [_ability_panel.ability_focus_rect(copy_id), _ability_panel.discard_focus_rect()]
 	match int(ability.get("timing", -1)):
 		AbilityDefinition.Timing.HAND_MANIPULATION:
@@ -1145,8 +1329,13 @@ func _update_focus_regions() -> void:
 		_focus_material.set_shader_parameter("region_count", region_count)
 
 
+func _focused_ability() -> Dictionary:
+	return _model.get("watch_ability", _active_ability if not _active_ability.is_empty() else _primed_ability)
+
+
 func _on_phase_intent_requested(kind: StringName, payload: Dictionary) -> void:
-	intent_requested.emit(kind, payload.duplicate(true))
+	if not bool(_model.get("watching", false)):
+		intent_requested.emit(kind, payload.duplicate(true))
 
 
 func _request_for(requests: Dictionary, player: Dictionary) -> Dictionary:

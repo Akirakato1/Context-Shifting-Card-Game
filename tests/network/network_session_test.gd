@@ -289,7 +289,7 @@ func test_guest_deadline_draft_uses_the_newest_joker_choice_without_broadcasting
 			"draft-message-%d" % rank, "one", "draft-command-%d" % rank, "update_hand_draft", {
 				"round_number": state.round_number,
 				"cards": [{"card_id": "draft-card", "half_index": 0, "joker_choices": [
-					{"half_index": 0, "context": 2, "suit": 1, "rank": rank},
+					{"half_index": 0, "context": state.active_context, "suit": 1, "rank": rank},
 				]}],
 			}
 		)))
@@ -297,6 +297,15 @@ func test_guest_deadline_draft_uses_the_newest_joker_choice_without_broadcasting
 	assert_eq(responses.map(func(message): return message.kind), ["command_result", "command_result"])
 	for response in responses:
 		assert_true(response.payload.accepted)
+	transport.inject_message("peer-one", GameProtocol.encode(_command_envelope(
+		"inactive-draft-message", "one", "inactive-draft-command", "update_hand_draft", {
+			"round_number": state.round_number,
+			"cards": [{"card_id": "draft-card", "half_index": 0, "joker_choices": [
+				{"half_index": 0, "context": GameTypes.Context.FALL, "suit": 2, "rank": 10},
+			]}],
+		}
+	)))
+	assert_eq(_decoded_for(transport, "peer-one")[-1].payload.error_code, "joker_context_not_active")
 	assert_true(_decoded_for(transport, "peer-two").is_empty())
 	assert_eq(joker.joker_rank, 0, "Private timed drafts do not change the live Joker")
 	_now_msec = state.phase_deadline_msec
@@ -309,6 +318,7 @@ func test_guest_deadline_draft_uses_the_newest_joker_choice_without_broadcasting
 
 func test_resolved_joker_reveal_is_sanitized_for_every_network_role() -> void:
 	var state := MatchState.create(_config(), 121)
+	state.active_context = GameTypes.Context.FALL
 	state.phase = GameTypes.Phase.HAND_PLAY
 	state.phase_started_msec = -1
 	state.phase_deadline_msec = -1

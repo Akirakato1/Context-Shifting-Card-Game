@@ -345,7 +345,7 @@ static func from_dict(data: Dictionary) -> MatchState:
 			))
 		player.pending_manipulation = player_data.get("pending_manipulation", {}).duplicate(true)
 		player.abilities_disabled = player_data.get("abilities_disabled", false)
-		var avatar := str(player_data.get("avatar_id", ""))
+		var avatar := GameTypes.canonical_avatar_id(str(player_data.get("avatar_id", "")))
 		player.avatar_id = avatar if avatar in GameTypes.AVATAR_IDS else ""
 		for raw_selection: Dictionary in player_data.get("staged_submission", []):
 			var selection: Dictionary = raw_selection.duplicate(true)

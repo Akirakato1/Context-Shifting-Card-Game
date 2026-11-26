@@ -67,7 +67,7 @@ func test_tutorial_plays_three_fixed_rounds_through_the_match_controller() -> vo
 	_manipulate(&"suit_imprint", 4, 0)
 	_manipulate(&"ride_the_cycle", 5)
 	var joker_pick := _pick(3, 0)
-	joker_pick["joker_choices"] = [{"half_index": 1, "context": 0, "suit": 0}]
+	joker_pick["joker_choices"] = [{"half_index": 1, "context": Types.Context.FALL, "suit": 0}]
 	var flush := [joker_pick, _pick(4, 0), _pick(5, 0)]
 	for card in player.hand:
 		if card.card_id in _session._opening_cards:
@@ -78,7 +78,7 @@ func test_tutorial_plays_three_fixed_rounds_through_the_match_controller() -> vo
 			break
 	assert_eq(flush.size(), 4)
 	_submit_hand(flush)
-	assert_eq(player.locked_context.category_id, &"rise_fall_4")
+	assert_eq(player.locked_context.category_id, &"rise_fall_3")
 	var before: int = player.provisional_score.final_score
 	_play(&"flush_buff", "host")
 	assert_true(player.provisional_score.final_score > before)

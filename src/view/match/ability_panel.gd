@@ -35,6 +35,7 @@ var _pressed_id: StringName
 var _press_position := Vector2.ZERO
 var _grab_offset := Vector2.ZERO
 var _drag_order: Array[StringName] = []
+var _watching := false
 var _kept_ids: Array[StringName] = []
 var _keep_limit := 0
 var _discarding := false
@@ -42,6 +43,7 @@ var _discard_pending := false
 var _expanded_before_discard := false
 
 @onready var _drawer: PanelContainer = $Drawer
+@onready var _play_status: Label = $Drawer/Layout/PlayStatus
 @onready var _discard_prompt: Label = $Drawer/Layout/DiscardPrompt
 @onready var _scroll: ScrollContainer = $Drawer/Layout/Scroll
 @onready var _cards: Control = $Drawer/Layout/Scroll/Cards
@@ -53,6 +55,7 @@ var _expanded_before_discard := false
 
 func _ready() -> void:
 	_drawer.add_theme_stylebox_override("panel", _drawer.get_theme_stylebox("panel").duplicate())
+	_play_status.add_theme_font_override("font", ThemeDB.fallback_font)
 	MatchButtonArt.skin(_toggle, MatchButtonArt.PILL)
 	MatchButtonArt.skin(_details_mode, MatchButtonArt.ROUND)
 	MatchButtonArt.skin(_confirm_keep, MatchButtonArt.ACTION)
@@ -78,12 +81,19 @@ func set_drawer_bounds(bounds: Rect2) -> void:
 	_drawer.size = bounds.size
 
 
-func render(abilities: Array, phase: int, catalog: Dictionary, input_locked: bool, required_discards := 0) -> void:
+func set_play_status(message: String) -> void:
+	_play_status.text = message
+	_play_status.visible = not message.is_empty()
+	_toggle.tooltip_text = message
+
+
+func render(abilities: Array, phase: int, catalog: Dictionary, input_locked: bool, required_discards := 0, watching := false) -> void:
 	var models: Dictionary = {}
 	var snapshot_order: Array[StringName] = []
 	if input_locked and not _input_locked:
 		_discard_pending = false
 	_input_locked = input_locked
+	_watching = watching
 	_legal_ids.clear()
 	for ability_ref in abilities:
 		if not ability_ref is Dictionary:
@@ -108,7 +118,7 @@ func render(abilities: Array, phase: int, catalog: Dictionary, input_locked: boo
 			break
 	if _input_locked or inventory_changed or required_discards > 0:
 		_finish_drag(false)
-	if _input_locked or required_discards > 0 or _focused_id not in _legal_ids:
+	if not _watching and (_input_locked or required_discards > 0 or _focused_id not in _legal_ids):
 		_set_focused_id(&"")
 
 	_abilities = models
@@ -135,9 +145,9 @@ func render(abilities: Array, phase: int, catalog: Dictionary, input_locked: boo
 			_add_detail_button(card, copy_id)
 		var card := _cards_by_id[copy_id]
 		var model: Dictionary = _abilities[copy_id]
-		var playable := _can_play(copy_id)
+		var playable := copy_id in _legal_ids if _watching else _can_play(copy_id)
 		card.render(model, str(model.get("ability_id", "")), false, _discarding or playable)
-		card.set_inventory_playable_highlight(playable and phase == GameTypes.Phase.MAIN_1)
+		card.set_inventory_playable_highlight(playable and phase in [GameTypes.Phase.MAIN_1, GameTypes.Phase.HAND_PLAY])
 		_update_card_details(copy_id)
 		_update_draw_presentation(copy_id)
 	_update_toggle()
@@ -150,6 +160,25 @@ func open_drawer() -> void:
 		return
 	_expanded = true
 	_update_toggle()
+
+
+func observation_order() -> Array:
+	return (_order if _drag_order.is_empty() else _drag_order).map(str)
+
+
+func set_watched_presentation(order: Array, focused: StringName) -> void:
+	var ordered: Array[StringName] = []
+	for value in order:
+		var id := StringName(value)
+		if _abilities.has(id):
+			ordered.append(id)
+	for id in _order:
+		if id not in ordered:
+			ordered.append(id)
+	if ordered != _order:
+		_order.assign(ordered)
+		_layout_cards(true)
+	_set_focused_id(focused, false)
 
 
 func set_target_behind_drawer(behind_drawer: bool) -> void:
@@ -240,6 +269,9 @@ func _update_card_details(copy_id: StringName) -> void:
 	var card := _cards_by_id[copy_id]
 	var enabled := _shows_details(copy_id)
 	card.set_tray_details(enabled)
+	if _can_play(copy_id):
+		var steps: Array = _abilities[copy_id].get("choice_schema", {}).get("steps", [])
+		card.tooltip_text += "\nRight-click to choose targets." if not steps.is_empty() else "\nRight-click to prime, then left-click to play."
 	var button: Button = card.get_node("Face/DetailsButton")
 	button.set_pressed_no_signal(enabled)
 	button.icon = DETAILS_EYE_HIDDEN if enabled else DETAILS_EYE
@@ -385,7 +417,8 @@ func _on_toggle_pressed() -> void:
 		interaction_sound.emit(&"invalid")
 		return
 	_finish_drag(false)
-	_set_focused_id(&"")
+	if not _watching:
+		_set_focused_id(&"")
 	_expanded = not _expanded
 	_update_toggle()
 

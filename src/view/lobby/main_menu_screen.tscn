@@ -61,9 +61,9 @@ anchor_top = 0.5
 anchor_right = 0.5
 anchor_bottom = 0.5
 offset_left = -380.0
-offset_top = -354.0
+offset_top = -398.0
 offset_right = 380.0
-offset_bottom = 354.0
+offset_bottom = 398.0
 mouse_filter = 2
 theme_override_styles/panel = ExtResource("3_panel")
 
@@ -118,7 +118,7 @@ text = "Join Lobby"
 custom_minimum_size = Vector2(0, 56)
 layout_mode = 2
 theme_override_font_sizes/font_size = 24
-tooltip_text = "Play an untimed match against three bots"
+tooltip_text = "Set up a local match against bots"
 text = "Practice"
 
 [node name="TutorialButton" type="Button" parent="Content"]
@@ -162,9 +162,11 @@ layout_mode = 2
 text = "Avatar"
 theme_override_font_sizes/font_size = 24
 
-[node name="Choices" type="HBoxContainer" parent="Content/AvatarPicker"]
+[node name="Choices" type="GridContainer" parent="Content/AvatarPicker"]
 layout_mode = 2
-theme_override_constants/separation = 12
+theme_override_constants/h_separation = 10
+theme_override_constants/v_separation = 10
+columns = 6
 
 [node name="HostButton" type="Button" parent="Content"]
 custom_minimum_size = Vector2(0, 54)

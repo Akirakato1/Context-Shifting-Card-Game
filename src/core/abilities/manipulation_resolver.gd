@@ -7,6 +7,14 @@ const HalfCardState = preload("res://src/core/cards/half_card_state.gd")
 const GameTypes = preload("res://src/core/common/game_types.gd")
 const RandomSource = preload("res://src/core/common/random_source.gd")
 
+const RANDOM_OPERATIONS := [&"random_suit", &"random_context", &"random_card_contexts", &"random_rank"]
+
+
+static func uses_randomness(definition: AbilityDefinition) -> bool:
+	return definition.timing == AbilityDefinition.Timing.HAND_MANIPULATION and (
+		StringName(definition.effect_parameters.get("operation", "")) in RANDOM_OPERATIONS
+	)
+
 
 static func validate(
 	definition: AbilityDefinition,

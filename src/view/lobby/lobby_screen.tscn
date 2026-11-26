@@ -97,10 +97,22 @@ layout_mode = 2
 size_flags_horizontal = 3
 theme_override_constants/separation = 12
 
-[node name="Heading" type="Label" parent="Layout/Body/Roster"]
+[node name="Header" type="HBoxContainer" parent="Layout/Body/Roster"]
 layout_mode = 2
+
+[node name="Heading" type="Label" parent="Layout/Body/Roster/Header"]
+layout_mode = 2
+size_flags_horizontal = 3
 theme_override_font_sizes/font_size = 24
 text = "Players"
+
+[node name="AddBotButton" type="Button" parent="Layout/Body/Roster/Header"]
+visible = false
+custom_minimum_size = Vector2(112, 40)
+layout_mode = 2
+theme_override_font_sizes/font_size = 21
+tooltip_text = "Add a computer-controlled opponent"
+text = "Add Bot"
 
 [node name="Counts" type="Label" parent="Layout/Body/Roster"]
 layout_mode = 2
@@ -327,6 +339,7 @@ theme_override_styles/normal = ExtResource("6_primary")
 [connection signal="value_changed" from="Layout/Body/Settings/ReconnectTimer" to="." method="_on_reconnect_timer_changed"]
 [connection signal="pressed" from="Layout/StatusPanel/RetryButton" to="." method="_on_retry_pressed"]
 [connection signal="pressed" from="Layout/StatusPanel/DetailsButton" to="." method="_on_details_pressed"]
+[connection signal="pressed" from="Layout/Body/Roster/Header/AddBotButton" to="." method="_on_add_bot_pressed"]
 [connection signal="pressed" from="Layout/Footer/LeaveButton" to="." method="_on_leave_pressed"]
 [connection signal="toggled" from="Layout/Footer/ReadyButton" to="." method="_on_ready_toggled"]
 [connection signal="pressed" from="Layout/Footer/StartButton" to="." method="_on_start_pressed"]

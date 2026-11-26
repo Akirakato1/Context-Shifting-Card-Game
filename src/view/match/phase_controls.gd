@@ -333,6 +333,8 @@ func render(model: Dictionary) -> void:
 			_pending.erase(&"unlock_hand")
 	_phase = next_phase
 	_model = model.duplicate(true)
+	if bool(_model.get("watching", false)):
+		_input_locked = true
 	var local_id := str(_model.get("private_player_id", ""))
 	_ready_on_host = _model.get("players", []).any(func(player: Dictionary) -> bool:
 		return str(player.get("player_id", "")) == local_id and bool(player.get("ready", false))
@@ -448,7 +450,7 @@ func set_joker_choice(card_id: StringName, half_index: int, context: int, suit: 
 		return
 	var shown := _joker_values(half)
 	var chosen_rank := shown.z if rank == -1 else rank
-	if not HalfCard.joker_choice_error(context, suit, chosen_rank).is_empty():
+	if context not in _active_contexts() or not HalfCard.joker_choice_error(context, suit, chosen_rank).is_empty():
 		interaction_sound.emit(&"invalid")
 		return
 	var choice := Vector3i(context, suit, chosen_rank)
@@ -547,7 +549,8 @@ func _orient_for_context_sort(card_id: StringName) -> bool:
 
 func _half_matches_sort_context(half: Dictionary) -> bool:
 	if int(half.get("kind", 0)) == GameTypes.HalfKind.JOKER:
-		return int(half.get("joker_context", -1)) == _sort_key
+		var context := int(half.get("joker_context", -1))
+		return context >= 0 and _joker_context_or_active(context) == _sort_key
 	return int(half.get("effective_context", half.get("base_context", -1))) == _sort_key
 
 
@@ -748,6 +751,31 @@ func move_card(card_id: StringName, delta: int) -> void:
 
 func local_hand_order() -> Array[StringName]:
 	return _hand_order.duplicate()
+
+
+func observation_state() -> Dictionary:
+	var flipped: Array = []
+	var mimics: Array = []
+	var order := _hand_order.duplicate()
+	if not _hand_drag_card.is_empty() and _hand_drag_gap >= 0 and _hand_drag_card in order:
+		order.erase(_hand_drag_card)
+		order.insert(_hand_drag_gap, _hand_drag_card)
+	for id in order:
+		var half_index := _top_half(id)
+		if half_index == 1:
+			flipped.append(str(id))
+		var card: Dictionary = _hand_cards.get(id, {})
+		var choices: Array = []
+		for index in 2:
+			var half := _card_half(card, index)
+			if int(half.get("joker_suit", -1)) >= 0:
+				choices.append({
+					"half_index": index, "context": _joker_context_or_active(half.joker_context), "suit": half.joker_suit,
+					"rank": int(half.get("joker_rank", 0)),
+				})
+		if not choices.is_empty():
+			mimics.append({"card_id": str(id), "half_index": half_index, "joker_choices": choices})
+	return {"hand_order": order.map(str), "flipped": flipped, "mimics": mimics, "staged": _canonical_staging()}
 
 
 func staged_order() -> Array[StringName]:
@@ -970,7 +998,7 @@ func _render_hand_play() -> void:
 			_orientations[flip_card] = false
 			_staged.erase(flip_card)
 			_staged_order.erase(flip_card)
-	if table_cockpit and hand_changed:
+	if table_cockpit and hand_changed and not bool(_model.get("watching", false)):
 		_sort_hand_order()
 	if not _hand_is_locked() and not _hand_order_before_lock.is_empty():
 		var restored := _hand_order_before_lock.filter(func(id: StringName): return _hand_cards.has(id))
@@ -979,6 +1007,8 @@ func _render_hand_play() -> void:
 				restored.append(id)
 		_hand_order.assign(restored)
 		_hand_order_before_lock.clear()
+	if bool(_model.get("watching", false)):
+		_apply_observed_hand_order()
 	_clear_card_nodes()
 	var active_context := int(_model.get("active_context", 0))
 	var locked := _hand_is_locked()
@@ -1022,6 +1052,21 @@ func _render_hand_play() -> void:
 	_render_preview()
 	_refresh_buttons()
 	_sync_deadline_draft()
+
+
+func _apply_observed_hand_order() -> void:
+	var layout: Dictionary = _model.get("watch_layout", {})
+	var ordered: Array[StringName] = []
+	var flipped: Array = layout.get("flipped", [])
+	for value in layout.get("hand_order", []):
+		var id := StringName(value)
+		if _hand_cards.has(id):
+			ordered.append(id)
+			_orientations[id] = str(id) in flipped
+	for id in _hand_order:
+		if id not in ordered:
+			ordered.append(id)
+	_hand_order.assign(ordered)
 
 
 func _load_private_hand() -> bool:
@@ -1618,6 +1663,14 @@ func _active_contexts() -> Array:
 	return result
 
 
+func _joker_context_or_active(context: int) -> int:
+	var active_contexts := _active_contexts()
+	if context in active_contexts:
+		return context
+	var primary := int(_model.get("active_context", active_contexts[0]))
+	return primary if primary in active_contexts else int(active_contexts[0])
+
+
 func _card_half(card: Dictionary, half_index: int) -> Dictionary:
 	return card.get("first", {}) if half_index == 0 else card.get("second", {})
 
@@ -1647,15 +1700,16 @@ func _default_joker_choices(card: Dictionary, previous_choices: Array = []) -> A
 		var half := _card_half(card, half_index)
 		if int(half.get("kind", 0)) != GameTypes.HalfKind.JOKER:
 			continue
-		var choice := {"half_index": half_index, "context": 0, "suit": 0}
+		var choice := {"half_index": half_index, "context": -1, "suit": 0}
 		for previous: Dictionary in previous_choices:
 			if int(previous.get("half_index", -1)) == half_index:
-				choice = previous
+				choice = previous.duplicate()
 				break
 		if half.has("joker_suit"):
 			choice = {
 				"half_index": half_index, "context": half.joker_context, "suit": half.joker_suit,
 				"rank": int(half.get("joker_rank", 0)),
 			}
+		choice["context"] = _joker_context_or_active(choice.context)
 		choices.append(choice)
 	return choices

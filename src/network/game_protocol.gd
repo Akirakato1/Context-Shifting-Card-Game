@@ -9,6 +9,7 @@ const KINDS: Array[String] = [
 	"command_result",
 	"event_batch",
 	"snapshot",
+	"view_update",
 	"heartbeat",
 	"heartbeat_ack",
 	"disconnect_notice",

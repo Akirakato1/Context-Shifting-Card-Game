@@ -41,6 +41,14 @@
     },
     {
       "v": 1,
+      "kind": "view_update",
+      "message_id": "message-view",
+      "match_id": "match-1",
+      "sender_id": "host",
+      "payload": {"views": {"player-1": {"round_number": 1, "phase": 3, "revision": 1}}}
+    },
+    {
+      "v": 1,
       "kind": "heartbeat",
       "message_id": "message-heartbeat",
       "match_id": "match-1",

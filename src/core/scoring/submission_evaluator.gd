@@ -64,7 +64,7 @@ static func evaluate(
 			return _invalid(&"invalid_half_index")
 		var half_index: int = half_index_value
 		var card: FullCardState = cards_by_id[card_id]
-		var choices_result := _validate_joker_choices(card, selection["joker_choices"])
+		var choices_result := _validate_joker_choices(card, selection["joker_choices"], active_contexts)
 		if not choices_result["ok"]:
 			return _invalid(choices_result["error_code"])
 		var choices_by_half: Dictionary = choices_result["choices_by_half"]
@@ -140,7 +140,9 @@ static func evaluate(
 	)
 
 
-static func _validate_joker_choices(card: FullCardState, choices: Array) -> Dictionary:
+static func _validate_joker_choices(
+	card: FullCardState, choices: Array, active_contexts: PackedInt32Array
+) -> Dictionary:
 	var choices_by_half := {}
 	for untyped_choice in choices:
 		if not untyped_choice is Dictionary:
@@ -166,6 +168,8 @@ static func _validate_joker_choices(card: FullCardState, choices: Array) -> Dict
 		var error := HalfCardState.joker_choice_error(context_value, suit_value, rank_value)
 		if not error.is_empty():
 			return _choice_error(error)
+		if context_value not in active_contexts:
+			return _choice_error(&"joker_context_not_active")
 		choices_by_half[half_index] = {
 			"context": context_value,
 			"suit": suit_value,

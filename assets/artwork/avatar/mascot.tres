@@ -1,0 +1,11 @@
+[gd_resource type="AnimatedTexture" load_steps=3 format=3]
+
+[ext_resource type="Texture2D" path="res://assets/artwork/avatar/avatar_8_1.png" id="1_playful"]
+[ext_resource type="Texture2D" path="res://assets/artwork/avatar/avatar_8_2.png" id="2_pouting"]
+
+[resource]
+frames = 2
+frame_0/texture = ExtResource("1_playful")
+frame_0/duration = 0.2
+frame_1/texture = ExtResource("2_pouting")
+frame_1/duration = 0.2

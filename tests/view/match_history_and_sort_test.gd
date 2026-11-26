@@ -78,8 +78,9 @@ func test_help_stacks_over_history_and_match_menu_blocks_the_table() -> void:
 		assert_true(menu.visible and dimmer.visible)
 		assert_true(menu.z_index > dimmer.z_index and dimmer.z_index > history.z_index)
 		assert_true(dimmer.get_global_rect().encloses(table.get_global_rect()))
+		var outside_point := table.get_global_rect().position + Vector2(40, table.size.y * 0.5)
 		var motion := InputEventMouseMotion.new()
-		motion.position = table.get_global_rect().get_center()
+		motion.position = outside_point
 		window.push_input(motion, true)
 		assert_eq(window.gui_get_hovered_control(), dimmer)
 		var settings: Button = menu.get_node("Options/Settings")
@@ -88,7 +89,7 @@ func test_help_stacks_over_history_and_match_menu_blocks_the_table() -> void:
 		assert_eq(window.gui_get_hovered_control(), settings)
 		var outside := InputEventMouseButton.new()
 		outside.button_index = MOUSE_BUTTON_LEFT
-		outside.position = table.get_global_rect().get_center()
+		outside.position = outside_point
 		outside.pressed = true
 		window.push_input(outside, true)
 		outside.pressed = false
@@ -100,6 +101,31 @@ func test_help_stacks_over_history_and_match_menu_blocks_the_table() -> void:
 		escape.pressed = true
 		window.push_input(escape, true)
 		assert_false(menu.visible or dimmer.visible)
+	table.queue_free()
+	await Engine.get_main_loop().process_frame
+
+
+func test_practice_match_menu_stays_centered_with_separate_options_in_every_phase() -> void:
+	var table := MatchScene.instantiate() as MatchScreen
+	Engine.get_main_loop().root.add_child(table)
+	var menu: PanelContainer = table.get_node("MatchMenu")
+	var toggle: Button = table.get_node("MenuButton")
+	var settings: Button = menu.get_node("Options/Settings")
+	var leave: Button = menu.get_node("Options/Leave")
+	for phase in [GameTypes.Phase.START, GameTypes.Phase.MAIN_1, GameTypes.Phase.HAND_PLAY,
+		GameTypes.Phase.MAIN_2, GameTypes.Phase.END]:
+		table.render({"phase": phase, "round_number": 1, "is_practice": true, "private_player_id": "host"})
+		toggle.pressed.emit()
+		await Engine.get_main_loop().process_frame
+		assert_true(menu.visible)
+		assert_true(menu.get_global_rect().get_center().is_equal_approx(table.get_global_rect().get_center()))
+		assert_false(settings.get_global_rect().intersects(leave.get_global_rect()))
+		assert_false(menu.get_global_rect().intersects(toggle.get_global_rect()))
+		assert_true(settings.has_focus(), "Keyboard navigation starts at Settings")
+		var focus := settings.get_theme_stylebox("focus") as StyleBoxFlat
+		assert_true(focus != null and focus.border_width_bottom > 0
+			and focus.border_width_top == 0 and focus.border_width_left == 0 and focus.border_width_right == 0)
+		toggle.pressed.emit()
 	table.queue_free()
 	await Engine.get_main_loop().process_frame
 

@@ -1,4 +1,4 @@
-[gd_scene load_steps=6 format=3]
+[gd_scene load_steps=5 format=3]
 
 [ext_resource type="Script" path="res://src/view/match/phase_controls.gd" id="1_script"]
 
@@ -32,18 +32,6 @@ corner_radius_top_left = 7
 corner_radius_top_right = 7
 corner_radius_bottom_right = 7
 corner_radius_bottom_left = 7
-
-[sub_resource type="StyleBoxFlat" id="Style_ready_focus"]
-draw_center = false
-border_width_left = 2
-border_width_top = 2
-border_width_right = 2
-border_width_bottom = 2
-border_color = Color(0.95, 0.8, 0.54, 1)
-corner_radius_top_left = 14
-corner_radius_top_right = 14
-corner_radius_bottom_right = 14
-corner_radius_bottom_left = 14
 
 [node name="PhaseControls" type="Control"]
 custom_minimum_size = Vector2(900, 0)
@@ -123,7 +111,6 @@ layout_mode = 2
 theme_override_fonts/font = SubResource("Font_scores")
 theme_override_font_sizes/font_size = 27
 theme_override_styles/normal = SubResource("Style_ready")
-theme_override_styles/focus = SubResource("Style_ready_focus")
 text = "READY"
 
 [node name="HandPlayControls" type="Control" parent="."]

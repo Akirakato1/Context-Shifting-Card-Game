@@ -22,6 +22,8 @@ func test_ready_prompt_keeps_its_dark_panel_when_sketch_guides_are_hidden() -> v
 			assert_eq(ready.get_theme_stylebox("disabled").texture.resource_path.get_file(), "button_4.png")
 			var focus := ready.get_theme_stylebox("focus") as StyleBoxFlat
 			assert_true(focus != null and not focus.draw_center and focus.border_color.r > focus.border_color.b)
+			assert_true(focus != null and focus.border_width_top == 0
+				and focus.border_width_left == 0 and focus.border_width_right == 0)
 		table.render({"phase": GameTypes.Phase.HAND_PLAY, "private_player_id": "p1", "active_context": 0})
 		assert_false(backdrop.visible)
 	table.queue_free()
@@ -179,13 +181,6 @@ func test_main_phase_surfaces_ready_status_and_ability_controls() -> void:
 	assert_eq(table.get_node("PhaseBadge/Phase").text, "MAIN PHASE 1")
 	var hint := table.get_node_or_null("PhaseInstruction") as Label
 	assert_true(hint != null and not hint.visible and hint.text.is_empty(), "Regular matches have no idle ability instructions")
-	if hint != null:
-		model["private_abilities_disabled"] = true
-		table.render(model)
-		assert_true(hint.visible and hint.text.contains("Ability Seal"))
-		model.erase("private_abilities_disabled")
-		table.render(model)
-		assert_false(hint.visible)
 	assert_true(table.get_node("Header/Timer").get_theme_font_size("font_size") >= 32)
 	var ready: Button = table.get_node("PhaseControls/MainControls/ReadyButton")
 	assert_true(ready.custom_minimum_size.y >= 52)
@@ -206,6 +201,49 @@ func test_main_phase_surfaces_ready_status_and_ability_controls() -> void:
 		assert_false(other.visible)
 		assert_eq(table.get_node("PhaseControls/HandPlayControls/Hand/Cards").modulate, Color.WHITE)
 	await _unmount(table)
+
+
+func test_hand_play_submission_adds_ready_aura_and_check_to_the_players_portrait() -> void:
+	var table = await _mount_match()
+	if table == null:
+		return
+	var model := _active_player_model()
+	var local: Control = table.get_node("TableLayer/BottomSeat")
+	var top: Control = table.get_node("TableLayer/TopSeat")
+	var left: Control = table.get_node("TableLayer/LeftSeat")
+	table.render(model)
+	assert_true(_visible_ready_portrait(top))
+	assert_false(_visible_ready_portrait(left))
+	assert_false(local.visible)
+	model.players[0].ready = true
+	model.players[2].ready = true
+	table.render(model)
+	await Engine.get_main_loop().process_frame
+	assert_true(_visible_ready_portrait(local))
+	assert_true(_visible_ready_portrait(left))
+	assert_true(local.get_global_rect().end.y <= table.get_node("PhaseControls").get_global_rect().position.y)
+	var check := left.get_node_or_null("Info/Name/ReadyCheck") as Label
+	if check != null:
+		assert_eq(check.text, "✓")
+		assert_true(check.get_global_rect().end.x < left.get_node("Info/Name").get_global_rect().get_center().x)
+	model.players[2].ready = false
+	model.players[0].ready = false
+	table.render(model)
+	assert_false(_visible_ready_portrait(left))
+	assert_false(local.visible)
+	model.phase = GameTypes.Phase.MAIN_2
+	table.render(model)
+	assert_false(_visible_ready_portrait(top))
+	assert_false(_visible_ready_portrait(local))
+	await _unmount(table)
+
+
+func _visible_ready_portrait(seat: Control) -> bool:
+	var aura := seat.get_node_or_null("Avatar/ReadyAura") as TextureRect
+	var check := seat.get_node_or_null("Info/Name/ReadyCheck") as Label
+	return aura != null and aura.is_visible_in_tree() and aura.show_behind_parent and (
+		check != null and check.is_visible_in_tree()
+	)
 
 
 func test_phase_sign_retracts_before_changing_label_and_lands_once_per_phase() -> void:
@@ -292,6 +330,33 @@ func test_timer_glows_red_and_counts_down_each_final_second_once() -> void:
 	await _unmount(table)
 
 
+func test_ability_tray_explains_phase_timing_and_ability_seal() -> void:
+	var table = await _mount_match()
+	var model := _active_player_model()
+	model.phase = GameTypes.Phase.MAIN_1
+	model["is_practice"] = true
+	model["private_abilities"] = [{"copy_id": "mirror", "ability_id": "mirror_rank", "legal": false}]
+	model["ability_catalog"] = {"mirror_rank": {"display_name": "Mirror Rank", "timing": 0}}
+	table.render(model)
+	var tray: Control = table.get_node("AbilityPanel")
+	var status := tray.get_node_or_null("Drawer/Layout/PlayStatus") as Label
+	assert_true(status != null and status.visible and status.text.contains("Hand Play"))
+	if status != null:
+		model.phase = GameTypes.Phase.HAND_PLAY
+		model["private_abilities_disabled"] = true
+		table.render(model)
+		assert_true(status.visible and status.text.contains("Ability Seal"))
+		var toggle := tray.get_node("ToggleButton") as Button
+		toggle.pressed.emit()
+		assert_true(toggle.tooltip_text.contains("Ability Seal"))
+		toggle.pressed.emit()
+		model.private_abilities_disabled = false
+		model.private_abilities[0].legal = true
+		table.render(model)
+		assert_false(status.visible)
+	await _unmount(table)
+
+
 func test_main_phase_one_opens_the_tray_and_highlights_legal_abilities() -> void:
 	var table = await _mount_match()
 	if table == null:
@@ -334,7 +399,13 @@ func test_main_phase_one_opens_the_tray_and_highlights_legal_abilities() -> void
 	model.private_abilities[1].legal = true
 	table.render(model)
 	assert_eq(cards.get_child(0).get("_inventory_playable_highlight"), false)
-	assert_eq(cards.get_child(1).get("_inventory_playable_highlight"), false)
+	assert_true(cards.get_child(1).get("_inventory_playable_highlight"), "Hand Play highlights its legal manipulation ability")
+	model["private_staging"] = {"hand_locked": true}
+	table.render(model)
+	assert_false(cards.get_child(1).get("_inventory_playable_highlight"), "Submission locks ability play")
+	model.private_staging.hand_locked = false
+	table.render(model)
+	assert_true(cards.get_child(1).get("_inventory_playable_highlight"), "Unlocking restores ability play")
 	await _unmount(table)
 
 
@@ -643,6 +714,70 @@ func test_public_information_shows_piles_requests_and_spectator_has_no_local_han
 	if review.get_child_count() == 1:
 		assert_eq(review.get_child(0).card_id, "public")
 	assert_eq(table.get_node("Header/Spectators").text, "SPECTATORS  2 / 4")
+	await _unmount(table)
+
+
+func test_spectator_switches_between_read_only_live_cockpits() -> void:
+	var table = await _mount_match()
+	var model := _active_player_model()
+	model["round_number"] = 3
+	model["phase"] = GameTypes.Phase.HAND_PLAY
+	model["local_role"] = "spectator"
+	model["ability_catalog"] = {"imprint": {"display_name": "Suit Imprint", "timing": 0}}
+	for index in 2:
+		var row: Dictionary = model.players[index]
+		row["spectator_abilities"] = [{"view_id": "ability-%d" % index, "ability_id": "imprint", "legal": true}]
+		row["spectator_hand"] = [
+			{"view_id": "%d-a" % index, "first": _half(1, 6, 1), "second": _half(1, 8, 2)},
+			{"view_id": "%d-b" % index, "first": _half(1, 9, 1), "second": _half(1, 7, 2)},
+		]
+	model.erase("private_player_id")
+	model.erase("private_hand")
+	var intents: Array = []
+	table.intent_requested.connect(func(kind: StringName, _payload: Dictionary): intents.append(kind))
+	table.render(model)
+	var controls: Control = table.get_node("PhaseControls")
+	var ability_panel: Control = table.get_node("AbilityPanel")
+	var switcher: Control = table.get_node("SpectatorSwitcher")
+	assert_eq(switcher.get_node("Watching").text, "Watching Mira")
+	assert_eq(switcher.get_node("Players").get_child_count(), 2)
+	assert_true(controls.inputs_locked() and ability_panel.inputs_locked())
+	assert_true(table.get_node("SortControls/Rank").disabled)
+	assert_eq(controls.local_hand_order(), [&"0-a", &"0-b"])
+
+	var live := {
+		"round_number": 3, "phase": GameTypes.Phase.HAND_PLAY, "revision": 1,
+		"hand_order": ["1-b", "1-a"], "flipped": ["1-b"],
+		"staged": [{"view_id": "1-b", "half_index": 1}], "focus": "ability-1",
+	}
+	table.update_spectator_views({"p2": live})
+	assert_eq(controls.local_hand_order(), [&"0-a", &"0-b"])
+	# Exercise portrait input as well as the switcher's name buttons.
+	var portrait: Control = table.get_node("TableLayer/TopSeat")
+	var click := InputEventMouseButton.new()
+	click.button_index = MOUSE_BUTTON_LEFT
+	click.pressed = true
+	click.position = portrait.get_node("Avatar").get_rect().get_center()
+	assert_true(portrait._has_point(click.position))
+	portrait._gui_input(click)
+	assert_eq(switcher.get_node("Watching").text, "Watching North  ·  Primed Suit Imprint")
+	assert_eq(controls.local_hand_order(), [&"1-b", &"1-a"])
+	assert_eq(controls.staged_order(), [&"1-b"])
+	assert_true(controls.card_widget(&"1-b").orientation_flipped)
+	assert_true(controls.card_widget(&"1-b").interaction_disabled)
+	assert_eq(ability_panel.get("_focused_id"), &"ability-1")
+	var toggle: Button = ability_panel.get_node("ToggleButton")
+	toggle.pressed.emit()
+	assert_true(ability_panel.get_node("Drawer").visible)
+	toggle.pressed.emit()
+	assert_false(ability_panel.get_node("Drawer").visible)
+	controls.click_card(&"1-a")
+	assert_eq(controls.staged_order(), [&"1-b"])
+	table.render(model)
+	assert_eq(controls.local_hand_order(), [&"1-b", &"1-a"], "An older snapshot preserves the current live layout")
+	switcher.get_node("Players").get_child(0).pressed.emit()
+	assert_eq(controls.local_hand_order(), [&"0-a", &"0-b"])
+	assert_eq(intents, [])
 	await _unmount(table)
 
 

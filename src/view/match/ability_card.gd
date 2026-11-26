@@ -157,7 +157,9 @@ func set_tray_details(expanded: bool) -> void:
 	if _rules.get_theme_font_size("normal_font_size") != 16:
 		_rules.add_theme_font_size_override("normal_font_size", 16)
 		GameIcons.write(_rules, _rules_text)
-	tooltip_text = "%s\n%s\n%s" % [_title.text, _timing.text, _rules_text] if expanded else _title.text
+	tooltip_text = "%s\n%s" % [_title.text, _timing.text]
+	if expanded:
+		tooltip_text += "\n" + _rules_text
 
 
 func _update_category_symbol_layout() -> void:

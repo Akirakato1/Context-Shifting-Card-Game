@@ -259,11 +259,8 @@ func test_hand_builder_stages_eligible_cards_requires_half_choice_and_defaults_j
 	assert_true(controls.card_widget(&"c4").joker_prompts_visible())
 	var joker_context: OptionButton = controls.card_widget(&"c4").get_node("Face/FirstChoices/Context")
 	var joker_suit: OptionButton = controls.card_widget(&"c4").get_node("Face/FirstChoices/Suit")
-	assert_eq([
-		joker_context.get_item_text(0),
-		joker_context.get_item_text(1),
-		joker_context.get_item_text(2),
-	], ["Rise", "Flourish", "Fall"])
+	assert_eq(joker_context.item_count, 1)
+	assert_eq(joker_context.get_item_text(0), "Rise")
 	assert_eq([
 		joker_suit.get_item_text(0),
 		joker_suit.get_item_text(1),
@@ -280,7 +277,8 @@ func test_hand_builder_stages_eligible_cards_requires_half_choice_and_defaults_j
 	hand[3].first["joker_context"] = 2
 	hand[3].first["joker_suit"] = 1
 	hand[3].first["joker_rank"] = 5
-	controls.render(_model(3, hand, {}))
+	var all_contexts := {"active_contexts": [0, 1, 2]}
+	controls.render(_model(3, hand, all_contexts))
 	var joker_rank: OptionButton = controls.card_widget(&"c4").get_node("Face/FirstChoices/Rank")
 	assert_eq(joker_rank.item_count, 11)
 	joker_rank.item_selected.emit(7)
@@ -289,12 +287,12 @@ func test_hand_builder_stages_eligible_cards_requires_half_choice_and_defaults_j
 	var joker_suit_picker: OptionButton = controls.card_widget(&"c4").get_node("Face/FirstChoices/Suit")
 	joker_suit_picker.item_selected.emit(2)
 	controls.set_joker_choice(&"c4", 0, 2, 2, 11)
-	controls.render(_model(3, hand, {}))
+	controls.render(_model(3, hand, all_contexts))
 	assert_true(controls.card_widget(&"c4").has_node("Face/FirstRankArt/Digit7"))
 	controls.click_card(&"c4")
 	assert_eq(controls.staged_selection(&"c4").get("joker_choices", []), [{"half_index": 0, "context": 2, "suit": 2, "rank": 7}])
-	controls.render(_model(4, hand, {}))
-	controls.render(_model(3, hand, {}))
+	controls.render(_model(4, hand, all_contexts))
+	controls.render(_model(3, hand, all_contexts))
 	assert_false(controls.has_staged_card(&"c4"))
 	controls.click_card(&"c4")
 	assert_eq(controls.staged_selection(&"c4").get("joker_choices", []), [{"half_index": 0, "context": 2, "suit": 2, "rank": 7}])
@@ -304,6 +302,43 @@ func test_hand_builder_stages_eligible_cards_requires_half_choice_and_defaults_j
 		"card_id": "c4", "half_index": 0,
 		"joker_choices": [{"half_index": 0, "context": 2, "suit": 2, "rank": 0}],
 	}]}]])
+	await _unmount(controls)
+
+
+func test_joker_picker_filters_contexts_and_replaces_a_stale_choice() -> void:
+	var controls = await _mount_controls()
+	if controls == null:
+		return
+	var hand := _hand()
+	var model := _model(3, hand, {"active_context": 2, "active_contexts": [2]})
+	controls.render(model)
+	var context: OptionButton = controls.card_widget(&"c4").get_node("Face/FirstChoices/Context")
+	assert_eq(context.item_count, 1)
+	assert_eq(context.get_item_id(0), 2)
+	assert_eq(context.get_item_text(0), "Fall")
+	controls.click_card(&"c4")
+	assert_eq(controls.staged_selection(&"c4").joker_choices[0].context, 2)
+	controls.set_joker_choice(&"c4", 0, 1, 2, 7)
+	assert_eq(controls.staged_selection(&"c4").joker_choices[0].context, 2)
+	model.active_contexts = [0, 2]
+	controls.render(model)
+	context = controls.card_widget(&"c4").get_node("Face/FirstChoices/Context")
+	assert_eq(context.item_count, 2)
+	assert_eq(context.get_item_id(1), 2)
+	assert_eq(context.get_item_text(1), "Fall")
+	context.item_selected.emit(1)
+	assert_eq(controls.staged_selection(&"c4").joker_choices[0].context, 2)
+	controls.set_joker_choice(&"c4", 0, 2, 2, 7)
+	model.active_context = 1
+	model.active_contexts = [1]
+	controls.render(model)
+	context = controls.card_widget(&"c4").get_node("Face/FirstChoices/Context")
+	assert_eq(context.get_item_text(0), "Flourish")
+	assert_eq(context.get_selected_id(), 1)
+	assert_eq(controls.staged_selection(&"c4").joker_choices[0], {"half_index": 0, "context": 1, "suit": 2, "rank": 7})
+	var rank: OptionButton = controls.card_widget(&"c4").get_node("Face/FirstChoices/Rank")
+	rank.item_selected.emit(8)
+	assert_eq(controls.staged_selection(&"c4").joker_choices[0], {"half_index": 0, "context": 1, "suit": 2, "rank": 8})
 	await _unmount(controls)
 
 
