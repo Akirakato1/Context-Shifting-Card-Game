@@ -1,7 +1,6 @@
 extends Control
 
 const GameIcons := preload("res://src/view/common/game_icons.gd")
-const SPRITE_CENTER := Vector2(90, 172)
 const DRAG_THRESHOLD := 7.0
 const PANEL_GAP := 15.0
 const SCREEN_MARGIN := 8.0
@@ -15,6 +14,7 @@ var _press_position := Vector2.ZERO
 var _press_origin := Vector2.ZERO
 var _bubble_on_right := true
 var _bubble_motion: Tween
+var _frame_center: Vector2
 var _idle_mouth: PackedVector2Array
 var _jump_mouth: PackedVector2Array
 var _jump_clearance: PackedFloat32Array
@@ -29,6 +29,7 @@ var _jump_clearance: PackedFloat32Array
 
 
 func _ready() -> void:
+	_frame_center = _sprite.sprite_frames.get_frame_texture(&"idle", 0).get_size() * 0.5
 	_idle_mouth = _sprite.sprite_frames.get_meta(&"idle_mouth")
 	_jump_mouth = _sprite.sprite_frames.get_meta(&"jump_mouth")
 	_jump_clearance = _sprite.sprite_frames.get_meta(&"jump_clearance")
@@ -173,7 +174,7 @@ func _place_bubble() -> void:
 	var left_x := position.x - _panel.size.x - PANEL_GAP
 	_bubble_on_right = right_x + _panel.size.x <= available.x - SCREEN_MARGIN or left_x < SCREEN_MARGIN
 	_sprite.flip_h = not _bubble_on_right
-	var aim_y := position.y + _sprite.position.y + (_idle_mouth[0].y - SPRITE_CENTER.y) * _sprite.scale.y
+	var aim_y := position.y + _sprite.position.y + (_idle_mouth[0].y - _frame_center.y) * _sprite.scale.y
 	var limit := (available - _panel.size - Vector2.ONE * SCREEN_MARGIN).max(Vector2.ONE * SCREEN_MARGIN)
 	_panel.position = Vector2(right_x if _bubble_on_right else left_x, aim_y - 38.0).clamp(
 		Vector2.ONE * SCREEN_MARGIN, limit
@@ -184,14 +185,14 @@ func _place_bubble() -> void:
 
 func _mouth_position() -> Vector2:
 	var mouths := _jump_mouth if _sprite.animation == &"jump" else _idle_mouth
-	var offset := mouths[_sprite.frame] - SPRITE_CENTER
+	var offset := mouths[_sprite.frame] - _frame_center
 	if _sprite.flip_h:
 		offset.x = -offset.x
 	return _sprite.position + _sprite.scale * offset
 
 
 func _on_sprite_frame_changed() -> void:
-	var height := _jump_clearance[_sprite.frame] / 94.0 if _sprite.animation == &"jump" else 0.0
+	var height := _jump_clearance[_sprite.frame] if _sprite.animation == &"jump" else 0.0
 	_shadow.scale = Vector2.ONE.lerp(Vector2(0.67, 0.75), height)
 	_shadow.modulate.a = lerpf(1.0, 0.50, height)
 	if _panel.visible:
@@ -262,21 +263,29 @@ func _play_sequence(plan: Dictionary) -> String:
 		if not choices.is_empty():
 			action += " " + choices
 		actions.append(action)
+	var handled_flips: Array[StringName] = []
 	for selection: Dictionary in plan.get("submission", []):
 		var slot := _card_slots([selection.card_id])
 		if slot.is_empty():
 			continue
-		for joker: Dictionary in selection.get("joker_choices", []):
-			var rank := "rank %d" % int(joker.rank) if int(joker.rank) > 0 else "no rank"
-			actions.append("Set the Joker on the %s of card %s to %s, suit %s, and context %s." % [
-				_half_position(selection.card_id, joker.half_index), slot, rank,
-				GameTypes.suit_name(int(joker.suit)), GameTypes.context_name(int(joker.context)),
-			])
+		var jokers: Array = selection.get("joker_choices", [])
+		if jokers.is_empty():
+			continue
+		for joker: Dictionary in jokers:
+			if joker.half_index == selection.half_index:
+				actions.append(_joker_instruction(joker, _half_position(selection.card_id, joker.half_index), slot))
+		var card_id := StringName(selection.card_id)
+		if _hand_controls._top_half(card_id) != int(selection.half_index):
+			actions.append("Flip card %s." % slot)
+			handled_flips.append(card_id)
+		for joker: Dictionary in jokers:
+			if joker.half_index != selection.half_index:
+				actions.append(_joker_instruction(joker, "bottom half", slot))
 	var faces: Array = plan.get("faces", [])
 	if faces.is_empty():
 		actions.append("Clear any staged cards and press Pass.")
 	else:
-		actions.append(_staging_instruction(faces))
+		actions.append(_staging_instruction(faces, handled_flips))
 		actions.append("Press Submit Hand.")
 	for play: Dictionary in plan.get("main_2", []):
 		actions.append("In Main Phase 2, right-click %s and click your side of the table." % _ability_name(play.copy_id))
@@ -322,12 +331,20 @@ func _describe_choices(choices: Dictionary) -> String:
 	return " ".join(instructions)
 
 
-func _staging_instruction(faces: Array) -> String:
+func _joker_instruction(joker: Dictionary, position: String, slot: String) -> String:
+	var rank := "rank %d" % int(joker.rank) if int(joker.rank) > 0 else "no rank"
+	return "Set the Joker on the %s of card %s to %s, suit %s, and context %s." % [
+		position, slot, rank, GameTypes.suit_name(int(joker.suit)), GameTypes.context_name(int(joker.context)),
+	]
+
+
+func _staging_instruction(faces: Array, handled_flips: Array[StringName] = []) -> String:
 	var card_ids: Array = []
 	var flip_ids: Array = []
 	for face: Dictionary in faces:
 		card_ids.append(face.card_id)
-		if _hand_controls._top_half(StringName(face.card_id)) != int(face.selected_half_index):
+		var card_id := StringName(face.card_id)
+		if card_id not in handled_flips and _hand_controls._top_half(card_id) != int(face.selected_half_index):
 			flip_ids.append(face.card_id)
 	var flip_slots := _card_slots(flip_ids)
 	var flip_text := "Flip cards %s before staging. " % flip_slots if not flip_slots.is_empty() else ""

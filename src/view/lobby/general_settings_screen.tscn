@@ -69,6 +69,8 @@ text = "Display mode"
 [node name="Modes" type="OptionButton" parent="Content"]
 custom_minimum_size = Vector2(0, 56)
 layout_mode = 2
+mouse_default_cursor_shape = 2
+theme_type_variation = &"SettingsDropdown"
 theme_override_font_sizes/font_size = 24
 tooltip_text = "Window sizes are limited to the display exposed by your system or compatibility layer."
 
@@ -92,6 +94,8 @@ text = "Card draw animation"
 [node name="DrawSpeed" type="OptionButton" parent="Content"]
 custom_minimum_size = Vector2(0, 52)
 layout_mode = 2
+mouse_default_cursor_shape = 2
+theme_type_variation = &"SettingsDropdown"
 theme_override_font_sizes/font_size = 24
 tooltip_text = "Controls card and ability draws. Skip reveals cards immediately."
 

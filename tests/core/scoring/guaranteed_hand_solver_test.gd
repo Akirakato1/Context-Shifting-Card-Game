@@ -270,6 +270,27 @@ func test_ability_seal_and_submission_lock_are_in_force() -> void:
 	assert_eq(plan.score, 1)
 
 
+func test_solver_uses_an_inactive_bottom_joker_to_gain_a_field_bonus() -> void:
+	var state := _state()
+	var player: PlayerState = state.players[P1]
+	var card := _card(&"card", RISE, 10, RISE, 1)
+	card.second.make_joker()
+	player.hand.assign([card])
+	player.ability_hand.clear()
+	state.ability_deck.play_field(_ability(&"fall_ascendancy"), P1)
+	var plan := _solve(state)
+	if plan.is_empty():
+		return
+	assert_eq(plan.submission[0].half_index, 0)
+	assert_eq(plan.submission[0].joker_choices[0].context, FALL)
+	var evaluated := SubmissionEvaluator.evaluate(player.hand, plan.submission, RISE,
+		state.config.normal_definitions, state.config.context_definitions, player.factor_modifiers,
+		state.ability_deck.active_fields())
+	assert_true(evaluated.is_valid)
+	assert_eq(evaluated.score_breakdown.final_score, plan.score)
+	assert_eq(plan.score, 13)
+
+
 func test_reduced_joker_choices_match_exhaustive_scoring() -> void:
 	var state := _state()
 	var player: PlayerState = state.players[P1]

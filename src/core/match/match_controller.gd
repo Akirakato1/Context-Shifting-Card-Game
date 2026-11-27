@@ -1135,11 +1135,12 @@ func _configure_joker(command: GameCommand) -> CommandResult:
 	var error := HalfCardState.joker_choice_error(context, suit, rank)
 	if not error.is_empty():
 		return CommandResult.new(false, error)
-	if context not in FieldEffectResolver.active_contexts(state.active_context, state.ability_deck.active_fields()):
-		return CommandResult.new(false, &"joker_context_not_active")
-	half.set_joker_choice(context, suit, rank)
 	for selection in player.staged_submission:
 		if selection.card_id == card.card_id:
+			if half_index == selection.half_index and context not in FieldEffectResolver.active_contexts(
+				state.active_context, state.ability_deck.active_fields()
+			):
+				return CommandResult.new(false, &"joker_context_not_active")
 			for choice: Dictionary in selection.joker_choices:
 				if choice.half_index == half_index:
 					choice.context = context
@@ -1149,6 +1150,7 @@ func _configure_joker(command: GameCommand) -> CommandResult:
 					else:
 						choice.erase("rank")
 			break
+	half.set_joker_choice(context, suit, rank)
 	return CommandResult.new(true)
 
 

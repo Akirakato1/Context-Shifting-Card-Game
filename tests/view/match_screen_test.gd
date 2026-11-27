@@ -263,7 +263,8 @@ func test_phase_sign_retracts_before_changing_label_and_lands_once_per_phase() -
 	sign.connect("pulling", func(): chain_cues.append("pull"))
 	assert_true(sign.get_index() < table.get_node("Header").get_index())
 	assert_true(sign.get_index() < table.get_node("MenuButton").get_index())
-	assert_eq((sign.get_node("Art") as TextureRect).texture.resource_path.get_file(), "phase_sign.png")
+	var sign_art := (sign.get_node("Art") as TextureRect).texture as AtlasTexture
+	assert_eq(sign_art.atlas.resource_path.get_file(), "phase_sign.png")
 	var model := _active_player_model()
 	model.phase = 2
 	table.render(model)
@@ -327,6 +328,24 @@ func test_timer_glows_red_and_counts_down_each_final_second_once() -> void:
 	timer.show_remaining(-1, true, true)
 	assert_eq(timer.text, "UNTIMED")
 	assert_eq(timer.get_theme_color("font_shadow_color"), MatchTimer.NORMAL_GLOW)
+	await _unmount(table)
+
+
+func test_replacement_sounds_load_as_short_one_shots() -> void:
+	var table = await _mount_match()
+	var sounds: Node = table.get_node("CardInteractionAudio")
+	var filenames := {
+		"phase_chain_drop": "phase_chain_drop.wav", "phase_chain_pull": "phase_chain_pull.wav",
+		"match_countdown": "match_countdown.wav", "invalid": "invalid_action.wav",
+	}
+	for cue: String in filenames:
+		var player := sounds.get_node_or_null(cue) as AudioStreamPlayer
+		assert_true(player != null and player.stream is AudioStreamWAV, "%s has a WAV source" % cue)
+		if player != null and player.stream is AudioStreamWAV:
+			assert_eq(player.stream.resource_path.get_file(), filenames[cue])
+			assert_true(player.stream.get_length() > 0.08 and player.stream.get_length() <= 0.26)
+			assert_eq((player.stream as AudioStreamWAV).loop_mode, AudioStreamWAV.LOOP_DISABLED)
+			assert_eq(player.bus, &"Sound Effects")
 	await _unmount(table)
 
 

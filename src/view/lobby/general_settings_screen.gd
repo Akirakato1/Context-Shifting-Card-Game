@@ -36,7 +36,8 @@ func _ready() -> void:
 	_bind_volume($Content/Music, GameplayPreferences.MUSIC)
 	_build_hotkeys()
 	for button: Button in $Content.find_children("*", "Button", true, false):
-		MatchButtonArt.skin(button, MatchButtonArt.ACTION)
+		if not button is OptionButton:
+			MatchButtonArt.skin(button, MatchButtonArt.ACTION)
 	var back: Button = $Content/BackButton
 	back.pressed.connect(func(): back_requested.emit())
 	var focus_order: Array[Control] = [

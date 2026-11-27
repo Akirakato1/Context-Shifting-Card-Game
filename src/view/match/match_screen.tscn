@@ -1,4 +1,4 @@
-[gd_scene load_steps=36 format=3]
+[gd_scene load_steps=39 format=3]
 
 [ext_resource type="Script" path="res://src/view/match/match_screen.gd" id="1_script"]
 [ext_resource type="PackedScene" path="res://src/view/match/player_seat.tscn" id="2_seat"]
@@ -31,6 +31,7 @@
 [ext_resource type="Texture2D" path="res://assets/artwork/board/timer_tablet.png" id="30_timer_art"]
 [ext_resource type="Texture2D" path="res://assets/artwork/board/history_scroll.png" id="31_history_art"]
 [ext_resource type="PackedScene" path="res://src/view/match/practice_companion.tscn" id="32_practice_companion"]
+[ext_resource type="Texture2D" path="res://assets/artwork/board/question_mark.png" id="33_help_icon"]
 
 [sub_resource type="ButtonGroup" id="ButtonGroup_sort"]
 
@@ -47,7 +48,17 @@ corner_radius_bottom_right = 12
 
 [sub_resource type="AtlasTexture" id="Atlas_round_chain"]
 atlas = ExtResource("28_phase_art")
-region = Rect2(0, 24, 1000, 246)
+region = Rect2(194, 5, 648, 243)
+filter_clip = true
+
+[sub_resource type="AtlasTexture" id="Atlas_phase_sign"]
+atlas = ExtResource("28_phase_art")
+region = Rect2(194, 0, 648, 404)
+filter_clip = true
+
+[sub_resource type="AtlasTexture" id="Atlas_help_icon"]
+atlas = ExtResource("33_help_icon")
+region = Rect2(45, 28, 216, 354)
 filter_clip = true
 
 [sub_resource type="StyleBoxFlat" id="Style_discard_notice"]
@@ -145,7 +156,7 @@ offset_top = -23.0
 offset_right = 222.0
 offset_bottom = 73.0
 mouse_filter = 2
-texture = ExtResource("28_phase_art")
+texture = SubResource("Atlas_phase_sign")
 expand_mode = 1
 
 [node name="Phase" type="Label" parent="RoundBadge"]
@@ -177,7 +188,7 @@ offset_top = -23.0
 offset_right = 334.0
 offset_bottom = 127.0
 mouse_filter = 2
-texture = ExtResource("28_phase_art")
+texture = SubResource("Atlas_phase_sign")
 expand_mode = 1
 
 [node name="Phase" type="Label" parent="PhaseBadge"]
@@ -707,7 +718,10 @@ offset_top = 12.0
 offset_right = 222.0
 offset_bottom = 64.0
 tooltip_text = "Rules & Cards"
-text = "?"
+accessibility_name = "Rules & Cards"
+icon = SubResource("Atlas_help_icon")
+icon_alignment = 1
+expand_icon = true
 
 [node name="PracticeCompanion" parent="." instance=ExtResource("32_practice_companion")]
 layout_mode = 1

@@ -182,6 +182,10 @@ func test_host_lobby_shows_code_counts_and_editable_settings_until_start() -> vo
 	lobby.render(_lobby_model(true, false, 2, 1))
 	assert_eq(lobby.get_node("Layout/Header/RoomCode").text, "ROOM  ABC234")
 	assert_eq(lobby.get_node("Layout/Body/Roster/Counts").text, "2 / 4 players   •   1 / 4 spectators")
+	for path in ["Layout/Body/Settings/VictoryMode", "Layout/Body/Settings/Visibility"]:
+		var dropdown := lobby.get_node(path) as OptionButton
+		assert_true(dropdown.get_theme_stylebox("normal") is StyleBoxFlat)
+		assert_true(dropdown.get_theme_stylebox("pressed") is StyleBoxFlat)
 	assert_false(lobby.get_node("Layout/Body/Settings/VictoryTarget").editable == false)
 	assert_false(lobby.get_node("Layout/Footer/StartButton").disabled)
 

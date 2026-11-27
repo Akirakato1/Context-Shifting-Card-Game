@@ -305,13 +305,12 @@ func test_hand_builder_stages_eligible_cards_requires_half_choice_and_defaults_j
 	await _unmount(controls)
 
 
-func test_joker_picker_filters_contexts_and_replaces_a_stale_choice() -> void:
-	var controls = await _mount_controls()
-	if controls == null:
-		return
+func test_joker_picker_requires_a_new_context_when_top_choice_becomes_inactive() -> void:
+	var table = await _mount_path(MATCH_SCREEN_PATH)
+	var controls = table.get_node("PhaseControls")
 	var hand := _hand()
-	var model := _model(3, hand, {"active_context": 2, "active_contexts": [2]})
-	controls.render(model)
+	var model := _model(3, hand, {"private_player_id": "p1", "active_context": 2, "active_contexts": [2]})
+	table.render(model)
 	var context: OptionButton = controls.card_widget(&"c4").get_node("Face/FirstChoices/Context")
 	assert_eq(context.item_count, 1)
 	assert_eq(context.get_item_id(0), 2)
@@ -321,7 +320,7 @@ func test_joker_picker_filters_contexts_and_replaces_a_stale_choice() -> void:
 	controls.set_joker_choice(&"c4", 0, 1, 2, 7)
 	assert_eq(controls.staged_selection(&"c4").joker_choices[0].context, 2)
 	model.active_contexts = [0, 2]
-	controls.render(model)
+	table.render(model)
 	context = controls.card_widget(&"c4").get_node("Face/FirstChoices/Context")
 	assert_eq(context.item_count, 2)
 	assert_eq(context.get_item_id(1), 2)
@@ -331,15 +330,59 @@ func test_joker_picker_filters_contexts_and_replaces_a_stale_choice() -> void:
 	controls.set_joker_choice(&"c4", 0, 2, 2, 7)
 	model.active_context = 1
 	model.active_contexts = [1]
-	controls.render(model)
+	table.render(model)
 	context = controls.card_widget(&"c4").get_node("Face/FirstChoices/Context")
 	assert_eq(context.get_item_text(0), "Flourish")
-	assert_eq(context.get_selected_id(), 1)
+	assert_eq(context.selected, -1)
+	assert_false(controls.has_staged_card(&"c4"))
+	controls.click_card(&"c4")
+	assert_false(controls.has_staged_card(&"c4"))
+	context.item_selected.emit(0)
+	controls.click_card(&"c4")
 	assert_eq(controls.staged_selection(&"c4").joker_choices[0], {"half_index": 0, "context": 1, "suit": 2, "rank": 7})
 	var rank: OptionButton = controls.card_widget(&"c4").get_node("Face/FirstChoices/Rank")
 	rank.item_selected.emit(8)
 	assert_eq(controls.staged_selection(&"c4").joker_choices[0], {"half_index": 0, "context": 1, "suit": 2, "rank": 8})
-	await _unmount(controls)
+	await _unmount(table)
+
+
+func test_bottom_joker_keeps_inactive_context_and_cannot_flip_to_top() -> void:
+	var table = await _mount_path(MATCH_SCREEN_PATH)
+	var controls = table.get_node("PhaseControls")
+	var card_id := &"bottom-joker"
+	var hand := [_card(str(card_id), _half(0, 7, 0), _joker())]
+	hand[0]["eligible_half_indexes"] = [0, 1]
+	var model := _model(3, hand, {"private_player_id": "p1", "active_contexts": [0]})
+	table.render(model)
+	var context: OptionButton = controls.card_widget(card_id).get_node("Face/SecondChoices/Context")
+	assert_eq(context.item_count, 3)
+	if context.item_count == 3:
+		context.item_selected.emit(2)
+	else:
+		controls.set_joker_choice(card_id, 1, 2, 0)
+	controls.right_click_card(card_id)
+	assert_false(controls.card_widget(card_id).orientation_flipped)
+	controls.sort_hand(2)
+	assert_false(controls.card_widget(card_id).orientation_flipped)
+	controls.click_card(card_id)
+	controls.right_click_card(card_id)
+	assert_eq(controls.staged_selection(card_id).half_index, 0)
+	assert_eq(controls.staged_selection(card_id).joker_choices[0].context, 2)
+	var mimics: Array = controls.observation_state().mimics
+	assert_false(mimics.is_empty())
+	if not mimics.is_empty():
+		assert_eq(mimics[0].joker_choices[0].context, 2)
+	assert_false(controls.get_node("HandPlayControls/ActionRow/SubmitButton").disabled)
+	model.active_contexts = [0, 2]
+	table.render(model)
+	controls.right_click_card(card_id)
+	assert_true(controls.card_widget(card_id).orientation_flipped)
+	assert_eq(controls.staged_selection(card_id).half_index, 1)
+	context = controls.card_widget(card_id).get_node("Face/SecondChoices/Context")
+	assert_eq(context.item_count, 2)
+	controls.set_joker_choice(card_id, 1, 1, 0)
+	assert_eq(controls.staged_selection(card_id).joker_choices[0].context, 2)
+	await _unmount(table)
 
 
 func test_resonance_context_half_is_highlighted_and_selectable() -> void:

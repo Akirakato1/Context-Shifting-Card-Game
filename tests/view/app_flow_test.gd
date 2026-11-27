@@ -140,6 +140,15 @@ func test_main_menu_credits_open_and_close_from_the_corner() -> void:
 		var attribution := dialog.get_node("Margin/Attribution") as RichTextLabel
 		for name in ["anarchira", "akts625", "Willosuna", "JDSherbert", "Michael W. Moss", "The Epic Hero", "Serjo De Lua"]:
 			assert_true(name in attribution.text, "Credits include %s" % name)
+		var sound_credits := {
+			"funkysandwich": "https://freesound.org/people/funkysandwich/sounds/871034/",
+			"ldezem": "https://freesound.org/people/ldezem/sounds/386174/",
+			"Ranne Madsen": "https://freesound.org/people/RanneM/sounds/475557/",
+			"Jacco18": "https://freesound.org/people/Jacco18/sounds/419023/",
+		}
+		for creator: String in sound_credits:
+			assert_true(creator in attribution.text and sound_credits[creator] in attribution.text,
+				"Credits link to the sound by %s" % creator)
 		assert_true(attribution.text.contains("https://www.youtube.com/@KeysofMoonMusic"))
 		dialog.get_ok_button().pressed.emit()
 		assert_false(dialog.visible)
@@ -203,7 +212,12 @@ func test_general_settings_opens_and_closes_without_replacing_the_menu() -> void
 		var settings := host.get_node_or_null("GeneralSettingsScreen")
 		assert_true(settings != null)
 		if settings != null:
-			for path in ["Content/Modes", "Content/Hotkeys/Heading/Reset", "Content/BackButton"]:
+			for path in ["Content/Modes", "Content/DrawSpeed"]:
+				var dropdown := settings.get_node(path) as OptionButton
+				assert_true(dropdown.get_theme_stylebox("normal") is StyleBoxFlat)
+				assert_eq(dropdown.get_theme_stylebox("normal").content_margin_left, 12.0)
+				assert_true(dropdown.get_theme_stylebox("pressed") is StyleBoxFlat)
+			for path in ["Content/Hotkeys/Heading/Reset", "Content/BackButton"]:
 				var control := settings.get_node(path) as Button
 				var art := control.get_theme_stylebox("normal") as StyleBoxTexture
 				assert_true(art != null and art.texture.resource_path.get_file() == "button_4.png")

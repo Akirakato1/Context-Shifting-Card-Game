@@ -205,8 +205,11 @@ func render(
 		_joker_default_context = active_context
 		if not active_contexts.is_empty() and active_context not in active_contexts:
 			_joker_default_context = int(active_contexts[0])
-		_render_joker_selectors(first, _first_choices, _first_context, _first_suit, _first_rank, active_contexts, wait_for_host)
-		_render_joker_selectors(second, _second_choices, _second_context, _second_suit, _second_rank, active_contexts, wait_for_host)
+		var all_contexts := GameTypes.Context.values()
+		_render_joker_selectors(first, _first_choices, _first_context, _first_suit, _first_rank,
+			all_contexts if orientation_flipped else active_contexts, wait_for_host)
+		_render_joker_selectors(second, _second_choices, _second_context, _second_suit, _second_rank,
+			active_contexts if orientation_flipped else all_contexts, wait_for_host)
 	_render_suit(_first, first)
 	_render_suit(_second, second)
 	_apply_orientation(first, second)
@@ -505,36 +508,34 @@ func _apply_joker_choices(first: Dictionary, second: Dictionary, choices: Array)
 
 func _render_joker_selectors(
 	half: Dictionary, choices: Control, context: OptionButton, suit: OptionButton,
-	rank: OptionButton, active_contexts: Array, disabled: bool
+	rank: OptionButton, allowed_contexts: Array, disabled: bool
 ) -> void:
 	if int(half.get("kind", 0)) != GameTypes.HalfKind.JOKER:
 		return
 	choices.show()
 	context.clear()
-	for context_id: int in active_contexts:
+	for context_id: int in allowed_contexts:
 		context.add_icon_item(GameIcons.context(context_id), GameTypes.context_name(context_id), context_id)
 		context.get_popup().set_item_icon_max_width(context.item_count - 1, 22)
 	var chosen_suit := _shown_suit(half)
 	var chosen_context := _shown_context(half)
-	if chosen_suit >= 0 and not active_contexts.is_empty() and chosen_context not in active_contexts:
-		chosen_context = _joker_default_context
-		half["joker_context"] = chosen_context
 	context.select(context.get_item_index(chosen_context) if chosen_suit >= 0 else -1)
+	context.text = "Context" if context.selected == -1 else ""
 	suit.select(chosen_suit)
 	var chosen_rank := _half_rank(half)
 	rank.select(chosen_rank)
 	if chosen_suit < 0:
-		context.text = "Context"
 		suit.text = "Suit"
 	else:
-		context.text = ""
 		suit.text = ""
 	if chosen_rank == 0:
 		rank.text = "Rank"
 	context.tooltip_text = "Joker context" if chosen_suit < 0 else "Joker context · " + GameTypes.context_name(chosen_context)
+	if chosen_suit >= 0 and context.selected == -1:
+		context.tooltip_text += " is inactive. Choose an active context for the top half."
 	suit.tooltip_text = "Joker suit" if chosen_suit < 0 else "Joker suit · " + GameTypes.suit_name(chosen_suit)
 	rank.tooltip_text = "Joker rank · counts toward hand shapes"
-	context.disabled = disabled or active_contexts.is_empty()
+	context.disabled = disabled or allowed_contexts.is_empty()
 	suit.disabled = context.disabled
 	rank.disabled = context.disabled
 

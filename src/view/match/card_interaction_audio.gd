@@ -23,6 +23,7 @@ const CUES := {
 	&"phase_chain_drop": ["res://assets/sound_effects/phase_chain_drop.wav", -15.0, 1.0, 0.0],
 	&"phase_chain_pull": ["res://assets/sound_effects/phase_chain_pull.wav", -15.0, 1.0, 0.0],
 	&"match_countdown": ["res://assets/sound_effects/match_countdown.wav", -13.0, 1.0, 0.0],
+	&"invalid": ["res://assets/sound_effects/invalid_action.wav", -16.0, 1.0, 0.0],
 	&"round_win": [CARD_PACK + "hand_win_01.wav", -15.0, 1.0, 0.0],
 	&"round_loss": [CARD_PACK + "hand_lose_01.wav", -19.0, 1.0, 0.0],
 	&"prime": [PACK + "Deck Deal - 2.wav", -11.0, 1.36, 0.010],
@@ -52,7 +53,6 @@ func _ready() -> void:
 			path = PACK_FALLBACKS.get(cue, "")
 		if not path.is_empty() and ResourceLoader.exists(path):
 			_add_player(cue, load(path) as AudioStream, settings[1], settings[2])
-	_add_player(&"invalid", _soft_buzz(), -16.0, 1.0)
 	for cue in [&"draw", &"deal"]:
 		if _players.has(cue):
 			_players[cue].max_polyphony = 2
@@ -95,8 +95,7 @@ func play(cue: StringName) -> void:
 			return
 		_last_hover_msec = now
 		_last_hover_motion = _mouse_motion_id
-	var start := float(CUES[cue][3]) if CUES.has(cue) else 0.0
-	player.play(start)
+	player.play(float(CUES[cue][3]))
 
 
 func _add_player(cue: StringName, stream: AudioStream, volume_db: float, pitch: float) -> void:
@@ -108,22 +107,3 @@ func _add_player(cue: StringName, stream: AudioStream, volume_db: float, pitch: 
 	player.bus = GameplayPreferences.SOUND_EFFECTS
 	add_child(player)
 	_players[cue] = player
-
-
-func _soft_buzz() -> AudioStreamWAV:
-	const SAMPLE_RATE := 22050
-	const DURATION := 0.095
-	var sample_count := roundi(DURATION * SAMPLE_RATE)
-	var data := PackedByteArray()
-	data.resize(sample_count * 2)
-	for i in sample_count:
-		var time := float(i) / SAMPLE_RATE
-		var envelope := smoothstep(0.0, 0.012, time) * (1.0 - smoothstep(0.025, DURATION, time))
-		var phase := TAU * 146.0 * time
-		var tone := 0.68 * sin(phase) + 0.22 * sin(2.0 * phase) + 0.10 * sin(3.0 * phase)
-		data.encode_s16(i * 2, roundi(16000.0 * envelope * tone))
-	var stream := AudioStreamWAV.new()
-	stream.format = AudioStreamWAV.FORMAT_16_BITS
-	stream.mix_rate = SAMPLE_RATE
-	stream.data = data
-	return stream

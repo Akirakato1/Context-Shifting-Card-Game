@@ -37,6 +37,7 @@ var _scored_hands := {}
 var _scores := {}
 var _normal_results := {}
 var _context_results := {}
+var _joker_context_options_by_count := {}
 var _joker_ranks := {}
 var _ability_choices := {}
 var _best := {"score": 0, "submission": [], "hand_play": [], "main_2": []}
@@ -403,7 +404,7 @@ func _submit_combinations(
 func _score_submission(hand: Array[FullCardState], selections: Array, plays: Array) -> void:
 	var ordinary: Array[ScoringTypes.SelectedCardFace] = []
 	var selected_jokers: Array[Dictionary] = []
-	var all_jokers: Array[Dictionary] = []
+	var bottom_jokers: Array[Dictionary] = []
 	var known_context_key := 0
 	var by_id := {}
 	for card in hand:
@@ -417,9 +418,10 @@ func _score_submission(hand: Array[FullCardState], selections: Array, plays: Arr
 			if half.is_joker():
 				var choice := {"half_index": index, "rank": 0, "suit": 0, "context": 0}
 				selection.joker_choices.append(choice)
-				all_jokers.append(choice)
 				if selected:
 					selected_jokers.append(choice)
+				else:
+					bottom_jokers.append(choice)
 			else:
 				known_context_key += int(CONTEXT_WEIGHTS[half.effective_context()])
 				if selected:
@@ -428,7 +430,8 @@ func _score_submission(hand: Array[FullCardState], selections: Array, plays: Arr
 	# An all-Joker hand can never beat the zero-point pass.
 	if ordinary.is_empty():
 		return
-	var context_options := _combinations(Array(_contexts), all_jokers.size(), true)
+	var all_jokers := selected_jokers + bottom_jokers
+	var context_options := _joker_context_options(selected_jokers.size(), bottom_jokers.size())
 	for suits: Array in _suit_options(ordinary, selected_jokers.size()):
 		if _collect_candidates and _is_cancelled():
 			return
@@ -439,14 +442,32 @@ func _score_submission(hand: Array[FullCardState], selections: Array, plays: Arr
 			for index in selected_jokers.size():
 				selected_jokers[index].rank = ranks[index]
 				selected_faces.append(ScoringTypes.SelectedCardFace.new(&"joker", 0, ranks[index], suits[index], true))
-			for contexts: Array in context_options:
+			for context_key: int in context_options:
 				if _collect_candidates and _is_cancelled():
 					return
-				var context_key := known_context_key
+				var contexts: Array = context_options[context_key]
 				for index in contexts.size():
 					all_jokers[index].context = contexts[index]
-					context_key += int(CONTEXT_WEIGHTS[contexts[index]])
-				_record_scores(_score_faces(selected_faces, context_key), hand, selections, plays)
+				_record_scores(_score_faces(selected_faces, known_context_key + context_key), hand, selections, plays)
+
+
+func _joker_context_options(scoring_count: int, bottom_count: int) -> Dictionary:
+	var counts := Vector2i(scoring_count, bottom_count)
+	if _joker_context_options_by_count.has(counts):
+		return _joker_context_options_by_count[counts]
+	var options := {}
+	var bottom_options := _combinations(GameTypes.Context.values(), bottom_count, true)
+	for scoring: Array in _combinations(Array(_contexts), scoring_count, true):
+		for bottom: Array in bottom_options:
+			var contexts := scoring + bottom
+			var key := 0
+			for context: int in contexts:
+				key += int(CONTEXT_WEIGHTS[context])
+			# Both halves contribute to the context tally. Keep one legal assignment per tally.
+			if not options.has(key):
+				options[key] = contexts
+	_joker_context_options_by_count[counts] = options
+	return options
 
 
 func _record_scores(variants: Dictionary, hand: Array[FullCardState], selections: Array, plays: Array) -> void:

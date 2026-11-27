@@ -154,7 +154,7 @@ func _build_how_to_play() -> void:
 	_label(content, "Scoring", 27, GOLD)
 	_label(
 		content,
-		"Base Score adds the ranks of your selected scoring halves. Multiply that base by the Hand Shape, Context Hand, and Field factors, then round up. Choose a Joker half’s context, suit, and optional rank directly on the card. A Joker can use any currently active context, including one added by Resonance. If its choice becomes inactive, it uses the context on the clock. Its rank can form hand shapes and contributes zero to Base Score.",
+		"Base Score adds the ranks of your selected scoring halves. Multiply that base by the Hand Shape, Context Hand, and Field factors, then round up. Choose a Joker half’s context, suit, and optional rank directly on the card. A bottom Joker can use any context. To flip or stage a Joker on top, choose an active context, including one added by Resonance. Its rank can form hand shapes and contributes zero to Base Score.",
 		20, INK
 	)
 	_label(

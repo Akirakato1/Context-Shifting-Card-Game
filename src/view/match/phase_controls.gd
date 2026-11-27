@@ -450,7 +450,10 @@ func set_joker_choice(card_id: StringName, half_index: int, context: int, suit: 
 		return
 	var shown := _joker_values(half)
 	var chosen_rank := shown.z if rank == -1 else rank
-	if context not in _active_contexts() or not HalfCard.joker_choice_error(context, suit, chosen_rank).is_empty():
+	if (
+		not HalfCard.joker_choice_error(context, suit, chosen_rank).is_empty()
+		or (half_index == _top_half(card_id) and context not in _active_contexts())
+	):
 		interaction_sound.emit(&"invalid")
 		return
 	var choice := Vector3i(context, suit, chosen_rank)
@@ -473,17 +476,18 @@ func _can_configure_jokers() -> bool:
 func right_click_card(card_id: StringName) -> void:
 	if not _hand_cards.has(card_id):
 		return
+	var card: Dictionary = _hand_cards[card_id]
+	var incoming_half := 1 - _top_half(card_id)
 	if table_cockpit:
 		if _targeting or _ability_focus_held or _hand_is_locked() or _input_locked or _hand_command_pending():
 			interaction_sound.emit(&"invalid")
 			return
-		var incoming_half := 1 - _top_half(card_id)
-		if not _half_index_is_eligible(_hand_cards[card_id], incoming_half):
-			_show_hand_feedback("That half is outside the active contexts.")
-			interaction_sound.emit(&"invalid")
-			return
-		if _staged.has(card_id):
-			_staged[card_id]["half_index"] = incoming_half
+	if (table_cockpit or _is_joker(_card_half(card, incoming_half))) and not _half_index_is_eligible(card, incoming_half):
+		_show_hand_feedback("That half is outside the active contexts.")
+		interaction_sound.emit(&"invalid")
+		return
+	if table_cockpit and _staged.has(card_id):
+		_staged[card_id]["half_index"] = incoming_half
 	_status.text = ""
 	_orientations[card_id] = not bool(_orientations.get(card_id, false))
 	interaction_sound.emit(&"flip")
@@ -495,14 +499,14 @@ func sort_hand(context: int = -1) -> bool:
 	if not _can_sort_hand():
 		return false
 	_sort_key = context
-	var kept_scoring_half := false
+	var kept_orientation := false
 	if _sort_key >= 0:
 		for card_id in _hand_order:
 			if not _orient_for_context_sort(card_id):
-				kept_scoring_half = true
+				kept_orientation = true
 	_apply_hand_sort()
-	if kept_scoring_half:
-		_show_hand_feedback("Staged cards keep their scoring half if the other half is inactive.")
+	if kept_orientation:
+		_show_hand_feedback("Some cards stayed in place because the other half is inactive.")
 	return true
 
 
@@ -539,18 +543,17 @@ func _orient_for_context_sort(card_id: StringName) -> bool:
 	var other := 1 - top
 	if _half_matches_sort_context(_card_half(card, top)) or not _half_matches_sort_context(_card_half(card, other)):
 		return true
+	if (_staged.has(card_id) or _is_joker(_card_half(card, other))) and not _half_index_is_eligible(card, other):
+		return false
 	if _staged.has(card_id):
-		if not _half_index_is_eligible(card, other):
-			return false
 		_staged[card_id]["half_index"] = other
 	_orientations[card_id] = other == 1
 	return true
 
 
 func _half_matches_sort_context(half: Dictionary) -> bool:
-	if int(half.get("kind", 0)) == GameTypes.HalfKind.JOKER:
-		var context := int(half.get("joker_context", -1))
-		return context >= 0 and _joker_context_or_active(context) == _sort_key
+	if _is_joker(half):
+		return int(half.get("joker_context", -1)) == _sort_key
 	return int(half.get("effective_context", half.get("base_context", -1))) == _sort_key
 
 
@@ -770,7 +773,7 @@ func observation_state() -> Dictionary:
 			var half := _card_half(card, index)
 			if int(half.get("joker_suit", -1)) >= 0:
 				choices.append({
-					"half_index": index, "context": _joker_context_or_active(half.joker_context), "suit": half.joker_suit,
+					"half_index": index, "context": half.joker_context, "suit": half.joker_suit,
 					"rank": int(half.get("joker_rank", 0)),
 				})
 		if not choices.is_empty():
@@ -984,8 +987,10 @@ func _render_hand_play() -> void:
 		for card_id in _staged.keys():
 			var card: Dictionary = _hand_cards[card_id]
 			var selection: Dictionary = _staged[card_id]
+			var scoring_half := int(selection.half_index)
 			if bool(card.get("submission_locked", false)) or (
-				int(_model.get("phase_deadline_msec", -1)) >= 0 and not _half_index_is_eligible(card, int(selection.half_index))
+				(_is_joker(_card_half(card, scoring_half)) or int(_model.get("phase_deadline_msec", -1)) >= 0)
+				and not _half_index_is_eligible(card, scoring_half)
 			):
 				_staged.erase(card_id)
 				_staged_order.erase(card_id)
@@ -1638,22 +1643,21 @@ func _sync_deadline_draft() -> void:
 
 
 func _card_is_eligible(card: Dictionary) -> bool:
-	if card.has("eligible_half_indexes"):
-		return not card.eligible_half_indexes.is_empty()
-	return _half_is_eligible(card.get("first", {})) or _half_is_eligible(card.get("second", {}))
+	return _half_index_is_eligible(card, 0) or _half_index_is_eligible(card, 1)
 
 
 func _half_index_is_eligible(card: Dictionary, half_index: int) -> bool:
+	var half := _card_half(card, half_index)
+	if _is_joker(half):
+		var context := int(half.get("joker_context", -1))
+		return context < 0 or context in _active_contexts()
 	if card.has("eligible_half_indexes"):
 		return half_index in card.eligible_half_indexes
-	return _half_is_eligible(_card_half(card, half_index))
+	return int(half.get("effective_context", -1)) in _active_contexts()
 
 
-func _half_is_eligible(half: Dictionary) -> bool:
-	return (
-		int(half.get("kind", 0)) == 1
-		or int(half.get("effective_context", -1)) in _active_contexts()
-	)
+func _is_joker(half: Dictionary) -> bool:
+	return int(half.get("kind", 0)) == GameTypes.HalfKind.JOKER
 
 
 func _active_contexts() -> Array:
@@ -1663,10 +1667,8 @@ func _active_contexts() -> Array:
 	return result
 
 
-func _joker_context_or_active(context: int) -> int:
+func _default_joker_context() -> int:
 	var active_contexts := _active_contexts()
-	if context in active_contexts:
-		return context
 	var primary := int(_model.get("active_context", active_contexts[0]))
 	return primary if primary in active_contexts else int(active_contexts[0])
 
@@ -1684,7 +1686,7 @@ func _joker_values(half: Dictionary) -> Vector3i:
 
 
 func _default_half_index(card: Dictionary) -> int:
-	return 0 if _half_index_is_eligible(card, 0) else 1
+	return 1 if not _half_index_is_eligible(card, 0) and _half_index_is_eligible(card, 1) else 0
 
 
 func _default_half_index_for_card(card_id: StringName) -> int:
@@ -1710,6 +1712,7 @@ func _default_joker_choices(card: Dictionary, previous_choices: Array = []) -> A
 				"half_index": half_index, "context": half.joker_context, "suit": half.joker_suit,
 				"rank": int(half.get("joker_rank", 0)),
 			}
-		choice["context"] = _joker_context_or_active(choice.context)
+		if int(choice.context) < 0:
+			choice["context"] = _default_joker_context()
 		choices.append(choice)
 	return choices

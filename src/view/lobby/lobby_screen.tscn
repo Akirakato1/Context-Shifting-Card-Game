@@ -156,6 +156,8 @@ text = "Victory mode"
 custom_minimum_size = Vector2(280, 40)
 layout_mode = 2
 size_flags_horizontal = 3
+mouse_default_cursor_shape = 2
+theme_type_variation = &"SettingsDropdown"
 
 [node name="VictoryTargetLabel" type="Label" parent="Layout/Body/Settings"]
 layout_mode = 2
@@ -175,6 +177,8 @@ text = "Replacement requests"
 [node name="Visibility" type="OptionButton" parent="Layout/Body/Settings"]
 custom_minimum_size = Vector2(0, 40)
 layout_mode = 2
+mouse_default_cursor_shape = 2
+theme_type_variation = &"SettingsDropdown"
 
 [node name="TimeLimitLabel" type="Label" parent="Layout/Body/Settings"]
 layout_mode = 2

@@ -37,7 +37,7 @@ func test_selected_joker_is_valid_in_every_active_context_and_uses_submission_ch
 		assert_eq(result.score_breakdown.base_value, 0)
 
 
-func test_inactive_joker_context_is_rejected_on_both_halves_until_resonance() -> void:
+func test_only_the_scoring_joker_requires_an_active_context() -> void:
 	var card := FullCardState.new(
 		&"double-joker", _joker_half(&"first-joker", GameTypes.Context.RISE),
 		_joker_half(&"second-joker", GameTypes.Context.FLOURISH)
@@ -46,17 +46,23 @@ func test_inactive_joker_context_is_rejected_on_both_halves_until_resonance() ->
 		{"half_index": 0, "context": GameTypes.Context.RISE, "suit": GameTypes.Suit.MOUNTAIN},
 		{"half_index": 1, "context": GameTypes.Context.FALL, "suit": GameTypes.Suit.CLOUD},
 	]
-	for top_half in [0, 1]:
-		var selection := _selection(card.card_id, top_half, choices)
-		var rejected := SubmissionEvaluator.evaluate(
-			[card], [selection], GameTypes.Context.RISE, _normal_definitions(), _context_definitions(), []
-		)
-		assert_eq(rejected.error_code, &"joker_context_not_active")
-		var resonant := SubmissionEvaluator.evaluate(
-			[card], [selection], GameTypes.Context.RISE, _normal_definitions(), _context_definitions(), [],
-			[_field_state(&"fall_resonance")]
-		)
-		assert_true(resonant.is_valid)
+	var regular := SubmissionEvaluator.evaluate(
+		[card], [_selection(card.card_id, 0, choices)], GameTypes.Context.RISE,
+		_normal_definitions(), _context_definitions(), []
+	)
+	assert_true(regular.is_valid)
+	if regular.is_valid:
+		assert_eq(regular.context_result.counts[GameTypes.Context.FALL], 1)
+	var flipped := _selection(card.card_id, 1, choices)
+	var rejected := SubmissionEvaluator.evaluate(
+		[card], [flipped], GameTypes.Context.RISE, _normal_definitions(), _context_definitions(), []
+	)
+	assert_eq(rejected.error_code, &"joker_context_not_active")
+	var resonant := SubmissionEvaluator.evaluate(
+		[card], [flipped], GameTypes.Context.RISE, _normal_definitions(), _context_definitions(), [],
+		[_field_state(&"fall_resonance")]
+	)
+	assert_true(resonant.is_valid)
 
 
 func test_double_joker_choices_resolve_independently_and_both_count_for_context() -> void:

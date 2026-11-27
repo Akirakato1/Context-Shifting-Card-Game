@@ -37,6 +37,32 @@ func test_practice_companion_shows_progress_then_the_hand_and_play_sequence() ->
 	await Engine.get_main_loop().process_frame
 
 
+func test_zetty_flips_a_joker_down_before_assigning_its_inactive_context() -> void:
+	var model := _hand_drag_model()
+	model.active_contexts = [0]
+	model.private_hand[0].first = {"kind": GameTypes.HalfKind.JOKER, "joker_context": 0, "joker_suit": 0}
+	model.private_hand[0].second = _half(0, 7)
+	model["is_practice"] = true
+	model["practice_hint"] = {"status": "ready", "plan": {
+		"score": 7, "hand_type": "high_card", "context_type": "no_context",
+		"faces": [{"card_id": "a", "selected_half_index": 1, "halves": [{}, {"rank": 7, "suit": 0, "context": 0}]}],
+		"submission": [{"card_id": &"a", "half_index": 1, "joker_choices": [
+			{"half_index": 0, "rank": 0, "suit": 0, "context": GameTypes.Context.FALL},
+		]}],
+	}}
+	var table := _open_hand_drag_table(model)
+	var ask := table.get_node("PracticeCompanion/Ask") as Button
+	ask.pressed.emit()
+	ask.pressed.emit()
+	var body := table.get_node("PracticeCompanion/Bubble/Content/Body") as RichTextLabel
+	var sequence := body.get_parsed_text()
+	assert_true(sequence.contains("1. Flip card [1]."))
+	assert_true(sequence.contains("2. Set the Joker on the bottom half of card [1]"))
+	assert_true(sequence.contains("3. Select cards [1] to stage"))
+	table.queue_free()
+	await Engine.get_main_loop().process_frame
+
+
 func test_zetty_card_sets_follow_sort_drag_and_flip() -> void:
 	var model := _hand_drag_model()
 	model.private_hand[1].second = {"kind": GameTypes.HalfKind.JOKER, "base_context": 1}
@@ -119,6 +145,13 @@ func test_zetty_jumps_on_click_and_drags_without_opening_a_hint() -> void:
 	if sprite == null:
 		table.queue_free()
 		return
+	for animation: StringName in [&"idle", &"jump"]:
+		var frames := sprite.sprite_frames
+		assert_eq(frames.get_frame_count(animation), 29)
+		assert_eq(frames.get_animation_speed(animation), 20.0)
+		assert_eq(frames.get_animation_loop(animation), animation == &"idle")
+		var texture := frames.get_frame_texture(animation, 0) as AtlasTexture
+		assert_eq(texture.atlas.resource_path.get_file(), "zetty_atlas.png")
 	var bubble := zetty.get_node("Bubble") as Control
 	var shadow := zetty.get_node("Shadow") as TextureRect
 	await Engine.get_main_loop().process_frame
@@ -270,6 +303,12 @@ func test_table_art_covers_the_hotbar_seam_and_uses_context_shades() -> void:
 		for state in ["normal", "hover", "pressed", "disabled"]:
 			var style := button.get_theme_stylebox(state) as StyleBoxTexture
 			assert_true(style != null and style.texture.resource_path.get_file() == button_assets[button_path])
+	var help: Button = table.get_node("HelpButton")
+	assert_eq(help.text, "")
+	var help_icon := help.icon as AtlasTexture
+	assert_true(help_icon != null)
+	if help_icon != null:
+		assert_eq(help_icon.atlas.resource_path.get_file(), "question_mark.png")
 	var menu := table.get_node("MatchMenu") as PanelContainer
 	var history: Button = table.get_node("AbilityHistory/Toggle")
 	assert_eq(history.icon.resource_path.get_file(), "history_scroll.png")

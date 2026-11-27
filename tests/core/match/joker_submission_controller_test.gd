@@ -103,9 +103,8 @@ func test_invalid_joker_replacement_preserves_previous_draft_and_missing_default
 	assert_eq(state.players[&"one"].staged_submission, before)
 
 
-func test_double_joker_lock_resolves_independent_choices() -> void:
+func test_double_joker_lock_resolves_inactive_bottom_choice() -> void:
 	var state := _hand_play_state(73)
-	_enable_fall_resonance(state)
 	var card := FullCardState.new(
 		&"double-joker",
 		_joker_half(&"joker-a", GameTypes.Context.RISE),
@@ -117,15 +116,21 @@ func test_double_joker_lock_resolves_independent_choices() -> void:
 		{"half_index": 0, "context": GameTypes.Context.RISE, "suit": GameTypes.Suit.MOUNTAIN},
 		{"half_index": 1, "context": GameTypes.Context.FALL, "suit": GameTypes.Suit.CLOUD},
 	]
-	controller.submit(_stage(
-		&"stage-one", &"one", [_selection(card.card_id, 1, choices)]
+	var staged := controller.submit(_stage(
+		&"stage-one", &"one", [_selection(card.card_id, 0, choices)]
 	), 1)
+	assert_true(staged.accepted)
+	if not staged.accepted:
+		return
+	var inactive_top := {"card_id": card.card_id, "half_index": 0, "context": GameTypes.Context.FALL, "suit": 0}
+	assert_eq(controller.submit(GameCommand.new(&"inactive-top", &"one", &"configure_joker", inactive_top), 1).error_code,
+		&"joker_context_not_active")
 	controller.submit(_stage(&"pass-two", &"two", []), 1)
 	controller.submit(_lock(&"lock-one", &"one"), 2)
 	controller.submit(_lock(&"lock-two", &"two"), 2)
 
 	var player = state.players[&"one"]
-	assert_eq(player.submitted_faces[0].suit, GameTypes.Suit.CLOUD)
+	assert_eq(player.submitted_faces[0].suit, GameTypes.Suit.MOUNTAIN)
 	assert_eq(player.locked_context.counts[GameTypes.Context.RISE], 1)
 	assert_eq(player.locked_context.counts[GameTypes.Context.FALL], 1)
 	assert_eq(player.submitted_card_views[0]["halves"][0]["context"], GameTypes.Context.RISE)
@@ -171,7 +176,7 @@ func test_unstaged_joker_configuration_is_private_and_survives_round_trip() -> v
 	var kind := &"configure_joker"
 	assert_false(controller.submit(GameCommand.new(&"foreign", &"two", kind, payload), 1).accepted)
 	var inactive := payload.merged({"context": GameTypes.Context.RISE}, true)
-	assert_eq(controller.submit(GameCommand.new(&"inactive", &"one", kind, inactive), 1).error_code, &"joker_context_not_active")
+	assert_true(controller.submit(GameCommand.new(&"inactive", &"one", kind, inactive), 1).accepted)
 	assert_true(controller.submit(GameCommand.new(&"configure", &"one", kind, payload), 2).accepted)
 	assert_true(state.players[&"one"].staged_submission.is_empty())
 	payload.suit = 2

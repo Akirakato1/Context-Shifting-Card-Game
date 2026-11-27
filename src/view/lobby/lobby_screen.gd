@@ -48,7 +48,7 @@ var _settings_open := false
 
 func _ready() -> void:
 	for button: Button in [
-		_copy_code, _add_bot, _victory_mode, _visibility, _no_time_limit, _retry,
+		_copy_code, _add_bot, _no_time_limit, _retry,
 		$Layout/StatusPanel/DetailsButton, $Layout/Footer/LeaveButton, _settings_button, _start_button,
 	]:
 		MatchButtonArt.skin(button, MatchButtonArt.ACTION)
